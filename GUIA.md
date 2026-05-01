@@ -1,0 +1,293 @@
+# Guía de la Plataforma Comercial — Camino Sacro
+
+Documento de mantenimiento. Cómo correr la app, hacer cambios, y desplegar.
+
+---
+
+## 1. Correr en local
+
+```bash
+cd "Plataforma Comercial/app"
+npm run dev
+```
+
+Abre **http://localhost:3000** en el navegador. Login con `elcaminoconnaty@gmail.com` (te llega magic link al correo).
+
+Para detener: Ctrl+C en la terminal.
+
+### Si algo está raro
+- **Cambios no aparecen:** hard refresh (Cmd+Shift+R) o reiniciar `npm run dev`.
+- **Error de tipos al iniciar:** corré `npx tsc --noEmit` para ver el error real.
+- **TRM no carga:** las APIs externas (exchangerate.host / frankfurter) pueden caerse. Refrescá en 1 hora.
+
+---
+
+## 2. Estructura del proyecto
+
+```
+app/
+├── src/app/                      ← páginas y rutas
+│   ├── (dashboard)/              ← todo lo que está dentro requiere login
+│   │   ├── clara/                ← dashboard Clara (lee public.conversations + messages)
+│   │   ├── isabel/               ← placeholder Isabel (próximamente)
+│   │   ├── cotizaciones/nueva/   ← wizard nueva cotización
+│   │   ├── seguimiento/          ← lista de cotizaciones
+│   │   │   └── [id]/             ← vista detalle (editar, pagos, opcionales, PDF)
+│   │   ├── catalogo/             ← editor de precios + etapas + cartas bienvenida
+│   │   ├── tokens/               ← consumo de tokens IA y costo USD
+│   │   └── configuracion/        ← (placeholder) plantillas email, suplementos
+│   ├── login/                    ← magic link sign in
+│   └── auth/                     ← callback OAuth y signout
+├── src/components/shell/         ← Sidebar y Topbar
+├── src/lib/                      ← código compartido
+│   ├── supabase/                 ← clientes Supabase (client/server/admin)
+│   ├── trm.ts                    ← TRM EUR↔COP del día con cache
+│   ├── format.ts                 ← formateo de eur/cop/fechas
+│   ├── seasons.ts                ← detección temporada alta + Semana Santa
+│   ├── tokens.ts                 ← cálculo de costos por bot
+│   ├── quotePdf.tsx              ← generador PDF de cotización
+│   └── cover.jpg                 ← foto de portada del PDF (NO borrar)
+├── src/proxy.ts                  ← protección de rutas (era middleware en Next 15)
+├── supabase/migrations/          ← migraciones SQL versionadas
+└── scripts/
+    ├── seed.ts                   ← seed inicial (catálogo, opcionales, PDFs Abril)
+    ├── enrich.ts                 ← rellenar nombres/teléfonos desde xlsx
+    ├── add_routes.ts             ← cargar rutas master con etapas
+    └── cleanup_orphans.ts        ← borrar archivos huérfanos de Storage
+```
+
+### Bases de datos en Supabase
+
+- Schema **`public`**: tablas existentes (Clara, Baymax, blog, instagram, token_usage). Solo lectura desde la plataforma.
+- Schema **`comercial`**: tablas nuevas de la plataforma (rutas, precios, cotizaciones, pagos, opcionales, etapas, etc.).
+
+---
+
+## 3. Cambios comunes (sin tocar código)
+
+### A. Cambiar precios del catálogo
+1. `/catalogo` → Click en cualquier celda de Pilgrim € o Mi precio €
+2. Cambiá el número, salí del campo (Tab o click afuera) → se guarda solo
+3. Cada cambio queda en `comercial.pricing_history` (audit log)
+4. Botón **"Aplicar regla automática"** recalcula CS = max(Pilgrim+100, Pilgrim÷0.85)
+
+### B. Agregar un servicio opcional nuevo
+Hoy se agrega vía SQL Editor en Supabase Dashboard:
+1. Abrí: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/sql/new>
+2. Pegá:
+```sql
+insert into comercial.optional_services (slug, category, name, unit, price_pilgrim, price_cs)
+values ('mi_nuevo_servicio', 'tour', 'Tour Catedral de Santiago', 'por persona', 30, 40);
+```
+3. Refrescá `/catalogo` y `/seguimiento/[id]` → aparece en la lista
+
+Categorías válidas: `seguro`, `noche_extra`, `meal`, `transfer`, `tour`, `gift`.
+
+### C. Agregar una ruta nueva con sus etapas
+Editá `app/scripts/add_routes.ts`, agregá un nuevo objeto al array `ROUTES` siguiendo el patrón existente. Después corré:
+```bash
+cd "Plataforma Comercial/app" && npx tsx scripts/add_routes.ts
+```
+Es idempotente — solo afecta la ruta nueva, las existentes no se tocan.
+
+### D. Cambiar la plantilla de email
+1. Abrí: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/sql/new>
+2. Editá:
+```sql
+update comercial.email_templates
+   set subject = 'TU NUEVO ASUNTO con {{code}}',
+       body_md = E'Hola {{nombre}},\n\nTu nuevo cuerpo aquí...'
+ where slug = 'cotizacion_enviada';
+```
+Variables disponibles: `{{nombre}}`, `{{nombre_completo}}`, `{{code}}`, `{{ruta}}`, `{{ruta_descripcion}}`, `{{fechas}}`, `{{fechas_largas}}`, `{{duracion}}`, `{{dias_camino}}`, `{{personas}}`, `{{alojamiento_descripcion}}`, `{{precio_total}}`, `{{total_eur}}`, `{{total_cop}}`, `{{trm}}`, `{{validez}}`.
+
+### E. Cambiar suplementos de temporada
+```sql
+update comercial.settings set value = jsonb_set(value, '{high_season,price_cs}', '90'::jsonb)
+where key = 'season_supplements';
+-- cambia +80 a +90 €/persona
+```
+
+### F. Cambiar precios de tokens (modelo de IA)
+```sql
+update comercial.settings set value = jsonb_set(value, '{bots,clara,in_per_mtok}', '4.00'::jsonb)
+where key = 'token_pricing';
+```
+
+---
+
+## 4. Cambios en el código
+
+### Editar una página
+1. Abrí el archivo correspondiente (ver árbol arriba)
+2. Editá, guardá
+3. Si `npm run dev` está corriendo, recargá en el navegador (cambios casi instantáneos con Turbopack)
+
+### Cambiar el diseño del PDF
+Archivo: `src/lib/quotePdf.tsx`
+- Colores: variable `C` arriba (`C.verde`, `C.oro`, etc.)
+- Fuentes: `SERIF` (Times-Roman) y `SANS` (Helvetica) — built-in, no requieren descarga
+- Estilos: objeto `s` (StyleSheet)
+- Estructura: cada `<Page>` es una página
+
+Después de editar:
+```bash
+npx tsc --noEmit       # verificar tipos
+npm run build          # build completo
+```
+
+Para probar el PDF: refrescá `/seguimiento/[id]` → "Regenerar PDF".
+
+### Cambiar lógica de la app (validaciones, cálculos)
+- Server Actions (lo que se ejecuta en servidor cuando das click en un botón): archivos `actions.ts` en cada carpeta
+- Componentes cliente: archivos `*.tsx` con `"use client"` arriba
+
+---
+
+## 5. Cambios al schema de la base de datos
+
+**No edites tablas vía Dashboard directamente** — perdés el historial. Mejor usar migraciones.
+
+### Crear una migración nueva
+1. Crear archivo `app/supabase/migrations/000X_descripcion.sql` con tu SQL
+2. Aplicar via Supabase MCP o Dashboard SQL Editor:
+   - **Dashboard**: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/sql/new> → pegás el SQL → Run
+   - **MCP** (si Claude Code está corriendo): pedile a Claude que la aplique
+
+Ejemplo migración nueva:
+```sql
+-- 0010_add_provider_invoice_url.sql
+alter table comercial.provider_payments add column if not exists invoice_url text;
+```
+
+### Backup de la DB
+Supabase hace **backups automáticos diarios** (free tier 7 días). Si necesitás más:
+- Dashboard → Database → Backups → Create backup
+
+---
+
+## 6. Push a GitHub
+
+### Primera vez (crear repo)
+1. **Crear repo nuevo** en GitHub: <https://github.com/new>
+   - Nombre: `caminosacro-platform` (o el que quieras)
+   - **Private** (recomendado — tiene tu key publishable visible en el código, mejor mantenerlo privado)
+   - **NO** marques "Initialize this repository with a README" — el repo local ya tiene archivos
+2. Copiá la URL HTTPS del repo, ej.: `https://github.com/tuusuario/caminosacro-platform.git`
+3. En tu terminal:
+```bash
+cd "Plataforma Comercial/app"
+git remote add origin https://github.com/tuusuario/caminosacro-platform.git
+git branch -M main
+git push -u origin main
+```
+GitHub te puede pedir tu usuario/password. Si tenés 2FA, usá un **Personal Access Token** (Settings → Developer settings → Tokens en GitHub).
+
+### Pushes siguientes (después de hacer cambios)
+```bash
+cd "Plataforma Comercial/app"
+git status                          # ver qué cambió
+git add .                           # stagear todo
+git commit -m "Describe el cambio"  # commit
+git push                            # enviar a GitHub
+```
+
+### Verificar antes de pushear
+```bash
+npx tsc --noEmit    # pasa los tipos
+npm run build       # build OK
+```
+
+---
+
+## 7. Desplegar a producción (Vercel)
+
+**Pendiente** — todavía la app solo corre local. Para que funcione desde móvil y desde cualquier red:
+
+### Pasos (cuando estés listo)
+1. **Push a GitHub** primero (ver sección 6)
+2. Crear cuenta en <https://vercel.com> (gratis con tu GitHub)
+3. Click "Add New" → Import repo desde GitHub
+4. **Variables de entorno** en Vercel (igual que `.env.local`):
+   - `NEXT_PUBLIC_SUPABASE_URL` = `https://yvytzquewjsjsmgiwmaa.supabase.co`
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = `sb_publishable_xG0vcTQAtaUObcPp-zeTmw_2E0pjWzC`
+   - `SUPABASE_SERVICE_ROLE_KEY` = (el secreto, lo pones en Vercel solamente)
+   - `TRM_API_PRIMARY` = `https://api.exchangerate.host/latest?base=EUR&symbols=COP`
+   - `TRM_API_FALLBACK` = `https://api.frankfurter.app/latest?from=EUR&to=COP`
+5. **Deploy** — toma 1-2 minutos
+6. Vercel te asigna `caminosacro-platform.vercel.app`
+7. **Conectar a tu dominio**: Settings → Domains → agregar `app.caminosacro.com`
+   - Vercel te da un CNAME para configurar en tu DNS (donde sea que tengas caminosacro.com)
+8. Después de cada `git push`, Vercel deploya automático en segundos
+
+### Después de deploy
+Cada vez que hagas un cambio:
+```bash
+git add .
+git commit -m "Mi cambio"
+git push        # Vercel deploya solo
+```
+URL pública: `app.caminosacro.com` desde cualquier dispositivo, sin tu Mac prendido.
+
+---
+
+## 8. Tareas comunes
+
+| Tarea | Dónde |
+|---|---|
+| Crear cotización nueva | `/cotizaciones/nueva` |
+| Editar datos de cotización | `/seguimiento/[id]` → Editar |
+| Registrar pago de cliente | `/seguimiento/[id]` → "+ Pago" en card cliente |
+| Registrar pago a Pilgrim | `/seguimiento/[id]` → "+ Pago" en card Pilgrim |
+| Marcar opcionales que va el cliente | `/seguimiento/[id]` → checkbox en "Servicios opcionales" |
+| Generar PDF | `/seguimiento/[id]` → "Generar PDF" |
+| Copiar email para cliente | `/seguimiento/[id]` → botones "Copiar..." en card de email |
+| Subir PDF manual (override) | `/seguimiento/[id]` → "Subir manual" |
+| Cambiar precio en catálogo | `/catalogo` → click en celda |
+| Ver etapas de una ruta | `/catalogo` → sección "Itinerarios y etapas" → click en ruta |
+| Ver costo en tokens IA | `/tokens` |
+
+---
+
+## 9. Datos sensibles y seguridad
+
+- **`.env.local`** está en `.gitignore` → nunca se sube. Contiene la `service_role` key.
+- Si por error pushas la `service_role` key a GitHub: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/settings/api> → "Roll service_role key" para revocarla, y actualizá tu `.env.local` con la nueva.
+- La `publishable` key (`sb_publishable_*`) es pública por diseño, no es un secreto.
+- RLS está activo en `comercial.*` — solo usuarios autenticados ven datos.
+- Storage buckets son privados, accesibles vía URLs firmadas (10 min de validez).
+
+---
+
+## 10. Si algo se rompe
+
+1. Mirá la consola donde corre `npm run dev` — ahí salen los errores reales
+2. Mirá la consola del navegador (Cmd+Option+I → Console)
+3. Si es un error de DB: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/logs/postgres-logs>
+4. Si es un error de Auth: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/logs/auth-logs>
+5. Backup: Supabase tiene snapshot diario automático
+
+---
+
+## 11. Comandos útiles
+
+```bash
+# Desarrollo
+npm run dev                       # arrancar dev server (http://localhost:3000)
+npm run build                     # build de producción local
+npx tsc --noEmit                  # verificar tipos sin generar archivos
+npm run lint                      # verificar estilo (eslint)
+
+# Scripts de datos
+npx tsx scripts/seed.ts           # seed inicial (no correr de nuevo a menos que necesites)
+npx tsx scripts/enrich.ts         # enriquecer cotizaciones desde xlsx
+npx tsx scripts/add_routes.ts     # cargar rutas master + etapas
+
+# Git
+git status                        # estado
+git diff                          # diferencias antes de commit
+git add .                         # stagear todo
+git commit -m "mensaje"           # commit
+git push                          # subir a GitHub
+git log --oneline -10             # últimos 10 commits
+```

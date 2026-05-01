@@ -1,0 +1,170 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { applyMarkupRule, updatePricing } from "./actions";
+
+export type Row = {
+  id: string;
+  route_id: string;
+  modality: string;
+  price_pilgrim: number;
+  price_cs: number;
+  route_name: string;
+};
+
+const eur = (n: number) =>
+  new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
+
+const MODALITY_LABEL: Record<string, string> = {
+  pension_doble: "Pensión doble",
+  pension_single: "Pensión single",
+  hotel_doble: "Hotel doble",
+  hotel_single: "Hotel single",
+};
+
+export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
+  const [rows, setRows] = useState<Row[]>(initialRows);
+  const [pending, startTransition] = useTransition();
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmRule, setConfirmRule] = useState(false);
+
+  function handleChange(id: string, field: "price_pilgrim" | "price_cs", value: string) {
+    const num = value === "" ? 0 : Number(value);
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [field]: num } : r)));
+  }
+
+  async function handleBlur(row: Row, field: "price_pilgrim" | "price_cs", original: number) {
+    const value = row[field];
+    if (value === original) return;
+    setSavingId(row.id);
+    setError(null);
+    startTransition(async () => {
+      const r = await updatePricing(row.id, field, value);
+      setSavingId(null);
+      if (r?.error) {
+        setError(r.error);
+        setRows((rs) => rs.map((rr) => (rr.id === row.id ? { ...rr, [field]: original } : rr)));
+      }
+    });
+  }
+
+  async function handleApplyRule() {
+    setError(null);
+    startTransition(async () => {
+      const r = await applyMarkupRule();
+      setConfirmRule(false);
+      if (r?.error) setError(r.error);
+      else if (r?.ok) {
+        // Recalcular en cliente para reflejar inmediatamente
+        setRows((rs) =>
+          rs.map((row) => ({
+            ...row,
+            price_cs: Math.round(Math.max(row.price_pilgrim + 100, row.price_pilgrim / 0.85)),
+          })),
+        );
+      }
+    });
+  }
+
+  // Agrupado por ruta
+  const byRoute = new Map<string, Row[]>();
+  for (const r of rows) {
+    if (!byRoute.has(r.route_name)) byRoute.set(r.route_name, []);
+    byRoute.get(r.route_name)!.push(r);
+  }
+  const routeNames = [...byRoute.keys()].sort();
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-muted">Click en cualquier precio para editarlo. Se guarda automáticamente al salir del campo. Toda edición queda registrada en histórico.</p>
+        <button
+          onClick={() => setConfirmRule(true)}
+          disabled={pending}
+          className="text-xs px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-taupe/40 transition disabled:opacity-50"
+        >
+          Aplicar regla automática
+        </button>
+      </div>
+
+      {confirmRule && (
+        <div className="mb-3 px-4 py-3 rounded-md border border-amber-300 bg-amber-50 text-sm text-amber-900 flex items-center justify-between gap-3">
+          <span>
+            Aplicar <code className="font-mono text-xs">max(Pilgrim+100, Pilgrim÷0.85)</code> a todas las filas con precio Pilgrim. Sobrescribe los precios CS actuales.
+          </span>
+          <div className="flex gap-2 shrink-0">
+            <button onClick={() => setConfirmRule(false)} className="text-xs px-3 py-1 rounded-md border border-amber-300 hover:bg-amber-100">Cancelar</button>
+            <button onClick={handleApplyRule} disabled={pending} className="text-xs px-3 py-1 rounded-md bg-amber-700 text-white hover:bg-amber-800 disabled:opacity-50">
+              {pending ? "Aplicando…" : "Aplicar"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-3 px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>
+      )}
+
+      <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-taupe/30 text-muted text-xs uppercase tracking-wider">
+            <tr>
+              <th className="text-left px-4 py-2.5">Ruta</th>
+              <th className="text-left px-4 py-2.5">Modalidad</th>
+              <th className="text-right px-4 py-2.5 w-32">Precio Pilgrim €</th>
+              <th className="text-right px-4 py-2.5 w-32">Mi precio €</th>
+              <th className="text-right px-4 py-2.5">Margen €</th>
+              <th className="text-right px-4 py-2.5">Margen %</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {routeNames.map((routeName) => {
+              const routeRows = byRoute.get(routeName)!;
+              return routeRows.map((r, idx) => {
+                const margenEur = r.price_cs - r.price_pilgrim;
+                const margenPct = r.price_cs > 0 ? (margenEur / r.price_cs) * 100 : 0;
+                const isSaving = savingId === r.id;
+                return (
+                  <tr key={r.id} className="hover:bg-taupe/20">
+                    <td className="px-4 py-2 align-top">
+                      {idx === 0 ? <span className="font-medium">{routeName}</span> : <span className="text-muted">↳</span>}
+                    </td>
+                    <td className="px-4 py-2 text-muted">{MODALITY_LABEL[r.modality] || r.modality}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      <input
+                        type="number"
+                        step="1"
+                        value={r.price_pilgrim || ""}
+                        onChange={(e) => handleChange(r.id, "price_pilgrim", e.target.value)}
+                        onBlur={() => handleBlur(r, "price_pilgrim", initialRows.find((x) => x.id === r.id)!.price_pilgrim)}
+                        className={`w-full text-right px-2 py-1 rounded border bg-white ${isSaving ? "border-bosque" : "border-transparent hover:border-border focus:border-bosque"} focus:outline-none focus:ring-1 focus:ring-bosque/40`}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <input
+                        type="number"
+                        step="1"
+                        value={r.price_cs || ""}
+                        onChange={(e) => handleChange(r.id, "price_cs", e.target.value)}
+                        onBlur={() => handleBlur(r, "price_cs", initialRows.find((x) => x.id === r.id)!.price_cs)}
+                        className={`w-full text-right font-medium text-bosque px-2 py-1 rounded border bg-white ${isSaving ? "border-bosque" : "border-transparent hover:border-border focus:border-bosque"} focus:outline-none focus:ring-1 focus:ring-bosque/40`}
+                      />
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">{eur(margenEur)}</td>
+                    <td className={`px-4 py-2 text-right tabular-nums ${margenPct >= 20 ? "text-bosque" : margenPct > 0 ? "text-amber-700" : "text-red-700"}`}>
+                      {margenPct.toFixed(1)}%
+                    </td>
+                  </tr>
+                );
+              });
+            })}
+            {rows.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-12 text-center text-muted">Sin precios cargados.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
