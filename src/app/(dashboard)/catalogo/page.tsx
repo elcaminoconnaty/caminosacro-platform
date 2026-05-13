@@ -2,7 +2,7 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import PricingTable, { type Row } from "./PricingTable";
 import OptionalsTable, { type Opt } from "./OptionalsTable";
 import ResourcesList, { type Resource } from "./ResourcesList";
-import RouteStagesList, { type RouteWithStages } from "./RouteStagesList";
+import RouteStagesEditor, { type RouteWithStagesEditable } from "./RouteStagesEditor";
 
 export default async function CatalogoPage() {
   const supabase = await createCommercialClient();
@@ -31,7 +31,7 @@ export default async function CatalogoPage() {
       .eq("active", true),
     supabase
       .from("route_stages")
-      .select("route_id,day,from_place,to_place,km,accommodation")
+      .select("id,route_id,day,from_place,to_place,km,accommodation")
       .order("day"),
   ]);
 
@@ -79,10 +79,11 @@ export default async function CatalogoPage() {
     route_name: w.routes?.name ?? null,
   }));
 
-  const stagesByRoute = new Map<string, RouteWithStages["stages"]>();
-  for (const s of (stagesData || []) as Array<{ route_id: string; day: number; from_place: string | null; to_place: string | null; km: number | string | null; accommodation: string | null }>) {
+  const stagesByRoute = new Map<string, RouteWithStagesEditable["stages"]>();
+  for (const s of (stagesData || []) as Array<{ id: string; route_id: string; day: number; from_place: string | null; to_place: string | null; km: number | string | null; accommodation: string | null }>) {
     if (!stagesByRoute.has(s.route_id)) stagesByRoute.set(s.route_id, []);
     stagesByRoute.get(s.route_id)!.push({
+      id: s.id,
       day: s.day,
       from_place: s.from_place,
       to_place: s.to_place,
@@ -90,7 +91,7 @@ export default async function CatalogoPage() {
       accommodation: s.accommodation,
     });
   }
-  const routesWithStages: RouteWithStages[] = (((routesData as unknown) as Array<{
+  const routesWithStages: RouteWithStagesEditable[] = (((routesData as unknown) as Array<{
     id: string;
     name: string;
     family: string | null;
@@ -140,8 +141,8 @@ export default async function CatalogoPage() {
 
       <section>
         <h2 className="font-display text-xl text-bosque mb-1">Itinerarios y etapas</h2>
-        <p className="text-xs text-muted mb-3">Click en una ruta para ver todas sus etapas con kilómetros y alojamiento sugerido. Estas etapas son las que aparecen en el PDF de cotización.</p>
-        <RouteStagesList routes={routesWithStages} />
+        <p className="text-xs text-muted mb-3">Click en una ruta para editar día a día. Cada etapa cargada aparece en el PDF de cotización exactamente como esté aquí.</p>
+        <RouteStagesEditor routes={routesWithStages} />
       </section>
 
       <section>

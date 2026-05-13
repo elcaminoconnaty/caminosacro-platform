@@ -72,7 +72,10 @@ export async function createQuote(formData: FormData) {
   const validUntil = str(formData.get("valid_until")) ||
     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const baseEur = num(formData.get("total_eur")) ?? 0; // En el wizard, "Total €" = base ruta + aloj
+  const baseEur = num(formData.get("total_eur")) ?? 0; // En el wizard, "Total €" = base ruta + aloj (sin suplemento)
+  const seasonSupplement = num(formData.get("season_supplement_eur")) ?? 0;
+  const seasonKindRaw = str(formData.get("season_kind"));
+  const seasonKind = (seasonKindRaw === "high_season" || seasonKindRaw === "easter") ? seasonKindRaw : "regular";
   const { data: quote, error } = await supabase
     .from("quotes")
     .insert({
@@ -88,7 +91,9 @@ export async function createQuote(formData: FormData) {
       people: num(formData.get("people")) ?? 1,
       modality: str(formData.get("modality")),
       base_eur: baseEur,
-      total_eur: baseEur, // sin opcionales aún → total = base
+      season_supplement_eur: seasonSupplement,
+      season_kind: seasonKind,
+      total_eur: baseEur + seasonSupplement, // sin opcionales aún → total = base + suplemento
       cost_eur: num(formData.get("cost_eur")) ?? 0,
       status: str(formData.get("status")) || "borrador",
       notes: str(formData.get("notes")),

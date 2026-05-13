@@ -97,14 +97,14 @@ export default function Wizard({
     [startDate, endDate, seasonConfig],
   );
 
-  // Auto-fill cuando cambian ruta/modalidad/personas/temporada y autoLink activo
+  // Auto-fill cuando cambian ruta/modalidad/personas y autoLink activo.
+  // El total/costo del bloque editable es la BASE sin suplemento de temporada.
+  // El suplemento se desglosa al guardar (ver onSubmit) y aparece como línea aparte en el PDF.
   useEffect(() => {
     if (!autoLink || !catalogMatch) return;
-    const csTotal = (catalogMatch.price_cs + season.surcharge_per_person_cs) * people;
-    const pilgrimTotal = (catalogMatch.price_pilgrim + season.surcharge_per_person_pilgrim) * people;
-    setTotalEur(csTotal.toFixed(2));
-    setCostEur(pilgrimTotal.toFixed(2));
-  }, [catalogMatch, people, autoLink, season]);
+    setTotalEur((catalogMatch.price_cs * people).toFixed(2));
+    setCostEur((catalogMatch.price_pilgrim * people).toFixed(2));
+  }, [catalogMatch, people, autoLink]);
 
   // Ruta seleccionada (para días)
   const selectedRoute = useMemo(
@@ -147,17 +147,24 @@ export default function Wizard({
     setEndDate(end.toISOString().slice(0, 10));
   }, [startDate, selectedRoute, endAuto]);
 
+  // Suplemento total (grupo) y final con suplemento incluido para preview de utilidad.
+  const seasonSuppCs = season.surcharge_per_person_cs * people;
+  const seasonSuppPilgrim = season.surcharge_per_person_pilgrim * people;
   const utilidadPreview = useMemo(() => {
-    return (Number(totalEur) || 0) - (Number(costEur) || 0);
-  }, [totalEur, costEur]);
+    const cliente = (Number(totalEur) || 0) + seasonSuppCs;
+    const proveedor = (Number(costEur) || 0) + seasonSuppPilgrim;
+    return cliente - proveedor;
+  }, [totalEur, costEur, seasonSuppCs, seasonSuppPilgrim]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     const fd = new FormData(e.currentTarget);
-    fd.set("total_eur", totalEur);
-    fd.set("cost_eur", costEur);
+    fd.set("total_eur", totalEur); // base = ruta + alojamiento (sin suplemento ni opcionales)
+    fd.set("cost_eur", String(((Number(costEur) || 0) + seasonSuppPilgrim).toFixed(2))); // costo Pilgrim total con suplemento
     fd.set("people", String(people));
+    fd.set("season_supplement_eur", seasonSuppCs.toFixed(2));
+    fd.set("season_kind", season.type);
     startTransition(async () => {
       const r = await createQuote(fd);
       if (r?.error) setError(r.error);
@@ -322,7 +329,7 @@ export default function Wizard({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <label className="block">
-              <span className="text-xs text-muted">Total € (precio cliente, total grupo)</span>
+              <span className="text-xs text-muted">Base ruta + alojamiento € (total grupo, sin suplemento)</span>
               <input
                 type="number"
                 step="0.01"
@@ -330,6 +337,9 @@ export default function Wizard({
                 onChange={(e) => { setTotalEur(e.target.value); setAutoLink(false); }}
                 className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
               />
+              {season.type !== "regular" && (
+                <span className="text-[10px] text-muted">+ {seasonSuppCs.toFixed(2)}€ suplemento {season.label.toLowerCase()} → total cliente {((Number(totalEur)||0) + seasonSuppCs).toFixed(2)}€</span>
+              )}
             </label>
             <label className="block">
               <span className="text-xs text-muted">Costo Pilgrim € (total grupo)</span>

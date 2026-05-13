@@ -1,10 +1,30 @@
-import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
+import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
+import fs from "node:fs";
+import path from "node:path";
 
-// Fuentes built-in (no requiere descarga). Times = serif (Caladea), Helvetica = body (LS).
+// Inter TTFs locales. Soporta Unicode amplio (flechas, símbolos) que las fuentes built-in
+// de PDF (Adobe Standard Encoding) no incluyen.
+const FONT_DIR = path.join(process.cwd(), "src/lib/fonts");
+Font.register({
+  family: "Inter",
+  fonts: [
+    { src: path.join(FONT_DIR, "Inter-Regular.ttf"), fontWeight: 400 },
+    { src: path.join(FONT_DIR, "Inter-Italic.ttf"), fontWeight: 400, fontStyle: "italic" },
+  ],
+});
+Font.register({
+  family: "Inter-Bold",
+  fonts: [
+    { src: path.join(FONT_DIR, "Inter-Bold.ttf"), fontWeight: 400 },
+    { src: path.join(FONT_DIR, "Inter-BoldItalic.ttf"), fontWeight: 400, fontStyle: "italic" },
+  ],
+});
+
+// SERIF se mantiene en Times built-in (solo se usa para títulos/números, sin chars unicode raros).
 const SERIF = "Times-Roman";
 const SERIF_BOLD = "Times-Bold";
-const SANS = "Helvetica";
-const SANS_BOLD = "Helvetica-Bold";
+const SANS = "Inter";
+const SANS_BOLD = "Inter-Bold";
 
 const C = {
   verde: "#1a3a2a",
@@ -242,6 +262,8 @@ export type QuotePDFProps = {
   selectedOptionals?: Array<{ description: string; quantity: number; unit_price: number; total: number }>;
   /** Base = ruta + alojamiento (sin opcionales). Si no se pasa, se asume = total_eur */
   baseEur?: number;
+  /** Suplemento de temporada aplicado (alta o Semana Santa). Aparece como línea propia en el resumen. */
+  seasonSupplement?: { kind: "regular" | "high_season" | "easter"; total: number; perPerson: number };
 };
 
 // =============== HELPERS ===============
@@ -298,30 +320,23 @@ function parseModality(modality: string | null): { tipoAlojamiento: string; habi
 
 function buildItinerarioStages(
   stages: QuotePDFProps["stages"],
-  origin: string | null,
-  destination: string | null,
   tipoAlojamiento: string,
 ): Array<{ day: number; etapa: string; alojamiento: string }> {
-  const items: Array<{ day: number; etapa: string; alojamiento: string }> = [];
-  const aloj = (place: string | null) => place ? `${tipoAlojamiento} ${place}` : "—";
-
-  if (origin) {
-    items.push({ day: 1, etapa: `Llegada a ${origin}`, alojamiento: aloj(origin) });
-  }
-
-  const sorted = [...(stages || [])].sort((a, b) => a.day - b.day);
-  for (let i = 0; i < sorted.length; i++) {
-    const st = sorted[i];
-    const dayNum = (origin ? 1 : 0) + i + 1;
-    const etapa = st.from_place && st.to_place ? `${st.from_place} → ${st.to_place}` : (st.to_place || st.from_place || "—");
-    items.push({ day: dayNum, etapa, alojamiento: aloj(st.to_place) });
-  }
-
-  if (destination) {
-    items.push({ day: items.length + 1, etapa: `${destination} · Fin de servicios`, alojamiento: "—" });
-  }
-
-  return items;
+  if (!stages || stages.length === 0) return [];
+  const sorted = [...stages].sort((a, b) => a.day - b.day);
+  return sorted.map((st) => {
+    const km = Number(st.km) || 0;
+    const tramo = st.from_place && st.to_place
+      ? `${st.from_place} → ${st.to_place}`
+      : (st.to_place || st.from_place || "—");
+    const etapa = km > 0 ? `${tramo} (${Math.round(km)} km)` : tramo;
+    return {
+      day: st.day,
+      etapa,
+      alojamiento: st.accommodation
+        || (st.to_place ? `${tipoAlojamiento} ${st.to_place}` : "—"),
+    };
+  });
 }
 
 const INCLUIDO_DEFAULT = (n: number) => [
@@ -352,7 +367,7 @@ const CAT_TITLE: Record<string, string> = {
 const CAT_ORDER = ["seguro", "noche_extra", "meal", "transfer", "tour", "gift"];
 
 // =============== COMPONENT ===============
-export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceBlocks, selectedOptionals, baseEur }: QuotePDFProps) {
+export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceBlocks, selectedOptionals, baseEur, seasonSupplement }: QuotePDFProps) {
   const total = Number(quote.total_eur) || 0;
   const base = Number(baseEur) || total;
   const people = quote.people || 1;
@@ -363,17 +378,18 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
 
   const origin = route?.origin || "";
   const destination = route?.destination || "Santiago de Compostela";
-  const days = route?.days || (stages?.length ? stages.length + 1 : 0);
-  const nights = route?.nights || (days > 0 ? days - 1 : 0);
+  const days = route?.days ?? (stages?.length || 0);
+  const nights = route?.nights ?? (days > 0 ? days - 1 : 0);
   const km = route?.km || (stages || []).reduce((a, b) => a + (Number(b.km) || 0), 0);
-  const stagesCount = (stages || []).length;
+  // Etapas reales = días con km > 0 (excluye llegada/fin de servicios cuando estén en DB)
+  const stagesCount = (stages || []).filter((s) => (Number(s.km) || 0) > 0).length;
   const difficulty = route?.difficulty || "Media";
   const modalityKind = (route?.modality === "bici") ? "EN BICI" : "A PIE";
 
   const dateLine = buildDateLine(quote.start_date, quote.end_date);
   const subtituloRuta = "CAMINO DE SANTIAGO";
 
-  const itin = buildItinerarioStages(stages, origin, destination, modInfo.tipoAlojamiento);
+  const itin = buildItinerarioStages(stages, modInfo.tipoAlojamiento);
 
   // Optionals agrupados
   const optsByCat = new Map<string, NonNullable<typeof optionals>>();
@@ -491,9 +507,9 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
         </View>
 
         {/* Itinerario */}
-        {itin.length > 0 && (
+        <Text style={s.h2}>Itinerario</Text>
+        {itin.length > 0 ? (
           <>
-            <Text style={s.h2}>Itinerario</Text>
             <View style={s.itinTableHead}>
               <Text style={[s.itinTH, s.itinTHDay]}>DÍA</Text>
               <Text style={[s.itinTH, s.itinTHEtapa]}>ETAPA</Text>
@@ -507,7 +523,12 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
               </View>
             ))}
           </>
+        ) : (
+          <Text style={s.seasonNote}>Itinerario detallado en preparación. Te lo enviamos confirmado al reservar.</Text>
         )}
+        <Text style={[s.seasonNote, { marginTop: 8 }]}>
+          <Text style={{ fontFamily: SANS_BOLD, fontStyle: "normal" }}>Nota:</Text> esta cotización es informativa. Las etapas pueden ajustarse al momento de la reserva según la disponibilidad de alojamientos en cada localidad.
+        </Text>
       </Page>
 
       {/* ============ SERVICIOS + RESUMEN + CONDICIONES ============ */}
@@ -590,6 +611,21 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
               <Text style={[s.resumenLineCell, s.resumenPpl]}>×{people}</Text>
               <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>{fmtEur(base)} €</Text>
             </View>
+            {seasonSupplement && seasonSupplement.kind !== "regular" && seasonSupplement.total > 0 && (
+              <View style={s.resumenLine}>
+                <View style={s.resumenLineConcept}>
+                  <Text style={s.resumenLineConceptName}>
+                    {seasonSupplement.kind === "easter" ? "Suplemento Semana Santa" : "Suplemento temporada alta"}
+                  </Text>
+                  <Text style={s.resumenLineConceptSub}>
+                    {seasonSupplement.kind === "easter" ? "Domingo de Ramos a Lunes de Pascua" : "Julio · Agosto · Septiembre"}
+                  </Text>
+                </View>
+                <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(seasonSupplement.perPerson)} €</Text>
+                <Text style={[s.resumenLineCell, s.resumenPpl]}>×{people}</Text>
+                <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>{fmtEur(seasonSupplement.total)} €</Text>
+              </View>
+            )}
             {optionalsLines.map((l, i) => (
               <View key={i} style={s.resumenLine}>
                 <View style={s.resumenLineConcept}>
@@ -676,6 +712,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
         <View style={s.validityWarn} wrap={false}>
           <Text style={s.validityWarnTitle}>Validez de esta cotización: hasta el {validezTexto}</Text>
           <Text style={s.validityWarnText}>Pasada esa fecha los precios pueden cambiar según disponibilidad. Te enviaremos la documentación de viaje y la póliza de seguro aproximadamente 30 días antes de la salida, una vez confirmado el 100% del pago.</Text>
+          <Text style={[s.validityWarnText, { marginTop: 4 }]}>La asignación definitiva de alojamientos se entrega aproximadamente 1 mes antes de la fecha de inicio del viaje.</Text>
         </View>
       </Page>
     </Document>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition, useEffect } from "react";
 import { updateQuote } from "./actions";
+import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 
 type Quote = {
   id: string;
@@ -14,12 +15,14 @@ type Quote = {
   end_date: string | null;
   people: number | null;
   modality: string | null;
-  total_eur: number | string | null; // grand total = base + opcionales
-  base_eur: number | string | null; // ruta + alojamiento (sin opcionales)
+  total_eur: number | string | null; // grand total = base + suplemento + opcionales
+  base_eur: number | string | null; // ruta + alojamiento (sin suplemento ni opcionales)
   cost_eur: number | string | null;
   status: string | null;
   valid_until: string | null;
   notes: string | null;
+  season_supplement_eur?: number | string | null;
+  season_kind?: string | null;
 };
 
 type PricingRow = {
@@ -52,10 +55,12 @@ export default function QuoteEditor({
   quote,
   routes,
   pricing,
+  seasonConfig,
 }: {
   quote: Quote;
   routes: { id: string; name: string }[];
   pricing: PricingRow[];
+  seasonConfig: SeasonSupplements;
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -65,11 +70,21 @@ export default function QuoteEditor({
   const [routeName, setRouteName] = useState(quote.route_name ?? "");
   const [modality, setModality] = useState(quote.modality ?? "");
   const [people, setPeople] = useState<number>(Number(quote.people) || 1);
-  // base_eur = ruta + alojamiento (lo que el usuario controla aquí). El total_eur se recalcula auto sumando opcionales.
+  const [startDate, setStartDate] = useState<string>(quote.start_date ?? "");
+  const [endDate, setEndDate] = useState<string>(quote.end_date ?? "");
+  // base_eur = ruta + alojamiento (lo que el usuario controla aquí). El total_eur se recalcula auto sumando suplemento + opcionales.
   const initialBase = quote.base_eur != null ? Number(quote.base_eur) : Number(quote.total_eur) || 0;
   const [totalEur, setTotalEur] = useState<string>(initialBase ? String(initialBase) : "");
   const [costEur, setCostEur] = useState<string>(quote.cost_eur != null ? String(Number(quote.cost_eur)) : "");
   const [autoLink, setAutoLink] = useState(true); // true = recalcular cuando cambian ruta/modalidad/personas
+
+  // Detección de temporada según fechas actuales — se recalcula al cambiar start/end/people
+  const season = useMemo(
+    () => detectSeason(startDate || null, endDate || null, seasonConfig),
+    [startDate, endDate, seasonConfig],
+  );
+  const seasonSuppCs = season.surcharge_per_person_cs * people;
+  const seasonSuppPilgrim = season.surcharge_per_person_pilgrim * people;
 
   // Buscar precio del catálogo para la combinación actual
   const catalogMatch = useMemo(() => {
@@ -93,10 +108,10 @@ export default function QuoteEditor({
   }, [catalogMatch, people, autoLink]);
 
   const utilidadPreview = useMemo(() => {
-    const t = Number(totalEur) || 0;
-    const c = Number(costEur) || 0;
-    return t - c;
-  }, [totalEur, costEur]);
+    const cliente = (Number(totalEur) || 0) + seasonSuppCs;
+    const proveedor = (Number(costEur) || 0) + seasonSuppPilgrim;
+    return cliente - proveedor;
+  }, [totalEur, costEur, seasonSuppCs, seasonSuppPilgrim]);
 
   async function onSubmit(formData: FormData) {
     setError(null);
@@ -106,6 +121,10 @@ export default function QuoteEditor({
     formData.set("people", String(people));
     formData.set("route_name", routeName);
     formData.set("modality", modality);
+    formData.set("start_date", startDate);
+    formData.set("end_date", endDate);
+    formData.set("season_supplement_eur", seasonSuppCs.toFixed(2));
+    formData.set("season_kind", season.type);
     startTransition(async () => {
       const r = await updateQuote(quote.id, formData);
       if (r?.error) setError(r.error);
@@ -136,6 +155,14 @@ export default function QuoteEditor({
           <Field label="Fecha fin" v={quote.end_date} />
           <Field label="Válida hasta" v={quote.valid_until} />
           <Field label="Base ruta €" v={quote.base_eur != null ? Number(quote.base_eur).toFixed(2) : null} />
+          <Field
+            label="Suplemento temporada €"
+            v={
+              quote.season_kind && quote.season_kind !== "regular" && Number(quote.season_supplement_eur) > 0
+                ? `${Number(quote.season_supplement_eur).toFixed(2)} (${quote.season_kind === "easter" ? "Semana Santa" : "alta"})`
+                : null
+            }
+          />
           <Field label="Total cotización €" v={quote.total_eur != null ? Number(quote.total_eur).toFixed(2) : null} />
           <Field label="Costo Pilgrim €" v={quote.cost_eur != null ? Number(quote.cost_eur).toFixed(2) : null} />
           <Field label="Estado" v={quote.status} />
@@ -199,8 +226,24 @@ export default function QuoteEditor({
           </select>
         </label>
 
-        <Input label="Fecha inicio" name="start_date" type="date" defaultValue={quote.start_date} />
-        <Input label="Fecha fin" name="end_date" type="date" defaultValue={quote.end_date} />
+        <label className="block">
+          <span className="text-xs text-muted">Fecha inicio</span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs text-muted">Fecha fin</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+          />
+        </label>
         <Input label="Válida hasta" name="valid_until" type="date" defaultValue={quote.valid_until} />
 
         <label className="block">
@@ -239,17 +282,24 @@ export default function QuoteEditor({
                 />
                 <span>Auto-cargar precios del catálogo</span>
               </label>
-              {catalogMatch ? (
-                <span className="text-bosque">
-                  Catálogo: Pilgrim {catalogMatch.price_pilgrim.toFixed(2)}€ · CS {catalogMatch.price_cs.toFixed(2)}€ por persona
-                </span>
-              ) : isCustomModality ? (
-                <span className="text-muted italic">Modalidad custom — sin precio en catálogo</span>
-              ) : !routeName || !modality ? (
-                <span className="text-muted">Elegí ruta y alojamiento para ver el catálogo</span>
-              ) : (
-                <span className="text-amber-700">Sin precio en catálogo para esta combinación</span>
-              )}
+              <div className="space-y-0.5">
+                {catalogMatch ? (
+                  <div className="text-bosque">
+                    Catálogo: Pilgrim {catalogMatch.price_pilgrim.toFixed(2)}€ · CS {catalogMatch.price_cs.toFixed(2)}€ por persona
+                  </div>
+                ) : isCustomModality ? (
+                  <div className="text-muted italic">Modalidad custom — sin precio en catálogo</div>
+                ) : !routeName || !modality ? (
+                  <div className="text-muted">Elegí ruta y alojamiento para ver el catálogo</div>
+                ) : (
+                  <div className="text-amber-700">Sin precio en catálogo para esta combinación</div>
+                )}
+                {season.type !== "regular" && (
+                  <div className="text-dorado-oscuro font-medium">
+                    ⚡ {season.label}: +{season.surcharge_per_person_cs}€/persona (costo Pilgrim +{season.surcharge_per_person_pilgrim}€/persona)
+                  </div>
+                )}
+              </div>
             </div>
             <button
               type="button"
@@ -263,7 +313,7 @@ export default function QuoteEditor({
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <label className="block">
-              <span className="text-xs text-muted">Base ruta + alojamiento € (sin opcionales)</span>
+              <span className="text-xs text-muted">Base ruta + alojamiento € (sin suplemento ni opcionales)</span>
               <input
                 type="number"
                 step="0.01"
@@ -273,6 +323,9 @@ export default function QuoteEditor({
               />
               {catalogMatch && (
                 <span className="text-[10px] text-muted">= {catalogMatch.price_cs.toFixed(2)} × {people}</span>
+              )}
+              {season.type !== "regular" && (
+                <span className="text-[10px] text-dorado-oscuro">+ {seasonSuppCs.toFixed(2)}€ suplemento → total cliente {((Number(totalEur)||0) + seasonSuppCs).toFixed(2)}€</span>
               )}
             </label>
             <label className="block">

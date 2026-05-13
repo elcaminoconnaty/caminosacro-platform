@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { getTRMHoy } from "@/lib/trm";
+import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 
 const num = (v: FormDataEntryValue | null) => {
   if (v == null) return null;
@@ -21,6 +22,8 @@ const str = (v: FormDataEntryValue | null) => {
 export async function updateQuote(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
   const newBase = num(formData.get("total_eur"));
+  const seasonKindRaw = str(formData.get("season_kind"));
+  const seasonKind = (seasonKindRaw === "high_season" || seasonKindRaw === "easter") ? seasonKindRaw : "regular";
   const patch = {
     client_name: str(formData.get("client_name")),
     client_phone: str(formData.get("client_phone")),
@@ -30,7 +33,9 @@ export async function updateQuote(id: string, formData: FormData) {
     end_date: str(formData.get("end_date")),
     people: num(formData.get("people")),
     modality: str(formData.get("modality")),
-    base_eur: newBase, // base = ruta + alojamiento (lo que ingresa el usuario)
+    base_eur: newBase, // base = ruta + alojamiento (sin suplemento ni opcionales)
+    season_supplement_eur: num(formData.get("season_supplement_eur")) ?? 0,
+    season_kind: seasonKind,
     cost_eur: num(formData.get("cost_eur")),
     status: str(formData.get("status")) || "borrador",
     valid_until: str(formData.get("valid_until")),
@@ -38,7 +43,7 @@ export async function updateQuote(id: string, formData: FormData) {
   };
   const { error } = await supabase.from("quotes").update(patch).eq("id", id);
   if (error) return { error: error.message };
-  // Recalcular total_eur = base + opcionales
+  // Recalcular total_eur = base + suplemento + opcionales
   await supabase.rpc("recompute_quote_total", { p_quote_id: id });
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
@@ -193,6 +198,27 @@ export async function generateQuotePdf(quoteId: string) {
   ]);
   if (!quote) return { error: "Cotización no encontrada" };
 
+  const seasonConfig: SeasonSupplements = ((seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS);
+
+  // Resolver suplemento "efectivo" para los bloques de comparación.
+  // Si la cotización es nueva (post-migración 0002), usa season_supplement_eur guardado.
+  // Si es legacy (suplemento embebido en base_eur, season_supplement_eur=0), detecta desde fecha
+  // para que ambos bloques (elegido vs no-elegido) muestren el mismo suplemento de comparación.
+  const peopleCountForSeason = Math.max(1, Number(quote.people) || 1);
+  const storedSuppPerPerson = (Number(quote.season_supplement_eur) || 0) / peopleCountForSeason;
+  let effectiveSuppPerPerson = storedSuppPerPerson;
+  let effectiveSeasonKind: "regular" | "high_season" | "easter" =
+    (quote.season_kind === "high_season" || quote.season_kind === "easter") ? quote.season_kind : "regular";
+  if (effectiveSuppPerPerson === 0 && quote.start_date) {
+    const detected = detectSeason(quote.start_date, quote.end_date, seasonConfig);
+    if (detected.type !== "regular") {
+      effectiveSuppPerPerson = detected.surcharge_per_person_cs;
+      // No mutamos season_kind guardado — solo lo usamos para que el resumen también muestre la línea si aplica.
+      effectiveSeasonKind = detected.type;
+    }
+  }
+  const effectiveSeasonTotal = effectiveSuppPerPerson * peopleCountForSeason;
+
   // Cargar metadata de la ruta y etapas
   let route: { days: number | null; nights: number | null; origin: string | null; destination: string | null; km: number | null; difficulty: string | null; modality: string | null } | null = null;
   let stages: Array<{ day: number; from_place: string | null; to_place: string | null; km: number | null; accommodation: string | null }> = [];
@@ -248,7 +274,11 @@ export async function generateQuotePdf(quoteId: string) {
 
   type Block = { label: string; subLabel: string; pricePerPerson: number; isSelected: boolean };
   const priceBlocks: Block[] = [];
-  const actualPerPerson = (Number(quote.total_eur) || 0) / Math.max(1, quote.people || 1);
+  const peopleCount = peopleCountForSeason;
+  // Precio del bloque ELEGIDO = base / people. Si es legacy, base ya incluye suplemento embebido.
+  // Si es nueva, base es puro y le sumamos el suplemento explícito guardado.
+  const basePerPerson = (Number(quote.base_eur) || Number(quote.total_eur) || 0) / peopleCount;
+  const actualPerPerson = basePerPerson + storedSuppPerPerson;
 
   if (chosenSlug) {
     const isSingle = chosenSlug.endsWith("single");
@@ -261,10 +291,10 @@ export async function generateQuotePdf(quoteId: string) {
     const chosenIsPension = chosenSlug === pensionSlug;
     const chosenIsHotel = chosenSlug === hotelSlug;
 
-    // El bloque elegido siempre usa el precio REAL de la cotización (refleja override, descuentos, suplementos).
-    // El otro bloque (no elegido) usa el catálogo si está disponible.
-    const pensionPrice = chosenIsPension ? actualPerPerson : pensionCat;
-    const hotelPrice = chosenIsHotel ? actualPerPerson : hotelCat;
+    // El bloque elegido refleja el precio REAL.
+    // El bloque NO-elegido = catálogo + suplemento efectivo (resuelto: storedSupp si existe, o detectado por fecha si legacy).
+    const pensionPrice = chosenIsPension ? actualPerPerson : (pensionCat > 0 ? pensionCat + effectiveSuppPerPerson : 0);
+    const hotelPrice = chosenIsHotel ? actualPerPerson : (hotelCat > 0 ? hotelCat + effectiveSuppPerPerson : 0);
 
     if (pensionPrice > 0) {
       priceBlocks.push({
@@ -351,6 +381,11 @@ export async function generateQuotePdf(quoteId: string) {
       total: Number(l.total) || 0,
     })),
     baseEur: Number(quote.base_eur) || Number(quote.total_eur) || 0,
+    seasonSupplement: {
+      kind: (quote.season_kind === "high_season" || quote.season_kind === "easter" ? quote.season_kind : "regular") as "regular" | "high_season" | "easter",
+      total: Number(quote.season_supplement_eur) || 0,
+      perPerson: (Number(quote.season_supplement_eur) || 0) / Math.max(1, Number(quote.people) || 1),
+    },
   });
   let buffer: Buffer;
   try {

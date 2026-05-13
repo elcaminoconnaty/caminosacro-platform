@@ -2,6 +2,7 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { eur, fechaCorta } from "@/lib/format";
 import { getTRMHoy } from "@/lib/trm";
 import { renderTemplate } from "@/lib/emailTemplate";
+import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import QuoteEditor from "./QuoteEditor";
@@ -114,6 +115,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     { data: emailTpl },
     { data: optsCatalog },
     { data: quoteLines },
+    { data: seasonSetting },
     trmRow,
   ] = await Promise.all([
     supabase.from("quotes").select("*").eq("id", id).maybeSingle(),
@@ -134,8 +136,10 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .select("id,reference_id,description,quantity,unit_price,total,type")
       .eq("quote_id", id)
       .eq("type", "optional"),
+    supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
     getTRMHoy().catch(() => null),
   ]);
+  const seasonConfig = ((seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS);
 
   if (!quote) notFound();
 
@@ -192,7 +196,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         <Card label="Margen real" value={eur(margenReal)} accent />
       </section>
 
-      <QuoteEditor quote={quote} routes={routes || []} pricing={pricingFlat} />
+      <QuoteEditor quote={quote} routes={routes || []} pricing={pricingFlat} seasonConfig={seasonConfig} />
 
       <OptionalsCard
         quoteId={id}
