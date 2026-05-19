@@ -19,6 +19,21 @@ const str = (v: FormDataEntryValue | null) => {
   return s === "" ? null : s;
 };
 
+function sanitizeFilenamePart(s: string | null | undefined): string {
+  if (!s) return "";
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60);
+}
+
+function buildPdfFilename(code: string, clientName: string | null, routeName: string | null): string {
+  const parts = [code, sanitizeFilenamePart(clientName), sanitizeFilenamePart(routeName)].filter(Boolean);
+  return `${parts.join("_")}.pdf`;
+}
+
 export async function updateQuote(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
   const newBase = num(formData.get("total_eur"));
@@ -395,13 +410,19 @@ export async function generateQuotePdf(quoteId: string) {
     return { error: `Render PDF: ${(e as Error).message}` };
   }
 
-  const path = `${quote.code}.pdf`;
+  const path = buildPdfFilename(quote.code, quote.client_name, quote.route_name);
+  const pdfPath = `comercial-quotes/${path}`;
+
+  if (quote.pdf_path && quote.pdf_path !== pdfPath) {
+    const oldFilePath = quote.pdf_path.replace(/^comercial-quotes\//, "");
+    await supabase.storage.from("comercial-quotes").remove([oldFilePath]).catch(() => {});
+  }
+
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
     .upload(path, buffer, { contentType: "application/pdf", upsert: true });
   if (upErr) return { error: upErr.message };
 
-  const pdfPath = `comercial-quotes/${path}`;
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);
   if (dbErr) return { error: dbErr.message };
 
@@ -416,17 +437,27 @@ export async function uploadQuotePdf(quoteId: string, formData: FormData) {
   if (file.type !== "application/pdf") return { error: "Solo PDFs" };
   if (file.size > 20 * 1024 * 1024) return { error: "PDF demasiado grande (>20MB)" };
 
-  const { data: q } = await supabase.from("quotes").select("code").eq("id", quoteId).maybeSingle();
+  const { data: q } = await supabase
+    .from("quotes")
+    .select("code, client_name, route_name, pdf_path")
+    .eq("id", quoteId)
+    .maybeSingle();
   if (!q) return { error: "Cotización no encontrada" };
 
-  const path = `${q.code}.pdf`;
+  const path = buildPdfFilename(q.code, q.client_name, q.route_name);
+  const pdfPath = `comercial-quotes/${path}`;
+
+  if (q.pdf_path && q.pdf_path !== pdfPath) {
+    const oldFilePath = q.pdf_path.replace(/^comercial-quotes\//, "");
+    await supabase.storage.from("comercial-quotes").remove([oldFilePath]).catch(() => {});
+  }
+
   const buffer = await file.arrayBuffer();
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
     .upload(path, buffer, { contentType: "application/pdf", upsert: true });
   if (upErr) return { error: upErr.message };
 
-  const pdfPath = `comercial-quotes/${path}`;
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);
   if (dbErr) return { error: dbErr.message };
 

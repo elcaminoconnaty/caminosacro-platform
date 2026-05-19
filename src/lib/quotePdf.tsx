@@ -321,23 +321,46 @@ function parseModality(modality: string | null): { tipoAlojamiento: string; habi
 function buildItinerarioStages(
   stages: QuotePDFProps["stages"],
   tipoAlojamiento: string,
+  origin: string,
+  destination: string,
 ): Array<{ day: number; etapa: string; alojamiento: string }> {
   if (!stages || stages.length === 0) return [];
-  return [...stages]
+  const walking = [...stages]
     .filter((st) => (Number(st.km) || 0) > 0)
-    .sort((a, b) => a.day - b.day)
-    .map((st, idx) => {
-      const km = Number(st.km) || 0;
-      const tramo = st.from_place && st.to_place
-        ? `${st.from_place} → ${st.to_place}`
-        : (st.to_place || st.from_place || "—");
-      return {
-        day: idx + 1,
-        etapa: `${tramo} (${Math.round(km)} km)`,
-        alojamiento: st.accommodation
-          || (st.to_place ? `${tipoAlojamiento} ${st.to_place}` : "—"),
-      };
+    .sort((a, b) => a.day - b.day);
+  if (walking.length === 0) return [];
+
+  const firstOrigin = origin || walking[0].from_place || "—";
+  const lastDest = destination || walking[walking.length - 1].to_place || "Santiago de Compostela";
+
+  const rows: Array<{ day: number; etapa: string; alojamiento: string }> = [];
+
+  rows.push({
+    day: 1,
+    etapa: `Llegada a ${firstOrigin}`,
+    alojamiento: `${tipoAlojamiento} ${firstOrigin}`,
+  });
+
+  walking.forEach((st, idx) => {
+    const km = Number(st.km) || 0;
+    const tramo = st.from_place && st.to_place
+      ? `${st.from_place} → ${st.to_place}`
+      : (st.to_place || st.from_place || "—");
+    rows.push({
+      day: idx + 2,
+      etapa: `${tramo} (${Math.round(km)} km)`,
+      alojamiento: st.accommodation
+        || (st.to_place ? `${tipoAlojamiento} ${st.to_place}` : "—"),
     });
+  });
+
+  rows.push({
+    day: walking.length + 2,
+    etapa: `Fin de servicios en ${lastDest}`,
+    alojamiento: "—",
+  });
+
+  return rows;
 }
 
 const INCLUIDO_DEFAULT = (n: number) => [
@@ -379,18 +402,20 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
 
   const origin = route?.origin || "";
   const destination = route?.destination || "Santiago de Compostela";
-  const days = route?.days ?? (stages?.length || 0);
-  const nights = route?.nights ?? (days > 0 ? days - 1 : 0);
-  const km = route?.km || (stages || []).reduce((a, b) => a + (Number(b.km) || 0), 0);
-  // Etapas reales = días con km > 0 (excluye llegada/fin de servicios cuando estén en DB)
+  // Etapas caminadas = filas con km > 0 (excluye filas Llegada/Fin que pudieran estar en DB)
   const stagesCount = (stages || []).filter((s) => (Number(s.km) || 0) > 0).length;
+  // El itinerario mostrado tiene N+2 filas (Llegada + N etapas + Fin). DÍAS y NOCHES se calculan
+  // desde stagesCount para que el cuadro de stats coincida con la tabla de itinerario del PDF.
+  const days = stagesCount > 0 ? stagesCount + 2 : (route?.days ?? 0);
+  const nights = stagesCount > 0 ? stagesCount + 1 : (route?.nights ?? 0);
+  const km = route?.km || (stages || []).reduce((a, b) => a + (Number(b.km) || 0), 0);
   const difficulty = route?.difficulty || "Media";
   const modalityKind = (route?.modality === "bici") ? "EN BICI" : "A PIE";
 
   const dateLine = buildDateLine(quote.start_date, quote.end_date);
   const subtituloRuta = "CAMINO DE SANTIAGO";
 
-  const itin = buildItinerarioStages(stages, modInfo.tipoAlojamiento);
+  const itin = buildItinerarioStages(stages, modInfo.tipoAlojamiento, origin, destination);
 
   // Optionals agrupados
   const optsByCat = new Map<string, NonNullable<typeof optionals>>();
