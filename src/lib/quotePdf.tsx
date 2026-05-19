@@ -323,20 +323,21 @@ function buildItinerarioStages(
   tipoAlojamiento: string,
 ): Array<{ day: number; etapa: string; alojamiento: string }> {
   if (!stages || stages.length === 0) return [];
-  const sorted = [...stages].sort((a, b) => a.day - b.day);
-  return sorted.map((st) => {
-    const km = Number(st.km) || 0;
-    const tramo = st.from_place && st.to_place
-      ? `${st.from_place} → ${st.to_place}`
-      : (st.to_place || st.from_place || "—");
-    const etapa = km > 0 ? `${tramo} (${Math.round(km)} km)` : tramo;
-    return {
-      day: st.day,
-      etapa,
-      alojamiento: st.accommodation
-        || (st.to_place ? `${tipoAlojamiento} ${st.to_place}` : "—"),
-    };
-  });
+  return [...stages]
+    .filter((st) => (Number(st.km) || 0) > 0)
+    .sort((a, b) => a.day - b.day)
+    .map((st, idx) => {
+      const km = Number(st.km) || 0;
+      const tramo = st.from_place && st.to_place
+        ? `${st.from_place} → ${st.to_place}`
+        : (st.to_place || st.from_place || "—");
+      return {
+        day: idx + 1,
+        etapa: `${tramo} (${Math.round(km)} km)`,
+        alojamiento: st.accommodation
+          || (st.to_place ? `${tipoAlojamiento} ${st.to_place}` : "—"),
+      };
+    });
 }
 
 const INCLUIDO_DEFAULT = (n: number) => [
