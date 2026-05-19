@@ -200,34 +200,48 @@ npm run build       # build OK
 
 ---
 
-## 7. Desplegar a producción (Vercel)
+## 7. Desplegar a producción (Railway)
 
-**Pendiente** — todavía la app solo corre local. Para que funcione desde móvil y desde cualquier red:
+**Estado**: en producción → <https://caminosacro-platform-production.up.railway.app>
 
-### Pasos (cuando estés listo)
-1. **Push a GitHub** primero (ver sección 6)
-2. Crear cuenta en <https://vercel.com> (gratis con tu GitHub)
-3. Click "Add New" → Import repo desde GitHub
-4. **Variables de entorno** en Vercel (igual que `.env.local`):
-   - `NEXT_PUBLIC_SUPABASE_URL` = `https://yvytzquewjsjsmgiwmaa.supabase.co`
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = `sb_publishable_xG0vcTQAtaUObcPp-zeTmw_2E0pjWzC`
-   - `SUPABASE_SERVICE_ROLE_KEY` = (el secreto, lo pones en Vercel solamente)
-   - `TRM_API_PRIMARY` = `https://api.exchangerate.host/latest?base=EUR&symbols=COP`
-   - `TRM_API_FALLBACK` = `https://api.frankfurter.app/latest?from=EUR&to=COP`
-5. **Deploy** — toma 1-2 minutos
-6. Vercel te asigna `caminosacro-platform.vercel.app`
-7. **Conectar a tu dominio**: Settings → Domains → agregar `app.caminosacro.com`
-   - Vercel te da un CNAME para configurar en tu DNS (donde sea que tengas caminosacro.com)
-8. Después de cada `git push`, Vercel deploya automático en segundos
+Cada `git push origin main` dispara redeploy automático (1–2 min). No hace falta tocar Railway para cambios de código.
 
-### Después de deploy
-Cada vez que hagas un cambio:
+### Acceso al dashboard
+- Proyecto: <https://railway.com/project/79452da2-37dd-4e9e-a105-0c9c4eeaa8de>
+- Servicio: `caminosacro-platform` (rama `main` del repo `elcaminoconnaty/caminosacro-platform`)
+- Builder: Railpack (auto-detecta Next.js, Node 22)
+
+### Variables de entorno
+Cargadas en Railway → Service → Variables. Si rotás la `service_role` key, actualizá ahí:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `TRM_API_PRIMARY`
+- `TRM_API_FALLBACK`
+
+Cambiar una variable redespliega automáticamente.
+
+### Flujo de cambios
 ```bash
 git add .
 git commit -m "Mi cambio"
-git push        # Vercel deploya solo
+git push                 # Railway buildea y deploya solo
 ```
-URL pública: `app.caminosacro.com` desde cualquier dispositivo, sin tu Mac prendido.
+Ver progreso del build: dashboard → Service → Deployments.
+
+### Custom domain (pendiente)
+Cuando quieras `app.caminosacro.com`:
+1. Dashboard → Service → Settings → Networking → "Custom Domain"
+2. Pegá `app.caminosacro.com`. Railway te da un `CNAME` para apuntar desde tu DNS.
+3. Esperá propagación DNS (~5 min) y Railway emite el cert TLS solo.
+
+### Si un deploy falla
+- Dashboard → Service → Deployments → click el deploy rojo → "View Logs"
+- Build logs: errores de compilación (tipos, imports)
+- Deploy logs: errores en runtime (variables faltantes, crashes)
+
+### Región
+Servicio actual en `asia-southeast1` (Singapur). Edge sirve global desde Virginia (us-east4). Si necesitás bajar latencia hacia España/Colombia, cambiá región en Settings → Region.
 
 ---
 
