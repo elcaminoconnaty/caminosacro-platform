@@ -3,6 +3,7 @@ import { eur, fechaCorta } from "@/lib/format";
 import { getTRMHoy } from "@/lib/trm";
 import { renderTemplate } from "@/lib/emailTemplate";
 import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
+import { statusColor, statusLabel, isFullyPaid } from "@/lib/quoteStatus";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import QuoteEditor from "./QuoteEditor";
@@ -11,6 +12,7 @@ import ProviderPaymentsCard from "./ProviderPaymentsCard";
 import DocumentsCard from "./DocumentsCard";
 import EmailPreviewCard from "./EmailPreviewCard";
 import OptionalsCard, { type OptionalCatalog, type OptionalLine } from "./OptionalsCard";
+import HotelsCard, { type InitialHotel } from "./HotelsCard";
 
 function basename(p: string | null): string | null {
   if (!p) return null;
@@ -116,6 +118,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     { data: optsCatalog },
     { data: quoteLines },
     { data: seasonSetting },
+    { data: hotelsData },
     trmRow,
   ] = await Promise.all([
     supabase.from("quotes").select("*").eq("id", id).maybeSingle(),
@@ -137,6 +140,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .eq("quote_id", id)
       .eq("type", "optional"),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
+    supabase
+      .from("quote_hotels")
+      .select("night_date,city,hotel_name,address,contact,notes,position")
+      .eq("quote_id", id)
+      .order("position"),
     getTRMHoy().catch(() => null),
   ]);
   const seasonConfig = ((seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS);
@@ -184,7 +192,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
               {quote.route_name ? ` · ${quote.route_name}` : ""}
             </p>
           </div>
-          <span className="text-[10px] px-2 py-0.5 rounded bg-bosque text-white uppercase tracking-wider">{quote.status}</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${statusColor(quote.status)}`}>{statusLabel(quote.status)}</span>
         </div>
       </header>
 
@@ -219,6 +227,15 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         storagePath={quote.pdf_path}
         filename={basename(quote.pdf_path)}
       />
+
+      {isFullyPaid(quote.status) && (
+        <HotelsCard
+          quoteId={id}
+          initialHotels={((hotelsData as unknown) as InitialHotel[]) || []}
+          pdfPath={quote.hotels_pdf_path ?? null}
+          pdfFilename={basename(quote.hotels_pdf_path ?? null)}
+        />
+      )}
 
       <EmailPreviewCard
         to={quote.client_email || ""}

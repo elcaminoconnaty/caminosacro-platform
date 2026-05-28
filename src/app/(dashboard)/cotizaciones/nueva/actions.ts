@@ -95,7 +95,7 @@ export async function createQuote(formData: FormData) {
       season_kind: seasonKind,
       total_eur: baseEur + seasonSupplement, // sin opcionales aún → total = base + suplemento
       cost_eur: num(formData.get("cost_eur")) ?? 0,
-      status: str(formData.get("status")) || "borrador",
+      status: str(formData.get("status")) || "enviada",
       notes: str(formData.get("notes")),
     })
     .select("id")

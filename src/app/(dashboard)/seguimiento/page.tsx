@@ -1,6 +1,7 @@
 import { createCommercialClient } from "@/lib/supabase/server";
-import { eur, fechaCorta } from "@/lib/format";
+import { eur } from "@/lib/format";
 import Link from "next/link";
+import QuotesTable, { type QuoteRow } from "./QuotesTable";
 
 type Quote = {
   id: string;
@@ -21,16 +22,6 @@ type Quote = {
 
 type ClientPayment = { quote_id: string; amount_eur: number | null; amount: number; currency: string };
 type ProviderPayment = { quote_id: string; amount_eur: number };
-
-const statusColor: Record<string, string> = {
-  borrador: "bg-zinc-100 text-zinc-700",
-  enviada: "bg-blue-100 text-blue-800",
-  aceptada: "bg-emerald-100 text-emerald-800",
-  en_pago: "bg-amber-100 text-amber-800",
-  pagada: "bg-bosque text-white",
-  viajada: "bg-dorado/40 text-dorado-oscuro",
-  cancelada: "bg-red-100 text-red-700",
-};
 
 export default async function SeguimientoPage() {
   const supabase = await createCommercialClient();
@@ -67,6 +58,26 @@ export default async function SeguimientoPage() {
   const totPagadoPilgrim = [...pagadoPilgrim.values()].reduce((s, n) => s + n, 0);
   const utilidadProyectada = totVenta - totCosto;
 
+  const rows: QuoteRow[] = quotes.map((q) => {
+    const total = q.total_eur || 0;
+    const cobr = cobrado.get(q.id) || 0;
+    return {
+      id: q.id,
+      code: q.code,
+      client_name: q.client_name,
+      client_phone: q.client_phone,
+      route_name: q.route_name,
+      start_date: q.start_date,
+      people: q.people,
+      total_eur: total,
+      cost_eur: q.cost_eur || 0,
+      cobrado: cobr,
+      saldo: total - cobr,
+      utilidad: total - (q.cost_eur || 0),
+      status: q.status,
+    };
+  });
+
   return (
     <div className="space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
@@ -100,64 +111,7 @@ export default async function SeguimientoPage() {
         <Card label="Pagado a Pilgrim" value={eur(totPagadoPilgrim)} muted />
       </section>
 
-      <section className="bg-bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-taupe/30 text-muted text-xs uppercase tracking-wider">
-              <tr>
-                <th className="text-left px-4 py-2.5">Código</th>
-                <th className="text-left px-4 py-2.5">Cliente</th>
-                <th className="text-left px-4 py-2.5">Teléfono</th>
-                <th className="text-left px-4 py-2.5">Ruta</th>
-                <th className="text-left px-4 py-2.5">Pax</th>
-                <th className="text-right px-4 py-2.5">Total €</th>
-                <th className="text-right px-4 py-2.5">Costo Pilgrim €</th>
-                <th className="text-right px-4 py-2.5">Utilidad €</th>
-                <th className="text-right px-4 py-2.5">Cobrado</th>
-                <th className="text-right px-4 py-2.5">Saldo</th>
-                <th className="text-left px-4 py-2.5">Estado</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {quotes.map((q) => {
-                const cobr = cobrado.get(q.id) || 0;
-                const saldo = (q.total_eur || 0) - cobr;
-                const utilidad = (q.total_eur || 0) - (q.cost_eur || 0);
-                return (
-                  <tr key={q.id} className="hover:bg-taupe/20">
-                    <td className="px-4 py-2.5 whitespace-nowrap">
-                      <Link href={`/seguimiento/${q.id}`} className="text-bosque font-medium hover:underline">{q.code}</Link>
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">{q.client_name || <span className="text-muted">—</span>}</td>
-                    <td className="px-4 py-2.5 whitespace-nowrap text-muted text-xs font-mono">{q.client_phone || "—"}</td>
-                    <td className="px-4 py-2.5 text-muted">{q.route_name || "—"}</td>
-                    <td className="px-4 py-2.5 text-muted text-center">{q.people ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-right">{q.total_eur != null && q.total_eur > 0 ? eur(q.total_eur) : <span className="text-muted">—</span>}</td>
-                    <td className="px-4 py-2.5 text-right text-muted">{q.cost_eur != null && q.cost_eur > 0 ? eur(q.cost_eur) : "—"}</td>
-                    <td className={`px-4 py-2.5 text-right font-medium ${utilidad > 0 ? "text-bosque" : "text-muted"}`}>
-                      {q.total_eur != null && q.total_eur > 0 ? eur(utilidad) : "—"}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">{cobr > 0 ? eur(cobr) : <span className="text-muted">—</span>}</td>
-                    <td className={`px-4 py-2.5 text-right ${saldo > 0 ? "text-amber-700 font-medium" : "text-muted"}`}>
-                      {q.total_eur != null && q.total_eur > 0 ? eur(saldo) : "—"}
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">
-                      <span className={`text-[10px] px-2 py-0.5 rounded ${statusColor[q.status || ""] || "bg-zinc-100 text-zinc-700"}`}>
-                        {q.status || "—"}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-              {!error && quotes.length === 0 && (
-                <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-muted">Sin cotizaciones aún.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <QuotesTable rows={rows} />
     </div>
   );
 }

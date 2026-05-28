@@ -4,6 +4,19 @@ import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { getTRMHoy } from "@/lib/trm";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
+import { isQuoteStatus } from "@/lib/quoteStatus";
+
+// Borra un archivo de Storage a partir de su ruta "bucket/archivo".
+async function removeStoragePath(
+  supabase: Awaited<ReturnType<typeof createCommercialClient>>,
+  storagePath: string | null | undefined,
+) {
+  if (!storagePath) return;
+  const [bucket, ...rest] = storagePath.split("/");
+  const filePath = rest.join("/");
+  if (!bucket || !filePath) return;
+  await supabase.storage.from(bucket).remove([filePath]).catch(() => {});
+}
 
 const num = (v: FormDataEntryValue | null) => {
   if (v == null) return null;
@@ -52,7 +65,7 @@ export async function updateQuote(id: string, formData: FormData) {
     season_supplement_eur: num(formData.get("season_supplement_eur")) ?? 0,
     season_kind: seasonKind,
     cost_eur: num(formData.get("cost_eur")),
-    status: str(formData.get("status")) || "borrador",
+    status: str(formData.get("status")) || "enviada",
     valid_until: str(formData.get("valid_until")),
     notes: str(formData.get("notes")),
   };
@@ -62,6 +75,39 @@ export async function updateQuote(id: string, formData: FormData) {
   await supabase.rpc("recompute_quote_total", { p_quote_id: id });
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+// Cambio rápido de estado desde el listado (sin entrar a editar).
+export async function updateQuoteStatus(id: string, status: string) {
+  if (!isQuoteStatus(status)) return { error: "Estado inválido" };
+  const supabase = await createCommercialClient();
+  const { error } = await supabase.from("quotes").update({ status }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/seguimiento");
+  revalidatePath(`/seguimiento/${id}`);
+  revalidatePath("/calendario");
+  return { ok: true };
+}
+
+// Borra una cotización por completo (incluye sus PDFs en Storage).
+// Las tablas hijas (quote_lines, client_payments, provider_payments, quote_hotels)
+// se borran solas por ON DELETE CASCADE.
+export async function deleteQuote(id: string) {
+  const supabase = await createCommercialClient();
+  const { data: q } = await supabase
+    .from("quotes")
+    .select("pdf_path, hotels_pdf_path")
+    .eq("id", id)
+    .maybeSingle();
+  if (q) {
+    await removeStoragePath(supabase, q.pdf_path);
+    await removeStoragePath(supabase, q.hotels_pdf_path);
+  }
+  const { error } = await supabase.from("quotes").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/seguimiento");
+  revalidatePath("/calendario");
   return { ok: true };
 }
 
@@ -424,6 +470,149 @@ export async function generateQuotePdf(quoteId: string) {
   if (upErr) return { error: upErr.message };
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);
+  if (dbErr) return { error: dbErr.message };
+
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+// ---------------- LISTADO DE HOTELES ----------------
+
+export type HotelInput = {
+  night_date: string | null;
+  city: string | null;
+  hotel_name: string | null;
+  address: string | null;
+  contact: string | null;
+  notes: string | null;
+};
+
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(isoDate + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Reemplaza por completo el listado de hoteles de una cotización.
+export async function saveQuoteHotels(quoteId: string, rows: HotelInput[]) {
+  const supabase = await createCommercialClient();
+  const { error: delErr } = await supabase.from("quote_hotels").delete().eq("quote_id", quoteId);
+  if (delErr) return { error: delErr.message };
+  const clean = rows.filter((r) => r.city || r.hotel_name || r.address || r.contact || r.notes || r.night_date);
+  if (clean.length > 0) {
+    const payload = clean.map((r, i) => ({
+      quote_id: quoteId,
+      position: i,
+      night_date: r.night_date || null,
+      city: r.city || null,
+      hotel_name: r.hotel_name || null,
+      address: r.address || null,
+      contact: r.contact || null,
+      notes: r.notes || null,
+    }));
+    const { error: insErr } = await supabase.from("quote_hotels").insert(payload);
+    if (insErr) return { error: insErr.message };
+  }
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+// Sugiere filas a partir del itinerario de la ruta (no guarda; el usuario las edita y guarda).
+export async function prefillHotelsFromItinerary(quoteId: string): Promise<{ rows?: HotelInput[]; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("route_name,start_date")
+    .eq("id", quoteId)
+    .maybeSingle();
+  if (!quote?.route_name) return { error: "La cotización no tiene ruta asignada." };
+
+  const { data: r } = await supabase.from("routes").select("id").eq("name", quote.route_name).maybeSingle();
+  if (!r) return { error: "No se encontró la ruta en el catálogo." };
+
+  const { data: st } = await supabase
+    .from("route_stages")
+    .select("day,to_place,accommodation")
+    .eq("route_id", r.id)
+    .order("day");
+
+  const stages = (st || []) as Array<{ day: number; to_place: string | null; accommodation: string | null }>;
+  // Una noche por cada etapa con alojamiento (excluye "Fin de servicios").
+  const nights = stages.filter((s) => s.accommodation);
+  const rows: HotelInput[] = nights.map((s, i) => ({
+    night_date: quote.start_date ? addDays(quote.start_date, i) : null,
+    city: s.accommodation,
+    hotel_name: null,
+    address: null,
+    contact: null,
+    notes: null,
+  }));
+  return { rows };
+}
+
+export async function generateHotelsPdf(quoteId: string) {
+  const supabase = await createCommercialClient();
+  const [{ data: quote }, { data: hotelsRaw }] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select("code,client_name,route_name,start_date,end_date,people,status,hotels_pdf_path")
+      .eq("id", quoteId)
+      .maybeSingle(),
+    supabase
+      .from("quote_hotels")
+      .select("night_date,city,hotel_name,address,contact,notes,position")
+      .eq("quote_id", quoteId)
+      .order("position"),
+  ]);
+  if (!quote) return { error: "Cotización no encontrada" };
+
+  const hotels = ((hotelsRaw || []) as Array<HotelInput & { position: number }>).map((h) => ({
+    night_date: h.night_date,
+    city: h.city,
+    hotel_name: h.hotel_name,
+    address: h.address,
+    contact: h.contact,
+    notes: h.notes,
+  }));
+
+  const React = await import("react");
+  const { renderToBuffer } = await import("@react-pdf/renderer");
+  const { HotelsPDF } = await import("@/lib/hotelsPdf");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const element = React.createElement(HotelsPDF as any, {
+    quote: {
+      code: quote.code,
+      client_name: quote.client_name,
+      route_name: quote.route_name,
+      start_date: quote.start_date,
+      end_date: quote.end_date,
+      people: quote.people,
+    },
+    hotels,
+  });
+
+  let buffer: Buffer;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    buffer = await renderToBuffer(element as any);
+  } catch (e) {
+    return { error: `Render PDF: ${(e as Error).message}` };
+  }
+
+  const filename = buildPdfFilename(`${quote.code}_hoteles`, quote.client_name, quote.route_name);
+  const pdfPath = `comercial-hotels/${filename}`;
+
+  if (quote.hotels_pdf_path && quote.hotels_pdf_path !== pdfPath) {
+    const oldFilePath = quote.hotels_pdf_path.replace(/^comercial-hotels\//, "");
+    await supabase.storage.from("comercial-hotels").remove([oldFilePath]).catch(() => {});
+  }
+
+  const { error: upErr } = await supabase.storage
+    .from("comercial-hotels")
+    .upload(filename, buffer, { contentType: "application/pdf", upsert: true });
+  if (upErr) return { error: upErr.message };
+
+  const { error: dbErr } = await supabase.from("quotes").update({ hotels_pdf_path: pdfPath }).eq("id", quoteId);
   if (dbErr) return { error: dbErr.message };
 
   revalidatePath(`/seguimiento/${quoteId}`);

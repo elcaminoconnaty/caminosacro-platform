@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition, useEffect } from "react";
 import { updateQuote } from "./actions";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
+import { QUOTE_STATUSES, STATUS_LABELS, DEFAULT_STATUS, statusLabel } from "@/lib/quoteStatus";
 
 type Quote = {
   id: string;
@@ -32,8 +33,6 @@ type PricingRow = {
   price_pilgrim: number;
   price_cs: number;
 };
-
-const STATUS_OPTIONS = ["borrador", "enviada", "aceptada", "en_pago", "pagada", "viajada", "cancelada"];
 
 // Display ↔ slug
 const MODALITY_DISPLAY = [
@@ -165,7 +164,7 @@ export default function QuoteEditor({
           />
           <Field label="Total cotización €" v={quote.total_eur != null ? Number(quote.total_eur).toFixed(2) : null} />
           <Field label="Costo Pilgrim €" v={quote.cost_eur != null ? Number(quote.cost_eur).toFixed(2) : null} />
-          <Field label="Estado" v={quote.status} />
+          <Field label="Estado" v={statusLabel(quote.status)} />
         </dl>
         {quote.notes && (
           <div className="mt-4 pt-4 border-t border-border">
@@ -221,8 +220,8 @@ export default function QuoteEditor({
 
         <label className="block">
           <span className="text-xs text-muted">Estado</span>
-          <select name="status" defaultValue={quote.status ?? "borrador"} className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white">
-            {STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          <select name="status" defaultValue={quote.status ?? DEFAULT_STATUS} className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white">
+            {QUOTE_STATUSES.map((o) => <option key={o} value={o}>{STATUS_LABELS[o]}</option>)}
           </select>
         </label>
 
