@@ -187,6 +187,35 @@ export async function addClientPayment(id: string, formData: FormData) {
   return { ok: true };
 }
 
+export async function updateClientPayment(quoteId: string, paymentId: string, formData: FormData) {
+  const supabase = await createCommercialClient();
+  const amount = num(formData.get("amount")) ?? 0;
+  const currency = (str(formData.get("currency")) || "EUR") as "EUR" | "COP" | "USD";
+  const trm = num(formData.get("trm_eur_cop"));
+  const amountEur = currency === "EUR" ? amount : currency === "COP" && trm ? amount / trm : null;
+
+  const { error } = await supabase
+    .from("client_payments")
+    .update({
+      paid_at: str(formData.get("paid_at")) || new Date().toISOString().slice(0, 10),
+      amount,
+      currency,
+      trm_eur_cop: trm,
+      amount_eur: amountEur,
+      method: str(formData.get("method")),
+      account: str(formData.get("account")),
+      reference: str(formData.get("reference")),
+      notes: str(formData.get("notes")),
+    })
+    .eq("id", paymentId)
+    .eq("quote_id", quoteId);
+  if (error) return { error: error.message };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  revalidatePath("/seguimiento");
+  revalidatePath("/finanzas");
+  return { ok: true };
+}
+
 export async function deleteClientPayment(quoteId: string, paymentId: string) {
   const supabase = await createCommercialClient();
   const { error } = await supabase.from("client_payments").delete().eq("id", paymentId);
@@ -209,6 +238,26 @@ export async function addProviderPayment(id: string, formData: FormData) {
   if (error) return { error: error.message };
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+export async function updateProviderPayment(quoteId: string, paymentId: string, formData: FormData) {
+  const supabase = await createCommercialClient();
+  const { error } = await supabase
+    .from("provider_payments")
+    .update({
+      paid_at: str(formData.get("paid_at")) || new Date().toISOString().slice(0, 10),
+      amount_eur: num(formData.get("amount_eur")) ?? 0,
+      invoice_number: str(formData.get("invoice_number")),
+      account: str(formData.get("account")),
+      notes: str(formData.get("notes")),
+    })
+    .eq("id", paymentId)
+    .eq("quote_id", quoteId);
+  if (error) return { error: error.message };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  revalidatePath("/seguimiento");
+  revalidatePath("/finanzas");
   return { ok: true };
 }
 
