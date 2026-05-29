@@ -170,13 +170,6 @@ export function HotelsPDF({
             ) : null}
           </View>
 
-          <View style={styles.note}>
-            <Text style={styles.noteText}>
-              Importante: estos alojamientos son una referencia y pueden sufrir modificaciones según la disponibilidad
-              de cada localidad. Ante cualquier cambio, te avisaremos con la mayor antelación posible.
-            </Text>
-          </View>
-
           <View style={styles.table}>
             <View style={styles.tr} wrap={false}>
               <Text style={[styles.th, styles.colNoche]}>Noche</Text>

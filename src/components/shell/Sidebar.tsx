@@ -9,6 +9,7 @@ import {
   ListChecks,
   CalendarDays,
   BookOpen,
+  Wallet,
   Coins,
   Settings,
 } from "lucide-react";
@@ -27,6 +28,7 @@ const NAV: NavItem[] = [
   { href: "/cotizaciones", label: "Cotizaciones", icon: FileText },
   { href: "/seguimiento", label: "Seguimiento", icon: ListChecks },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
+  { href: "/finanzas", label: "Finanzas", icon: Wallet },
   { href: "/catalogo", label: "Catálogo", icon: BookOpen },
   { href: "/tokens", label: "Tokens & Costo", icon: Coins },
   { href: "/configuracion", label: "Configuración", icon: Settings },

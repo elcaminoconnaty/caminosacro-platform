@@ -3,12 +3,14 @@
 import { useState, useTransition } from "react";
 import { addProviderPayment, deleteProviderPayment } from "./actions";
 import { eur, fechaCorta } from "@/lib/format";
+import { ACCOUNTS, accountLabel } from "@/lib/accounts";
 
 type Payment = {
   id: string;
   paid_at: string;
   amount_eur: number;
   invoice_number: string | null;
+  account: string | null;
   notes: string | null;
 };
 
@@ -71,7 +73,14 @@ export default function ProviderPaymentsCard({
             <span className="text-xs text-muted">Monto € (Pilgrim cobra en EUR)</span>
             <input name="amount_eur" type="number" step="0.01" required className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white" />
           </label>
-          <label className="col-span-2">
+          <label className="col-span-1">
+            <span className="text-xs text-muted">Cuenta de donde salió</span>
+            <select name="account" className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white">
+              <option value="">—</option>
+              {ACCOUNTS.map((a) => <option key={a.slug} value={a.slug}>{a.label} ({a.currency})</option>)}
+            </select>
+          </label>
+          <label className="col-span-1">
             <span className="text-xs text-muted">Nº de factura / referencia Pilgrim</span>
             <input name="invoice_number" className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white" />
           </label>
@@ -95,6 +104,7 @@ export default function ProviderPaymentsCard({
               <div className="font-medium">{eur(p.amount_eur)}</div>
               <div className="text-xs text-muted mt-0.5">
                 {fechaCorta(p.paid_at)}
+                {p.account && <span> · {accountLabel(p.account)}</span>}
                 {p.invoice_number && <span> · Factura {p.invoice_number}</span>}
               </div>
               {p.notes && <div className="text-xs text-muted mt-1 italic">{p.notes}</div>}

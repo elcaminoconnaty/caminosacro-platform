@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { addClientPayment, deleteClientPayment } from "./actions";
 import { eur, fechaCorta } from "@/lib/format";
+import { ACCOUNTS, accountLabel } from "@/lib/accounts";
 
 type Payment = {
   id: string;
@@ -12,6 +13,7 @@ type Payment = {
   trm_eur_cop: number | null;
   amount_eur: number | null;
   method: string | null;
+  account: string | null;
   reference: string | null;
   notes: string | null;
 };
@@ -93,6 +95,13 @@ export default function ClientPaymentsCard({
               <option>USD</option>
             </select>
           </label>
+          <label className="col-span-2">
+            <span className="text-xs text-muted">Cuenta que recibió</span>
+            <select name="account" className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white">
+              <option value="">—</option>
+              {ACCOUNTS.map((a) => <option key={a.slug} value={a.slug}>{a.label} ({a.currency})</option>)}
+            </select>
+          </label>
           {currency === "COP" && (
             <label className="col-span-2">
               <span className="text-xs text-muted">TRM al recibir (COP por 1 EUR)</span>
@@ -130,6 +139,7 @@ export default function ClientPaymentsCard({
               <div className="text-xs text-muted mt-0.5">
                 {fechaCorta(p.paid_at)}
                 {p.method && <span> · {p.method}</span>}
+                {p.account && <span> · {accountLabel(p.account)}</span>}
                 {p.trm_eur_cop && <span> · TRM {p.trm_eur_cop}</span>}
                 {p.reference && <span> · {p.reference}</span>}
               </div>
