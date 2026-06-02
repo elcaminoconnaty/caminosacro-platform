@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
+import { mensajeError } from "@/lib/errors";
 
 const str = (v: FormDataEntryValue | null) => {
   if (v == null) return null;
@@ -66,7 +67,7 @@ export async function createQuote(formData: FormData) {
 
   // Código auto
   const { data: code, error: codeErr } = await supabase.rpc("next_quote_code");
-  if (codeErr) return { error: codeErr.message };
+  if (codeErr) return { error: mensajeError(codeErr, "No se pudo generar el código de la cotización.") };
 
   // Validez por defecto: 30 días desde hoy
   const validUntil = str(formData.get("valid_until")) ||
@@ -101,7 +102,7 @@ export async function createQuote(formData: FormData) {
     .select("id")
     .single();
 
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error, "No se pudo crear la cotización.") };
 
   revalidatePath("/seguimiento");
   revalidatePath("/cotizaciones");

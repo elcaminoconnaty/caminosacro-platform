@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createQuote, findClientByPhone, type ClientLite } from "./actions";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
+import { DEFAULT_STATUS, STATUS_LABELS } from "@/lib/quoteStatus";
 
 type PricingRow = {
   route_id: string;
@@ -289,11 +290,11 @@ export default function Wizard({
             <span className="text-xs text-muted">Estado inicial</span>
             <select
               name="status"
-              defaultValue="borrador"
+              defaultValue={DEFAULT_STATUS}
               className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
             >
-              <option value="borrador">borrador</option>
-              <option value="enviada">enviada</option>
+              <option value="enviada">{STATUS_LABELS.enviada}</option>
+              <option value="aceptada">{STATUS_LABELS.aceptada}</option>
             </select>
           </label>
         </div>
