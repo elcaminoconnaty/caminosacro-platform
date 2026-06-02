@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
+import { mensajeError } from "@/lib/errors";
 
 export async function updatePricing(id: string, field: "price_pilgrim" | "price_cs", value: number | null) {
   const supabase = await createCommercialClient();
   const { error } = await supabase.from("pricing").update({ [field]: value }).eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath("/catalogo");
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -19,7 +20,7 @@ export async function applyMarkupRule() {
     .from("pricing")
     .select("id,price_pilgrim")
     .not("price_pilgrim", "is", null);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
 
   let updated = 0;
   for (const row of data || []) {
@@ -39,7 +40,7 @@ export async function getResourceUrl(storagePath: string) {
   const [bucket, ...rest] = storagePath.split("/");
   const filePath = rest.join("/");
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, 60 * 10);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   return { url: data.signedUrl };
 }
 
@@ -50,7 +51,7 @@ export async function updateOptionalService(
 ) {
   const supabase = await createCommercialClient();
   const { error } = await supabase.from("optional_services").update({ [field]: value }).eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath("/catalogo");
   return { ok: true };
 }
@@ -69,7 +70,7 @@ export async function updateRouteStageField(
   const supabase = await createCommercialClient();
   const v = field === "km" ? (value === "" || value == null ? null : Number(value)) : (value === "" ? null : value);
   const { error } = await supabase.from("route_stages").update({ [field]: v }).eq("id", stageId);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath("/catalogo");
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -83,14 +84,14 @@ export async function addRouteStage(routeId: string) {
     .eq("route_id", routeId)
     .order("day", { ascending: false })
     .limit(1);
-  if (selErr) return { error: selErr.message };
+  if (selErr) return { error: mensajeError(selErr) };
   const nextDay = (existing?.[0]?.day ?? 0) + 1;
   const { data, error } = await supabase
     .from("route_stages")
     .insert({ route_id: routeId, day: nextDay, from_place: null, to_place: null, km: null, accommodation: null })
     .select("id,day")
     .single();
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath("/catalogo");
   return { ok: true, stage: data };
 }
@@ -103,11 +104,11 @@ export async function deleteRouteStage(stageId: string) {
     .select("route_id,day")
     .eq("id", stageId)
     .maybeSingle();
-  if (selErr) return { error: selErr.message };
+  if (selErr) return { error: mensajeError(selErr) };
   if (!row) return { error: "Etapa no encontrada" };
 
   const { error: delErr } = await supabase.from("route_stages").delete().eq("id", stageId);
-  if (delErr) return { error: delErr.message };
+  if (delErr) return { error: mensajeError(delErr) };
 
   // Renumerar etapas posteriores: day -= 1.
   // Por la unique (route_id, day), hacemos un dance via days negativos.
@@ -117,7 +118,7 @@ export async function deleteRouteStage(stageId: string) {
     .eq("route_id", row.route_id)
     .gt("day", row.day)
     .order("day", { ascending: true });
-  if (postErr) return { error: postErr.message };
+  if (postErr) return { error: mensajeError(postErr) };
 
   for (const p of posteriores || []) {
     await supabase.from("route_stages").update({ day: -p.day }).eq("id", p.id);
@@ -136,7 +137,7 @@ export async function swapRouteStages(stageIdA: string, stageIdB: string) {
     .from("route_stages")
     .select("id,route_id,day")
     .in("id", [stageIdA, stageIdB]);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   if (!rows || rows.length !== 2) return { error: "Etapas no encontradas" };
   if (rows[0].route_id !== rows[1].route_id) return { error: "Etapas de rutas distintas" };
 
@@ -145,11 +146,11 @@ export async function swapRouteStages(stageIdA: string, stageIdB: string) {
 
   // Dance: A → -1 (temporal), B → A.day, A → B.day. Evita choque con unique (route_id, day).
   const e1 = await supabase.from("route_stages").update({ day: -1 }).eq("id", a.id);
-  if (e1.error) return { error: e1.error.message };
+  if (e1.error) return { error: mensajeError(e1.error) };
   const e2 = await supabase.from("route_stages").update({ day: a.day }).eq("id", b.id);
-  if (e2.error) return { error: e2.error.message };
+  if (e2.error) return { error: mensajeError(e2.error) };
   const e3 = await supabase.from("route_stages").update({ day: b.day }).eq("id", a.id);
-  if (e3.error) return { error: e3.error.message };
+  if (e3.error) return { error: mensajeError(e3.error) };
 
   revalidatePath("/catalogo");
   return { ok: true };

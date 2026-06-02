@@ -1,4 +1,5 @@
 import { createPublicSchemaClient } from "@/lib/supabase/server";
+import { mensajeError } from "@/lib/errors";
 import { getTokenPricing, pricingFor, costUsd } from "@/lib/tokens";
 import { getTRMHoy } from "@/lib/trm";
 import { fechaCorta } from "@/lib/format";
@@ -103,7 +104,7 @@ export default async function TokensPage() {
       </header>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">{error.message}</div>
+        <div className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">{mensajeError(error, "No se pudo cargar el consumo de tokens.")}</div>
       )}
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-3">

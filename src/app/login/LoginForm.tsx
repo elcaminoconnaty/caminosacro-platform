@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createPublicClient } from "@/lib/supabase/client";
+import { mensajeError } from "@/lib/errors";
 
 export default function LoginForm() {
   const [email, setEmail] = useState("");
@@ -16,7 +17,7 @@ export default function LoginForm() {
     const supabase = createPublicClient();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      setError(error.message === "Invalid login credentials" ? "Correo o contraseña incorrectos." : error.message);
+      setError(mensajeError(error, "No se pudo iniciar sesión. Intentá de nuevo."));
       setLoading(false);
       return;
     }

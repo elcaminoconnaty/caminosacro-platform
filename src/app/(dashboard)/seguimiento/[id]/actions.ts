@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
+import { mensajeError } from "@/lib/errors";
 import { getTRMHoy } from "@/lib/trm";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { isQuoteStatus } from "@/lib/quoteStatus";
@@ -70,7 +71,7 @@ export async function updateQuote(id: string, formData: FormData) {
     notes: str(formData.get("notes")),
   };
   const { error } = await supabase.from("quotes").update(patch).eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   // Recalcular total_eur = base + suplemento + opcionales
   await supabase.rpc("recompute_quote_total", { p_quote_id: id });
   revalidatePath(`/seguimiento/${id}`);
@@ -83,7 +84,7 @@ export async function updateQuoteStatus(id: string, status: string) {
   if (!isQuoteStatus(status)) return { error: "Estado inválido" };
   const supabase = await createCommercialClient();
   const { error } = await supabase.from("quotes").update({ status }).eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath("/seguimiento");
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/calendario");
@@ -105,7 +106,7 @@ export async function deleteQuote(id: string) {
     await removeStoragePath(supabase, q.hotels_pdf_path);
   }
   const { error } = await supabase.from("quotes").delete().eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath("/seguimiento");
   revalidatePath("/calendario");
   return { ok: true };
@@ -133,14 +134,14 @@ export async function toggleQuoteOptional(quoteId: string, optionalId: string, o
       cost_unit: Number(opt.price_pilgrim) || 0,
       reference_id: optionalId,
     });
-    if (error) return { error: error.message };
+    if (error) return { error: mensajeError(error) };
   } else {
     const { error } = await supabase
       .from("quote_lines")
       .delete()
       .eq("quote_id", quoteId)
       .eq("reference_id", optionalId);
-    if (error) return { error: error.message };
+    if (error) return { error: mensajeError(error) };
   }
   await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
   revalidatePath(`/seguimiento/${quoteId}`);
@@ -155,7 +156,7 @@ export async function updateQuoteLineQuantity(quoteId: string, lineId: string, q
     .update({ quantity: Math.max(1, quantity) })
     .eq("id", lineId)
     .eq("quote_id", quoteId);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
@@ -181,7 +182,7 @@ export async function addClientPayment(id: string, formData: FormData) {
     reference: str(formData.get("reference")),
     notes: str(formData.get("notes")),
   });
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -209,7 +210,7 @@ export async function updateClientPayment(quoteId: string, paymentId: string, fo
     })
     .eq("id", paymentId)
     .eq("quote_id", quoteId);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   revalidatePath("/finanzas");
@@ -219,7 +220,7 @@ export async function updateClientPayment(quoteId: string, paymentId: string, fo
 export async function deleteClientPayment(quoteId: string, paymentId: string) {
   const supabase = await createCommercialClient();
   const { error } = await supabase.from("client_payments").delete().eq("id", paymentId);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -235,7 +236,7 @@ export async function addProviderPayment(id: string, formData: FormData) {
     account: str(formData.get("account")),
     notes: str(formData.get("notes")),
   });
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -254,7 +255,7 @@ export async function updateProviderPayment(quoteId: string, paymentId: string, 
     })
     .eq("id", paymentId)
     .eq("quote_id", quoteId);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   revalidatePath("/finanzas");
@@ -264,7 +265,7 @@ export async function updateProviderPayment(quoteId: string, paymentId: string, 
 export async function deleteProviderPayment(quoteId: string, paymentId: string) {
   const supabase = await createCommercialClient();
   const { error } = await supabase.from("provider_payments").delete().eq("id", paymentId);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -277,7 +278,7 @@ export async function getQuotePdfUrl(quoteId: string) {
   const [bucket, ...rest] = q.pdf_path.split("/");
   const filePath = rest.join("/");
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, 60 * 10);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   return { url: data.signedUrl };
 }
 
@@ -287,7 +288,7 @@ export async function getSignedUrl(storagePath: string) {
   const [bucket, ...rest] = storagePath.split("/");
   const filePath = rest.join("/");
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, 60 * 10);
-  if (error) return { error: error.message };
+  if (error) return { error: mensajeError(error) };
   return { url: data.signedUrl };
 }
 
@@ -504,7 +505,7 @@ export async function generateQuotePdf(quoteId: string) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     buffer = await renderToBuffer(element as any);
   } catch (e) {
-    return { error: `Render PDF: ${(e as Error).message}` };
+    return { error: mensajeError(e as Error, "No se pudo generar el PDF de la cotización.") };
   }
 
   const path = buildPdfFilename(quote.code, quote.client_name, quote.route_name);
@@ -518,10 +519,10 @@ export async function generateQuotePdf(quoteId: string) {
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
     .upload(path, buffer, { contentType: "application/pdf", upsert: true });
-  if (upErr) return { error: upErr.message };
+  if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);
-  if (dbErr) return { error: dbErr.message };
+  if (dbErr) return { error: mensajeError(dbErr) };
 
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
@@ -548,7 +549,7 @@ function addDays(isoDate: string, days: number): string {
 export async function saveQuoteHotels(quoteId: string, rows: HotelInput[]) {
   const supabase = await createCommercialClient();
   const { error: delErr } = await supabase.from("quote_hotels").delete().eq("quote_id", quoteId);
-  if (delErr) return { error: delErr.message };
+  if (delErr) return { error: mensajeError(delErr) };
   const clean = rows.filter((r) => r.city || r.hotel_name || r.address || r.contact || r.notes || r.night_date);
   if (clean.length > 0) {
     const payload = clean.map((r, i) => ({
@@ -562,7 +563,7 @@ export async function saveQuoteHotels(quoteId: string, rows: HotelInput[]) {
       notes: r.notes || null,
     }));
     const { error: insErr } = await supabase.from("quote_hotels").insert(payload);
-    if (insErr) return { error: insErr.message };
+    if (insErr) return { error: mensajeError(insErr) };
   }
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
@@ -647,7 +648,7 @@ export async function generateHotelsPdf(quoteId: string) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     buffer = await renderToBuffer(element as any);
   } catch (e) {
-    return { error: `Render PDF: ${(e as Error).message}` };
+    return { error: mensajeError(e as Error, "No se pudo generar el PDF de hoteles.") };
   }
 
   const filename = buildPdfFilename(`${quote.code}_hoteles`, quote.client_name, quote.route_name);
@@ -661,10 +662,10 @@ export async function generateHotelsPdf(quoteId: string) {
   const { error: upErr } = await supabase.storage
     .from("comercial-hotels")
     .upload(filename, buffer, { contentType: "application/pdf", upsert: true });
-  if (upErr) return { error: upErr.message };
+  if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ hotels_pdf_path: pdfPath }).eq("id", quoteId);
-  if (dbErr) return { error: dbErr.message };
+  if (dbErr) return { error: mensajeError(dbErr) };
 
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
@@ -696,10 +697,10 @@ export async function uploadQuotePdf(quoteId: string, formData: FormData) {
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
     .upload(path, buffer, { contentType: "application/pdf", upsert: true });
-  if (upErr) return { error: upErr.message };
+  if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);
-  if (dbErr) return { error: dbErr.message };
+  if (dbErr) return { error: mensajeError(dbErr) };
 
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };

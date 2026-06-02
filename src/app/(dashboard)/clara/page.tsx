@@ -1,4 +1,5 @@
 import { createPublicSchemaClient } from "@/lib/supabase/server";
+import { mensajeError } from "@/lib/errors";
 import { hace } from "@/lib/format";
 import { groupByDay } from "@/lib/dayGroup";
 import Link from "next/link";
@@ -79,7 +80,7 @@ export default async function ClaraPage() {
 
       {error && (
         <div className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
-          Error leyendo conversaciones: {error.message}
+          {mensajeError(error, "No se pudieron leer las conversaciones.")}
         </div>
       )}
 

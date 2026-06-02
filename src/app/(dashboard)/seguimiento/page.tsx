@@ -1,4 +1,5 @@
 import { createCommercialClient } from "@/lib/supabase/server";
+import { mensajeError } from "@/lib/errors";
 import { eur } from "@/lib/format";
 import Link from "next/link";
 import QuotesTable, { type QuoteRow } from "./QuotesTable";
@@ -98,7 +99,7 @@ export default async function SeguimientoPage() {
           {error.message.includes("does not exist") || error.message.includes("schema") ? (
             <>El schema <code className="font-mono">comercial</code> no está expuesto. Agregalo en Supabase Dashboard → API → Exposed schemas.</>
           ) : (
-            <>Error: {error.message}</>
+            <>{mensajeError(error, "No se pudo cargar el seguimiento.")}</>
           )}
         </div>
       )}

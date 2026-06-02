@@ -1,4 +1,5 @@
 import { createCommercialClient } from "@/lib/supabase/server";
+import { mensajeError } from "@/lib/errors";
 import PricingTable, { type Row } from "./PricingTable";
 import OptionalsTable, { type Opt } from "./OptionalsTable";
 import ResourcesList, { type Resource } from "./ResourcesList";
@@ -124,7 +125,7 @@ export default async function CatalogoPage() {
           {error.message.includes("does not exist") || error.message.includes("schema") ? (
             <>El schema <code className="font-mono">comercial</code> no está expuesto. Agregalo en Supabase Dashboard → API → Exposed schemas.</>
           ) : (
-            <>Error: {error.message}</>
+            <>{mensajeError(error, "No se pudo cargar el catálogo.")}</>
           )}
         </div>
       )}
