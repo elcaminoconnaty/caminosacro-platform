@@ -5,6 +5,9 @@ import { createQuote, findClientByPhone, type ClientLite } from "./actions";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 import { DEFAULT_STATUS, STATUS_LABELS } from "@/lib/quoteStatus";
 
+// Etiqueta para agrupar rutas activas sin "family" asignada, así no quedan invisibles en el asistente.
+const SIN_FAMILIA = "Otras rutas";
+
 type PricingRow = {
   route_id: string;
   route_name: string;
@@ -116,12 +119,17 @@ export default function Wizard({
   // Familias disponibles + rutas filtradas
   const families = useMemo(() => {
     const set = new Set<string>();
-    routes.forEach((r) => { if (r.family) set.add(r.family); });
-    return [...set].sort();
+    let hasUnclassified = false;
+    routes.forEach((r) => { if (r.family) set.add(r.family); else hasUnclassified = true; });
+    const list = [...set].sort();
+    if (hasUnclassified) list.push(SIN_FAMILIA); // las rutas sin familia van al final, agrupadas
+    return list;
   }, [routes]);
 
   const familyRoutes = useMemo(
-    () => routes.filter((r) => r.family === family).sort((a, b) => (b.days || 0) - (a.days || 0)),
+    () => routes
+      .filter((r) => (family === SIN_FAMILIA ? !r.family : r.family === family))
+      .sort((a, b) => (b.days || 0) - (a.days || 0)),
     [routes, family],
   );
 
