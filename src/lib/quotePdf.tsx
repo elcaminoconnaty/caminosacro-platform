@@ -496,13 +496,18 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
 
         {/* Price boxes — dinámicos: 1 o 2 según haya en catálogo. El elegido va en verde. */}
         {priceBlocks && priceBlocks.length > 0 && (
-          <View style={priceBlocks.length === 1 ? [s.priceRow, { justifyContent: "center" }] : s.priceRow}>
+          <View style={s.priceRow}>
+            {/* Bloque único: espaciadores flex a los lados centran la tarjeta al ~60%.
+                (Usar width:"%" sobre un hijo flex rompe el layout de react-pdf y corrompe
+                los recuadros de stats/info de esta página.) */}
+            {priceBlocks.length === 1 && <View style={{ flex: 1 }} />}
             {priceBlocks.map((b, i) => {
               const isDark = b.isSelected;
-              const baseCard = [s.priceCard, isDark ? s.priceCardDark : s.priceCardLight];
-              const cardStyle = priceBlocks.length === 1
-                ? [...baseCard, { flex: 0, width: "60%" as const }]
-                : baseCard;
+              const cardStyle = [
+                s.priceCard,
+                isDark ? s.priceCardDark : s.priceCardLight,
+                priceBlocks.length === 1 ? { flex: 3 } : null,
+              ];
               return (
                 <View key={i} style={cardStyle}>
                   <Text style={[s.priceLabel, isDark ? s.priceLabelDark : s.priceLabelLight]}>{b.label}</Text>
@@ -515,6 +520,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
                 </View>
               );
             })}
+            {priceBlocks.length === 1 && <View style={{ flex: 1 }} />}
           </View>
         )}
 
