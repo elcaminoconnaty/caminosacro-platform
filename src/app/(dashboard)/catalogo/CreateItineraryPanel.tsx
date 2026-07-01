@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Plus, Trash2, Save, X } from "lucide-react";
 import { createItinerary, type NewStageInput } from "./actions";
 
@@ -27,7 +26,6 @@ export default function CreateItineraryPanel({
   routes: { id: string; name: string }[];
   onClose: () => void;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -66,10 +64,7 @@ export default function CreateItineraryPanel({
     startTransition(async () => {
       const r = await createItinerary(routeId, stages);
       if (r?.error) setError(r.error);
-      else {
-        router.refresh();
-        onClose();
-      }
+      else window.location.reload();
     });
   }
 

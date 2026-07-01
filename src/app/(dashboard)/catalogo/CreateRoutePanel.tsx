@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Save, X } from "lucide-react";
 import { createRoute, type NewRoutePrice } from "./actions";
 
@@ -29,7 +28,6 @@ function numOrNull(s: string): number | null {
 }
 
 export default function CreateRoutePanel({ families, onClose }: { families: string[]; onClose: () => void }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -75,10 +73,7 @@ export default function CreateRoutePanel({ families, onClose }: { families: stri
         prices: priceRows,
       });
       if (r?.error) setError(r.error);
-      else {
-        router.refresh();
-        onClose();
-      }
+      else window.location.reload();
     });
   }
 

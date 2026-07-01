@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { MapPin, ListOrdered } from "lucide-react";
+import { MapPin, ListOrdered, Pencil } from "lucide-react";
 import CreateRoutePanel from "./CreateRoutePanel";
 import CreateItineraryPanel from "./CreateItineraryPanel";
+import EditRoutePanel from "./EditRoutePanel";
 
 export default function CatalogToolbar({
   families,
@@ -12,7 +13,7 @@ export default function CatalogToolbar({
   families: string[];
   routes: { id: string; name: string }[];
 }) {
-  const [open, setOpen] = useState<"route" | "itinerary" | null>(null);
+  const [open, setOpen] = useState<"route" | "itinerary" | "edit" | null>(null);
 
   return (
     <div className="space-y-4">
@@ -33,10 +34,19 @@ export default function CatalogToolbar({
         >
           <ListOrdered size={15} /> Crear itinerario
         </button>
+        <button
+          onClick={() => setOpen((o) => (o === "edit" ? null : "edit"))}
+          className={`inline-flex items-center gap-1.5 text-sm px-3.5 py-2 rounded-md border transition ${
+            open === "edit" ? "bg-bosque text-white border-bosque" : "border-border bg-bg-card hover:bg-taupe/40"
+          }`}
+        >
+          <Pencil size={15} /> Editar / eliminar ruta
+        </button>
       </div>
 
       {open === "route" && <CreateRoutePanel families={families} onClose={() => setOpen(null)} />}
       {open === "itinerary" && <CreateItineraryPanel routes={routes} onClose={() => setOpen(null)} />}
+      {open === "edit" && <EditRoutePanel families={families} routes={routes} onClose={() => setOpen(null)} />}
     </div>
   );
 }

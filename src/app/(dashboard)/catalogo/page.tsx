@@ -6,6 +6,9 @@ import ResourcesList, { type Resource } from "./ResourcesList";
 import RouteStagesEditor, { type RouteWithStagesEditable } from "./RouteStagesEditor";
 import CatalogToolbar from "./CatalogToolbar";
 
+// Siempre lee datos frescos de la DB (evita mostrar rutas/precios cacheados tras crear/editar).
+export const dynamic = "force-dynamic";
+
 // Familias conocidas de Caminos, para el autocompletado del alta de rutas.
 const KNOWN_FAMILIES = ["Francés", "Portugués", "Costero", "Primitivo", "Inglés", "Norte", "Fisterra"];
 

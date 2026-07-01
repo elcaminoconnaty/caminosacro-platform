@@ -184,6 +184,122 @@ export async function createItinerary(routeId: string, stages: NewStageInput[]) 
   return { ok: true };
 }
 
+export type RouteForEdit = {
+  id: string;
+  name: string;
+  family: string | null;
+  origin: string | null;
+  destination: string | null;
+  days: number | null;
+  nights: number | null;
+  km: number | null;
+  modality: string;
+  difficulty: string | null;
+  description: string | null;
+  prices: NewRoutePrice[];
+};
+
+export async function getRouteForEdit(routeId: string): Promise<{ route: RouteForEdit } | { error: string }> {
+  const supabase = await createCommercialClient();
+  const { data: r, error } = await supabase
+    .from("routes")
+    .select("id,name,family,origin,destination,days,nights,km,modality,difficulty,description")
+    .eq("id", routeId)
+    .maybeSingle();
+  if (error) return { error: mensajeError(error) };
+  if (!r) return { error: "Ruta no encontrada" };
+  const { data: prices } = await supabase
+    .from("pricing")
+    .select("modality,price_pilgrim,price_cs")
+    .eq("route_id", routeId)
+    .eq("season", "regular");
+  const priceRows: NewRoutePrice[] = ((prices as { modality: string; price_pilgrim: string | number | null; price_cs: string | number | null }[]) || []).map((p) => ({
+    modality: p.modality,
+    price_pilgrim: p.price_pilgrim == null ? null : Number(p.price_pilgrim),
+    price_cs: p.price_cs == null ? null : Number(p.price_cs),
+  }));
+  return {
+    route: {
+      id: r.id,
+      name: r.name,
+      family: r.family,
+      origin: r.origin,
+      destination: r.destination,
+      days: r.days,
+      nights: r.nights,
+      km: r.km == null ? null : Number(r.km),
+      modality: r.modality || "senderismo",
+      difficulty: r.difficulty,
+      description: r.description,
+      prices: priceRows,
+    },
+  };
+}
+
+export async function updateRoute(routeId: string, input: NewRouteInput) {
+  const supabase = await createCommercialClient();
+  const name = (input.name || "").trim();
+  if (!name) return { error: "El nombre de la ruta es obligatorio." };
+
+  const { error: upErr } = await supabase
+    .from("routes")
+    .update({
+      name,
+      family: input.family?.trim() || null,
+      origin: input.origin?.trim() || null,
+      destination: input.destination?.trim() || null,
+      days: input.days ?? null,
+      nights: input.nights ?? null,
+      km: input.km ?? null,
+      modality: input.modality || "senderismo",
+      difficulty: input.difficulty?.trim() || null,
+      description: input.description?.trim() || null,
+    })
+    .eq("id", routeId);
+  if (upErr) return { error: mensajeError(upErr) };
+
+  // Sincroniza precios: fila existente → update; con valores y sin fila → insert; vaciada → delete.
+  const { data: existing, error: selErr } = await supabase
+    .from("pricing")
+    .select("id,modality")
+    .eq("route_id", routeId)
+    .eq("season", "regular");
+  if (selErr) return { error: mensajeError(selErr) };
+  const byMod = new Map(((existing as { id: string; modality: string }[]) || []).map((e) => [e.modality, e.id]));
+
+  for (const p of input.prices || []) {
+    const has = p.price_pilgrim != null || p.price_cs != null;
+    const id = byMod.get(p.modality);
+    if (has && id) {
+      const { error } = await supabase.from("pricing").update({ price_pilgrim: p.price_pilgrim, price_cs: p.price_cs }).eq("id", id);
+      if (error) return { error: mensajeError(error) };
+    } else if (has && !id) {
+      const { error } = await supabase.from("pricing").insert({ route_id: routeId, modality: p.modality, season: "regular", price_pilgrim: p.price_pilgrim, price_cs: p.price_cs });
+      if (error) return { error: mensajeError(error) };
+    } else if (!has && id) {
+      const { error } = await supabase.from("pricing").delete().eq("id", id);
+      if (error) return { error: mensajeError(error) };
+    }
+  }
+
+  revalidatePath("/catalogo");
+  revalidatePath("/cotizaciones/nueva");
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+export async function deleteRoute(routeId: string) {
+  const supabase = await createCommercialClient();
+  if (!routeId) return { error: "Ruta no especificada." };
+  // FK on delete cascade borra pricing y route_stages de la ruta.
+  const { error } = await supabase.from("routes").delete().eq("id", routeId);
+  if (error) return { error: mensajeError(error) };
+  revalidatePath("/catalogo");
+  revalidatePath("/cotizaciones/nueva");
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
 // =============================================================
 // Etapas de ruta (route_stages)
 // =============================================================
