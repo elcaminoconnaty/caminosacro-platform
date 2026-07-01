@@ -57,6 +57,134 @@ export async function updateOptionalService(
 }
 
 // =============================================================
+// Alta de rutas + precios
+// =============================================================
+
+type CommercialClient = Awaited<ReturnType<typeof createCommercialClient>>;
+
+function slugify(s: string): string {
+  return (
+    s
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "ruta"
+  );
+}
+
+async function uniqueRouteSlug(supabase: CommercialClient, base: string): Promise<string> {
+  const { data } = await supabase.from("routes").select("slug").like("slug", `${base}%`);
+  const taken = new Set(((data as { slug: string }[]) || []).map((r) => r.slug));
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
+}
+
+export type NewRoutePrice = { modality: string; price_pilgrim: number | null; price_cs: number | null };
+
+export type NewRouteInput = {
+  name: string;
+  family: string | null;
+  origin: string | null;
+  destination: string | null;
+  days: number | null;
+  nights: number | null;
+  km: number | null;
+  modality: string; // senderismo | bici | mixto
+  difficulty: string | null;
+  description: string | null;
+  prices: NewRoutePrice[];
+};
+
+export async function createRoute(input: NewRouteInput) {
+  const supabase = await createCommercialClient();
+  const name = (input.name || "").trim();
+  if (!name) return { error: "El nombre de la ruta es obligatorio." };
+
+  const slug = await uniqueRouteSlug(supabase, slugify(name));
+
+  const { data: route, error: insErr } = await supabase
+    .from("routes")
+    .insert({
+      slug,
+      name,
+      family: input.family?.trim() || null,
+      origin: input.origin?.trim() || null,
+      destination: input.destination?.trim() || null,
+      days: input.days ?? null,
+      nights: input.nights ?? null,
+      km: input.km ?? null,
+      modality: input.modality || "senderismo",
+      difficulty: input.difficulty?.trim() || null,
+      description: input.description?.trim() || null,
+      active: true,
+    })
+    .select("id")
+    .single();
+  if (insErr) return { error: mensajeError(insErr) };
+
+  // Una fila de precio por modalidad con al menos un precio cargado.
+  const priceRows = (input.prices || [])
+    .filter((p) => p.price_pilgrim != null || p.price_cs != null)
+    .map((p) => ({
+      route_id: route.id,
+      modality: p.modality,
+      season: "regular",
+      price_pilgrim: p.price_pilgrim,
+      price_cs: p.price_cs,
+    }));
+  if (priceRows.length > 0) {
+    const { error: prErr } = await supabase.from("pricing").insert(priceRows);
+    if (prErr) return { error: mensajeError(prErr) };
+  }
+
+  revalidatePath("/catalogo");
+  revalidatePath("/cotizaciones/nueva");
+  revalidatePath("/seguimiento");
+  return { ok: true, routeId: route.id };
+}
+
+export type NewStageInput = {
+  from_place: string | null;
+  to_place: string | null;
+  km: number | null;
+  accommodation: string | null;
+};
+
+// Crea/reemplaza el itinerario completo de una ruta (patrón delete + insert en lote).
+export async function createItinerary(routeId: string, stages: NewStageInput[]) {
+  const supabase = await createCommercialClient();
+  if (!routeId) return { error: "Elegí una ruta." };
+
+  const { error: delErr } = await supabase.from("route_stages").delete().eq("route_id", routeId);
+  if (delErr) return { error: mensajeError(delErr) };
+
+  const rows = (stages || []).map((s, i) => ({
+    route_id: routeId,
+    day: i + 1,
+    from_place: s.from_place?.trim() || null,
+    to_place: s.to_place?.trim() || null,
+    km: s.km ?? null,
+    accommodation: s.accommodation?.trim() || null,
+  }));
+  if (rows.length > 0) {
+    const { error: insErr } = await supabase.from("route_stages").insert(rows);
+    if (insErr) return { error: mensajeError(insErr) };
+  }
+
+  // Contador de etapas caminadas (km > 0) para el aviso de coherencia.
+  const walking = rows.filter((r) => (Number(r.km) || 0) > 0).length;
+  await supabase.from("routes").update({ stages: walking || null }).eq("id", routeId);
+
+  revalidatePath("/catalogo");
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+// =============================================================
 // Etapas de ruta (route_stages)
 // =============================================================
 

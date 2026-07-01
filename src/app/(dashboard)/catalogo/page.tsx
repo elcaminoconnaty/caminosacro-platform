@@ -4,6 +4,10 @@ import PricingTable, { type Row } from "./PricingTable";
 import OptionalsTable, { type Opt } from "./OptionalsTable";
 import ResourcesList, { type Resource } from "./ResourcesList";
 import RouteStagesEditor, { type RouteWithStagesEditable } from "./RouteStagesEditor";
+import CatalogToolbar from "./CatalogToolbar";
+
+// Familias conocidas de Caminos, para el autocompletado del alta de rutas.
+const KNOWN_FAMILIES = ["Francés", "Portugués", "Costero", "Primitivo", "Inglés", "Norte", "Fisterra"];
 
 export default async function CatalogoPage() {
   const supabase = await createCommercialClient();
@@ -113,12 +117,19 @@ export default async function CatalogoPage() {
 
   const error = errPricing || errOpt;
 
+  const families = [...new Set([...KNOWN_FAMILIES, ...routesWithStages.map((r) => r.family).filter((f): f is string => !!f)])].sort();
+  const routesList = routesWithStages
+    .map((r) => ({ id: r.id, name: r.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return (
     <div className="space-y-8">
       <header>
         <h1 className="font-display text-3xl text-bosque">Catálogo</h1>
         <p className="text-muted text-sm mt-1">Precios Pilgrim vs precios Camino Sacro. Editable inline.</p>
       </header>
+
+      <CatalogToolbar families={families} routes={routesList} />
 
       {error && (
         <div className="rounded-md border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
