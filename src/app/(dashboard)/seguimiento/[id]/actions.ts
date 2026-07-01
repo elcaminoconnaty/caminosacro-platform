@@ -505,6 +505,7 @@ export async function generateQuotePdf(quoteId: string) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     buffer = await renderToBuffer(element as any);
   } catch (e) {
+    console.error("[generateQuotePdf] render falló:", e);
     return { error: mensajeError(e as Error, "No se pudo generar el PDF de la cotización.") };
   }
 
@@ -516,9 +517,11 @@ export async function generateQuotePdf(quoteId: string) {
     await supabase.storage.from("comercial-quotes").remove([oldFilePath]).catch(() => {});
   }
 
+  // cacheControl "no-cache": la ruta del archivo es determinista (mismo nombre al regenerar),
+  // así que sin esto la CDN/URL firmada seguiría sirviendo el PDF viejo tras regenerar.
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
-    .upload(path, buffer, { contentType: "application/pdf", upsert: true });
+    .upload(path, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);
@@ -648,6 +651,7 @@ export async function generateHotelsPdf(quoteId: string) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     buffer = await renderToBuffer(element as any);
   } catch (e) {
+    console.error("[generateHotelsPdf] render falló:", e);
     return { error: mensajeError(e as Error, "No se pudo generar el PDF de hoteles.") };
   }
 
@@ -661,7 +665,7 @@ export async function generateHotelsPdf(quoteId: string) {
 
   const { error: upErr } = await supabase.storage
     .from("comercial-hotels")
-    .upload(filename, buffer, { contentType: "application/pdf", upsert: true });
+    .upload(filename, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ hotels_pdf_path: pdfPath }).eq("id", quoteId);
@@ -696,7 +700,7 @@ export async function uploadQuotePdf(quoteId: string, formData: FormData) {
   const buffer = await file.arrayBuffer();
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
-    .upload(path, buffer, { contentType: "application/pdf", upsert: true });
+    .upload(path, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);

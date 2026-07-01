@@ -506,7 +506,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
               const cardStyle = [
                 s.priceCard,
                 isDark ? s.priceCardDark : s.priceCardLight,
-                priceBlocks.length === 1 ? { flex: 3 } : null,
+                ...(priceBlocks.length === 1 ? [{ flex: 3 }] : []),
               ];
               return (
                 <View key={i} style={cardStyle}>
