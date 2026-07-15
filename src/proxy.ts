@@ -1,7 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback"];
+// /cotizar es el cotizador público que enlaza caminosacro.com: no exige sesión.
+// /api/wp son los endpoints del cotizador de WordPress: traen su propia
+// autenticación por secreto compartido (x-cs-api-key), no sesión de usuario.
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/cotizar", "/api/wp"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

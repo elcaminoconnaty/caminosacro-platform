@@ -1,7 +1,13 @@
 import "server-only";
 import { createCommercialClient } from "@/lib/supabase/server";
+import type { createAdminClient } from "@/lib/supabase/admin";
 
 type TRMRow = { date: string; eur_cop: number; source: string; fetched_at: string };
+
+/** El dashboard pasa su cliente de sesión; el cotizador público pasa el admin (no hay usuario). */
+type TRMClient =
+  | Awaited<ReturnType<typeof createCommercialClient>>
+  | ReturnType<typeof createAdminClient>;
 
 let cache: { value: TRMRow; expiresAt: number } | null = null;
 const HOUR = 60 * 60 * 1000;
@@ -28,11 +34,11 @@ async function fetchTRMFromAPIs(): Promise<{ rate: number; source: string } | nu
 }
 
 /** TRM EUR→COP del día. Cache 1h en memoria del servidor + persistencia en comercial.trm_history. */
-export async function getTRMHoy(): Promise<TRMRow | null> {
+export async function getTRMHoy(client?: TRMClient): Promise<TRMRow | null> {
   const now = Date.now();
   if (cache && cache.expiresAt > now) return cache.value;
 
-  const supabase = await createCommercialClient();
+  const supabase = client ?? (await createCommercialClient());
   const today = todayISO();
 
   const { data: existing } = await supabase

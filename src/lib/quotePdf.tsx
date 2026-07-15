@@ -205,6 +205,14 @@ const s = StyleSheet.create({
   ctaContactLabel: { fontFamily: SANS, fontSize: 7, color: "rgba(255,255,255,0.6)", letterSpacing: 1, marginBottom: 4 },
   ctaContactValue: { fontFamily: SANS_BOLD, fontSize: 11, color: C.white },
 
+  // CTA secundario: salidas grupales con Naty (cierra todos los PDFs)
+  ctaAltBox: { backgroundColor: C.greenL, borderRadius: 8, padding: 18, marginBottom: 14, borderWidth: 0.5, borderColor: C.borde },
+  ctaAltEyebrow: { fontFamily: SANS, fontSize: 8, color: C.oroH, letterSpacing: 2, marginBottom: 6 },
+  ctaAltTitle: { fontFamily: SERIF, fontSize: 16, color: C.verde, marginBottom: 6 },
+  ctaAltText: { fontFamily: SANS, fontSize: 9, color: C.verdeM, marginBottom: 12, lineHeight: 1.5 },
+  ctaAltContactLabel: { fontFamily: SANS, fontSize: 7, color: C.sec, letterSpacing: 1, marginBottom: 4 },
+  ctaAltContactValue: { fontFamily: SANS_BOLD, fontSize: 11, color: C.verde },
+
   validityWarn: { backgroundColor: C.amberL, borderRadius: 5, padding: 10, marginBottom: 14 },
   validityWarnTitle: { fontFamily: SANS_BOLD, fontSize: 9, color: C.amberT, marginBottom: 3 },
   validityWarnText: { fontFamily: SANS, fontSize: 8.5, color: C.amberT, lineHeight: 1.4 },
@@ -264,6 +272,19 @@ export type QuotePDFProps = {
   baseEur?: number;
   /** Suplemento de temporada aplicado (alta o Semana Santa). Aparece como línea propia en el resumen. */
   seasonSupplement?: { kind: "regular" | "high_season" | "easter"; total: number; perPerson: number };
+  /**
+   * Desglose de habitaciones para grupos con reparto mixto (cotizador web:
+   * pares en doble + el impar en individual). Si viene, el resumen de inversión
+   * pinta una línea por tipo de habitación en vez de la línea única por persona.
+   * Tarifas por persona en EUR.
+   */
+  roomBreakdown?: {
+    tipo: "pension" | "hotel";
+    dobles: number;
+    individuales: number;
+    tarifa_doble: number;
+    tarifa_single: number;
+  } | null;
 };
 
 // =============== HELPERS ===============
@@ -391,7 +412,7 @@ const CAT_TITLE: Record<string, string> = {
 const CAT_ORDER = ["seguro", "noche_extra", "meal", "transfer", "tour", "gift"];
 
 // =============== COMPONENT ===============
-export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceBlocks, selectedOptionals, baseEur, seasonSupplement }: QuotePDFProps) {
+export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceBlocks, selectedOptionals, baseEur, seasonSupplement, roomBreakdown }: QuotePDFProps) {
   const total = Number(quote.total_eur) || 0;
   const base = Number(baseEur) || total;
   const people = quote.people || 1;
@@ -414,6 +435,11 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
 
   const dateLine = buildDateLine(quote.start_date, quote.end_date);
   const subtituloRuta = "CAMINO DE SANTIAGO";
+
+  // Desglose mixto solo cuando de verdad hay dobles E individuales; con un solo
+  // tipo de habitación la línea única de siempre dice exactamente lo mismo.
+  const mixto = roomBreakdown && roomBreakdown.dobles > 0 && roomBreakdown.individuales > 0 ? roomBreakdown : null;
+  const tipoAlojMixto = mixto?.tipo === "hotel" ? "hotel" : "pensión";
 
   const itin = buildItinerarioStages(stages, modInfo.tipoAlojamiento, origin, destination);
 
@@ -632,17 +658,45 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
               <Text style={[s.resumenHead, s.resumenPpl]}>Cant.</Text>
               <Text style={[s.resumenHead, s.resumenTotal]}>Total</Text>
             </View>
-            <View style={s.resumenLine}>
-              <View style={s.resumenLineConcept}>
-                <Text style={s.resumenLineConceptName}>{quote.route_name}</Text>
-                <Text style={s.resumenLineConceptSub}>
-                  Hab. {modInfo.habitacion.toLowerCase()} {modInfo.tipoAlojamiento.toLowerCase()} · {modInfo.regimen}
-                </Text>
+            {mixto ? (
+              <>
+                {/* Reparto mixto (cotizador web): una línea por tipo de habitación. */}
+                <View style={s.resumenLine}>
+                  <View style={s.resumenLineConcept}>
+                    <Text style={s.resumenLineConceptName}>{quote.route_name}</Text>
+                    <Text style={s.resumenLineConceptSub}>
+                      {mixto.dobles} hab. {mixto.dobles === 1 ? "doble" : "dobles"} {tipoAlojMixto} ({mixto.dobles * 2} personas) · {modInfo.regimen}
+                    </Text>
+                  </View>
+                  <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(mixto.tarifa_doble)} €</Text>
+                  <Text style={[s.resumenLineCell, s.resumenPpl]}>×{mixto.dobles * 2}</Text>
+                  <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>{fmtEur(mixto.dobles * 2 * mixto.tarifa_doble)} €</Text>
+                </View>
+                <View style={s.resumenLine}>
+                  <View style={s.resumenLineConcept}>
+                    <Text style={s.resumenLineConceptName}>Habitación individual</Text>
+                    <Text style={s.resumenLineConceptSub}>
+                      {mixto.individuales} hab. individual {tipoAlojMixto} · {modInfo.regimen}
+                    </Text>
+                  </View>
+                  <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(mixto.tarifa_single)} €</Text>
+                  <Text style={[s.resumenLineCell, s.resumenPpl]}>×{mixto.individuales}</Text>
+                  <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>{fmtEur(mixto.individuales * mixto.tarifa_single)} €</Text>
+                </View>
+              </>
+            ) : (
+              <View style={s.resumenLine}>
+                <View style={s.resumenLineConcept}>
+                  <Text style={s.resumenLineConceptName}>{quote.route_name}</Text>
+                  <Text style={s.resumenLineConceptSub}>
+                    Hab. {modInfo.habitacion.toLowerCase()} {modInfo.tipoAlojamiento.toLowerCase()} · {modInfo.regimen}
+                  </Text>
+                </View>
+                <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(perPerson)} €</Text>
+                <Text style={[s.resumenLineCell, s.resumenPpl]}>×{people}</Text>
+                <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>{fmtEur(base)} €</Text>
               </View>
-              <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(perPerson)} €</Text>
-              <Text style={[s.resumenLineCell, s.resumenPpl]}>×{people}</Text>
-              <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>{fmtEur(base)} €</Text>
-            </View>
+            )}
             {seasonSupplement && seasonSupplement.kind !== "regular" && seasonSupplement.total > 0 && (
               <View style={s.resumenLine}>
                 <View style={s.resumenLineConcept}>
@@ -745,6 +799,23 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
           <Text style={s.validityWarnTitle}>Validez de esta cotización: hasta el {validezTexto}</Text>
           <Text style={s.validityWarnText}>Pasada esa fecha los precios pueden cambiar según disponibilidad. Te enviaremos la documentación de viaje y la póliza de seguro aproximadamente 30 días antes de la salida, una vez confirmado el 100% del pago.</Text>
           <Text style={[s.validityWarnText, { marginTop: 4 }]}>La asignación definitiva de alojamientos se entrega aproximadamente 1 mes antes de la fecha de inicio del viaje.</Text>
+        </View>
+
+        {/* CTA de cierre: salidas grupales con Naty */}
+        <View style={s.ctaAltBox} wrap={false}>
+          <Text style={s.ctaAltEyebrow}>OTRA FORMA DE VIVIRLO</Text>
+          <Text style={s.ctaAltTitle}>¿Quieres hacerlo en grupo y con guía terapéutica?</Text>
+          <Text style={s.ctaAltText}>Naty organiza salidas grupales del Camino de Santiago con acompañamiento terapéutico durante toda la ruta: caminas acompañado, a tu ritmo y con un propósito.</Text>
+          <View style={s.ctaContacts}>
+            <View style={s.ctaContact}>
+              <Text style={s.ctaAltContactLabel}>WEB</Text>
+              <Text style={s.ctaAltContactValue}>elcaminoconnaty.com</Text>
+            </View>
+            <View style={s.ctaContact}>
+              <Text style={s.ctaAltContactLabel}>WHATSAPP DE NATY</Text>
+              <Text style={s.ctaAltContactValue}>+57 301 431 4296</Text>
+            </View>
+          </View>
         </View>
       </Page>
     </Document>
