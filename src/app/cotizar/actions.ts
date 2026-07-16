@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
+import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { mensajeError } from "@/lib/errors";
 import { MODALIDAD_LABEL } from "./constants";
 
@@ -172,8 +173,11 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
     console.error("[cotizar] PDF falló para", quote.code, pdf.error);
   }
 
-  // 5. Correo con el PDF (webhook de n8n → Gmail). Si el envío falla, la cotización
-  //    ya existe y el cliente igual ve su enlace en pantalla: no se pierde el lead.
+  // 5. Correo con el PDF (webhook n8n → Microsoft 365, reservas@), con subject/body
+  //    renderizados desde la plantilla `cotizacion_enviada` del CRM. Si el envío
+  //    falla, la cotización ya existe y el cliente igual ve su enlace en pantalla:
+  //    no se pierde el lead.
+  const correo = await armarCorreoCotizacion(supabase, quote.id);
   const emailEnviado = await enviarCorreo({
     code: quote.code,
     nombre: datos.full_name,
@@ -185,6 +189,8 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
     alojamiento: MODALIDAD_LABEL[datos.modality] ?? datos.modality,
     total_eur: totalEur,
     pdf_url: pdfUrl,
+    subject: correo?.subject ?? null,
+    body: correo?.body ?? null,
   });
 
   return { ok: true, code: quote.code, totalEur, pdfUrl, emailEnviado };

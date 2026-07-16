@@ -3,6 +3,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
+import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { mensajeError } from "@/lib/errors";
 
 const PDF_URL_TTL = 60 * 60 * 24 * 7; // 7 días, igual que el cotizador público interno.
@@ -192,8 +193,11 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     console.error("[wp-quote] PDF falló para", quote.code, "error" in pdf ? pdf.error : "");
   }
 
-  // 7. Correo al cliente con su PDF (mismo webhook n8n → Gmail que /cotizar).
+  // 7. Correo al cliente con su PDF (webhook n8n → Microsoft 365, reservas@).
+  //    subject/body van renderizados desde la plantilla `cotizacion_enviada`
+  //    del CRM: es el mismo mensaje que ve el equipo en la tarjeta de correo.
   //    La notificación interna a reservas@ la envía WordPress; aquí solo va la del cliente.
+  const correo = await armarCorreoCotizacion(supabase, quote.id);
   const emailSent = await enviarCorreo({
     code: quote.code,
     nombre: datos.full_name,
@@ -205,6 +209,8 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     alojamiento: modalityLabel,
     total_eur: totalEur,
     pdf_url: pdfUrl,
+    subject: correo?.subject ?? null,
+    body: correo?.body ?? null,
   });
 
   return {
