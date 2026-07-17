@@ -19,6 +19,7 @@ type Quote = {
   status: string | null;
   valid_until: string | null;
   notes: string | null;
+  source: string | null;
 };
 
 type ClientPayment = { quote_id: string; amount_eur: number | null; amount: number; currency: string };
@@ -30,7 +31,7 @@ export default async function SeguimientoPage() {
     supabase
       .from("quotes")
       .select(
-        "id,code,client_name,client_phone,route_name,start_date,end_date,people,modality,total_eur,cost_eur,status,valid_until,notes",
+        "id,code,client_name,client_phone,route_name,start_date,end_date,people,modality,total_eur,cost_eur,status,valid_until,notes,source",
       )
       .order("code", { ascending: false })
       .limit(500),
@@ -76,6 +77,7 @@ export default async function SeguimientoPage() {
       saldo: total - cobr,
       utilidad: total - (q.cost_eur || 0),
       status: q.status,
+      source: q.source,
     };
   });
 

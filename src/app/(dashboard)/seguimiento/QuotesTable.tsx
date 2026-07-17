@@ -21,7 +21,14 @@ export type QuoteRow = {
   saldo: number;
   utilidad: number;
   status: string | null;
+  source: string | null;
 };
+
+// Cotizaciones que creó un visitante externo (cotizador de caminosacro.com o /cotizar),
+// no el equipo desde el CRM.
+export function esCotizacionWeb(source: string | null): boolean {
+  return source === "wordpress" || source === "web";
+}
 
 type SortKey = "code" | "client_name" | "route_name" | "start_date" | "total_eur" | "saldo" | "status";
 type SortDir = "asc" | "desc";
@@ -213,6 +220,9 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
                 <tr key={q.id} className={`hover:bg-taupe/20 ${busyId === q.id && pending ? "opacity-50" : ""}`}>
                   <td className="px-4 py-2.5 whitespace-nowrap">
                     <Link href={`/seguimiento/${q.id}`} className="text-bosque font-medium hover:underline">{q.code}</Link>
+                    {esCotizacionWeb(q.source) && (
+                      <span className="ml-1.5 align-middle text-[10px] px-1.5 py-0.5 rounded bg-dorado-oscuro/15 text-dorado-oscuro font-semibold uppercase tracking-wide">Web</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap">{q.client_name || <span className="text-muted">—</span>}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap text-muted text-xs font-mono">{q.client_phone || "—"}</td>
