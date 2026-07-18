@@ -13,6 +13,27 @@ export async function updatePricing(id: string, field: "price_pilgrim" | "price_
   return { ok: true };
 }
 
+// Para filas "virtuales" de la tabla del catálogo: rutas sin fila en pricing para
+// una modalidad. Al teclear el primer precio se crea la fila y se devuelve su id.
+export async function upsertPricing(
+  routeId: string,
+  modality: string,
+  field: "price_pilgrim" | "price_cs",
+  value: number | null,
+) {
+  const supabase = await createCommercialClient();
+  const { data, error } = await supabase
+    .from("pricing")
+    .insert({ route_id: routeId, modality, season: "regular", [field]: value })
+    .select("id")
+    .single();
+  if (error) return { error: mensajeError(error) };
+  revalidatePath("/catalogo");
+  revalidatePath("/cotizaciones/nueva");
+  revalidatePath("/seguimiento");
+  return { ok: true, id: data.id as string };
+}
+
 export async function applyMarkupRule() {
   // Regla: max(pilgrim+100, pilgrim/0.85). Aplica a todas las filas con price_pilgrim > 0.
   const supabase = await createCommercialClient();
@@ -96,6 +117,7 @@ export type NewRouteInput = {
   modality: string; // senderismo | bici | mixto
   difficulty: string | null;
   description: string | null;
+  web?: boolean; // visible en el cotizador de caminosacro.com (default false)
   prices: NewRoutePrice[];
 };
 
@@ -120,6 +142,7 @@ export async function createRoute(input: NewRouteInput) {
       modality: input.modality || "senderismo",
       difficulty: input.difficulty?.trim() || null,
       description: input.description?.trim() || null,
+      web: input.web ?? false,
       active: true,
     })
     .select("id")
@@ -196,6 +219,7 @@ export type RouteForEdit = {
   modality: string;
   difficulty: string | null;
   description: string | null;
+  web: boolean;
   prices: NewRoutePrice[];
 };
 
@@ -203,7 +227,7 @@ export async function getRouteForEdit(routeId: string): Promise<{ route: RouteFo
   const supabase = await createCommercialClient();
   const { data: r, error } = await supabase
     .from("routes")
-    .select("id,name,family,origin,destination,days,nights,km,modality,difficulty,description")
+    .select("id,name,family,origin,destination,days,nights,km,modality,difficulty,description,web")
     .eq("id", routeId)
     .maybeSingle();
   if (error) return { error: mensajeError(error) };
@@ -231,6 +255,7 @@ export async function getRouteForEdit(routeId: string): Promise<{ route: RouteFo
       modality: r.modality || "senderismo",
       difficulty: r.difficulty,
       description: r.description,
+      web: !!r.web,
       prices: priceRows,
     },
   };
@@ -254,6 +279,7 @@ export async function updateRoute(routeId: string, input: NewRouteInput) {
       modality: input.modality || "senderismo",
       difficulty: input.difficulty?.trim() || null,
       description: input.description?.trim() || null,
+      web: input.web ?? false,
     })
     .eq("id", routeId);
   if (upErr) return { error: mensajeError(upErr) };

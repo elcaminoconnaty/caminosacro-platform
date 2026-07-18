@@ -203,10 +203,112 @@ export async function updateClientPayment(quoteId: string, paymentId: string, fo
 
 export async function deleteClientPayment(quoteId: string, paymentId: string) {
   const supabase = await createCommercialClient();
+  const { data: pago } = await supabase
+    .from("client_payments")
+    .select("receipt_path")
+    .eq("id", paymentId)
+    .maybeSingle();
   const { error } = await supabase.from("client_payments").delete().eq("id", paymentId);
   if (error) return { error: mensajeError(error) };
+  await removeStoragePath(supabase, pago?.receipt_path);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+// Genera (o regenera) el recibo PDF de un pago del cliente y lo deja en Storage.
+export async function generateClientReceipt(quoteId: string, paymentId: string) {
+  const supabase = await createCommercialClient();
+  const [{ data: quote }, { data: payments }] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select("code,client_name,client_phone,client_email,route_name,start_date,end_date,people,total_eur")
+      .eq("id", quoteId)
+      .maybeSingle(),
+    supabase
+      .from("client_payments")
+      .select("id,paid_at,amount,currency,trm_eur_cop,amount_eur,method,account,reference,receipt_number,receipt_path")
+      .eq("quote_id", quoteId),
+  ]);
+  if (!quote) return { error: "Cotización no encontrada" };
+  const payment = (payments || []).find((p) => p.id === paymentId);
+  if (!payment) return { error: "Pago no encontrado" };
+
+  // Número estable REC-{code}-{n}: se asigna la primera vez y no cambia aunque
+  // se borren otros pagos (por eso n sale del máximo ya emitido, no del conteo).
+  let receiptNumber = (payment.receipt_number as string | null) ?? null;
+  if (!receiptNumber) {
+    let maxN = 0;
+    for (const p of payments || []) {
+      const m = /-(\d+)$/.exec(p.receipt_number || "");
+      if (m) maxN = Math.max(maxN, Number(m[1]));
+    }
+    receiptNumber = `REC-${quote.code}-${maxN + 1}`;
+  }
+
+  const cobrado = (payments || []).reduce((acc, p) => acc + (Number(p.amount_eur) || 0), 0);
+  const saldo = (Number(quote.total_eur) || 0) - cobrado;
+
+  const React = await import("react");
+  const { renderToBuffer } = await import("@react-pdf/renderer");
+  const { ReceiptPDF } = await import("@/lib/receiptPdf");
+  const { accountLabel } = await import("@/lib/accounts");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const element = React.createElement(ReceiptPDF as any, {
+    quote: {
+      code: quote.code,
+      client_name: quote.client_name,
+      client_phone: quote.client_phone,
+      client_email: quote.client_email,
+      route_name: quote.route_name,
+      start_date: quote.start_date,
+      end_date: quote.end_date,
+      people: quote.people,
+      total_eur: Number(quote.total_eur) || 0,
+    },
+    payment: {
+      receipt_number: receiptNumber,
+      paid_at: payment.paid_at,
+      amount: Number(payment.amount) || 0,
+      currency: payment.currency || "EUR",
+      trm_eur_cop: payment.trm_eur_cop != null ? Number(payment.trm_eur_cop) : null,
+      amount_eur: payment.amount_eur != null ? Number(payment.amount_eur) : null,
+      method: payment.method,
+      account_label: payment.account ? accountLabel(payment.account) : null,
+      reference: payment.reference,
+    },
+    cobradoEur: cobrado,
+    saldoEur: saldo,
+  });
+
+  let buffer: Buffer;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    buffer = await renderToBuffer(element as any);
+  } catch (e) {
+    console.error("[generateClientReceipt] render falló:", e);
+    return { error: mensajeError(e as Error, "No se pudo generar el recibo.") };
+  }
+
+  const filename = buildPdfFilename(receiptNumber, quote.client_name, quote.route_name);
+  const pdfPath = `comercial-receipts/${filename}`;
+
+  if (payment.receipt_path && payment.receipt_path !== pdfPath) {
+    await removeStoragePath(supabase, payment.receipt_path);
+  }
+
+  const { error: upErr } = await supabase.storage
+    .from("comercial-receipts")
+    .upload(filename, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+  if (upErr) return { error: mensajeError(upErr) };
+
+  const { error: dbErr } = await supabase
+    .from("client_payments")
+    .update({ receipt_path: pdfPath, receipt_number: receiptNumber })
+    .eq("id", paymentId);
+  if (dbErr) return { error: mensajeError(dbErr) };
+
+  revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
 }
 

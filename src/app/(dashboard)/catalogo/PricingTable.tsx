@@ -1,16 +1,19 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { applyMarkupRule, updatePricing } from "./actions";
+import { applyMarkupRule, updatePricing, upsertPricing } from "./actions";
 
 export type Row = {
-  id: string;
+  id: string | null; // null = fila virtual (la ruta aún no tiene precio en esta modalidad)
   route_id: string;
   modality: string;
   price_pilgrim: number;
   price_cs: number;
   route_name: string;
 };
+
+// Clave estable de fila: sobrevive al insert de una fila virtual (que le asigna id).
+const keyOf = (r: Pick<Row, "route_id" | "modality">) => `${r.route_id}:${r.modality}`;
 
 const eur = (n: number) =>
   new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
@@ -29,22 +32,28 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmRule, setConfirmRule] = useState(false);
 
-  function handleChange(id: string, field: "price_pilgrim" | "price_cs", value: string) {
+  function handleChange(key: string, field: "price_pilgrim" | "price_cs", value: string) {
     const num = value === "" ? 0 : Number(value);
-    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [field]: num } : r)));
+    setRows((rs) => rs.map((r) => (keyOf(r) === key ? { ...r, [field]: num } : r)));
   }
 
   async function handleBlur(row: Row, field: "price_pilgrim" | "price_cs", original: number) {
     const value = row[field];
     if (value === original) return;
-    setSavingId(row.id);
+    const key = keyOf(row);
+    setSavingId(key);
     setError(null);
     startTransition(async () => {
-      const r = await updatePricing(row.id, field, value);
+      const r = row.id
+        ? await updatePricing(row.id, field, value)
+        : await upsertPricing(row.route_id, row.modality, field, value);
       setSavingId(null);
       if (r?.error) {
         setError(r.error);
-        setRows((rs) => rs.map((rr) => (rr.id === row.id ? { ...rr, [field]: original } : rr)));
+        setRows((rs) => rs.map((rr) => (keyOf(rr) === key ? { ...rr, [field]: original } : rr)));
+      } else if (!row.id && "id" in r && typeof r.id === "string") {
+        const newId = r.id;
+        setRows((rs) => rs.map((rr) => (keyOf(rr) === key ? { ...rr, id: newId } : rr)));
       }
     });
   }
@@ -58,10 +67,11 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
       else if (r?.ok) {
         // Recalcular en cliente para reflejar inmediatamente
         setRows((rs) =>
-          rs.map((row) => ({
-            ...row,
-            price_cs: Math.round(Math.max(row.price_pilgrim + 100, row.price_pilgrim / 0.85)),
-          })),
+          rs.map((row) =>
+            row.price_pilgrim > 0
+              ? { ...row, price_cs: Math.round(Math.max(row.price_pilgrim + 100, row.price_pilgrim / 0.85)) }
+              : row,
+          ),
         );
       }
     });
@@ -124,9 +134,10 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
               return routeRows.map((r, idx) => {
                 const margenEur = r.price_cs - r.price_pilgrim;
                 const margenPct = r.price_cs > 0 ? (margenEur / r.price_cs) * 100 : 0;
-                const isSaving = savingId === r.id;
+                const isSaving = savingId === keyOf(r);
+                const sinPrecio = r.price_pilgrim === 0 && r.price_cs === 0;
                 return (
-                  <tr key={r.id} className="hover:bg-taupe/20">
+                  <tr key={keyOf(r)} className="hover:bg-taupe/20">
                     <td className="px-4 py-2 align-top">
                       {idx === 0 ? <span className="font-medium">{routeName}</span> : <span className="text-muted">↳</span>}
                     </td>
@@ -136,8 +147,8 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
                         type="number"
                         step="1"
                         value={r.price_pilgrim || ""}
-                        onChange={(e) => handleChange(r.id, "price_pilgrim", e.target.value)}
-                        onBlur={() => handleBlur(r, "price_pilgrim", initialRows.find((x) => x.id === r.id)!.price_pilgrim)}
+                        onChange={(e) => handleChange(keyOf(r), "price_pilgrim", e.target.value)}
+                        onBlur={() => handleBlur(r, "price_pilgrim", initialRows.find((x) => keyOf(x) === keyOf(r))?.price_pilgrim ?? 0)}
                         className={`w-full text-right px-2 py-1 rounded border bg-white ${isSaving ? "border-bosque" : "border-transparent hover:border-border focus:border-bosque"} focus:outline-none focus:ring-1 focus:ring-bosque/40`}
                       />
                     </td>
@@ -146,14 +157,14 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
                         type="number"
                         step="1"
                         value={r.price_cs || ""}
-                        onChange={(e) => handleChange(r.id, "price_cs", e.target.value)}
-                        onBlur={() => handleBlur(r, "price_cs", initialRows.find((x) => x.id === r.id)!.price_cs)}
+                        onChange={(e) => handleChange(keyOf(r), "price_cs", e.target.value)}
+                        onBlur={() => handleBlur(r, "price_cs", initialRows.find((x) => keyOf(x) === keyOf(r))?.price_cs ?? 0)}
                         className={`w-full text-right font-medium text-bosque px-2 py-1 rounded border bg-white ${isSaving ? "border-bosque" : "border-transparent hover:border-border focus:border-bosque"} focus:outline-none focus:ring-1 focus:ring-bosque/40`}
                       />
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">{eur(margenEur)}</td>
-                    <td className={`px-4 py-2 text-right tabular-nums ${margenPct >= 20 ? "text-bosque" : margenPct > 0 ? "text-amber-700" : "text-red-700"}`}>
-                      {margenPct.toFixed(1)}%
+                    <td className="px-4 py-2 text-right tabular-nums">{sinPrecio ? <span className="text-muted">—</span> : eur(margenEur)}</td>
+                    <td className={`px-4 py-2 text-right tabular-nums ${sinPrecio ? "text-muted" : margenPct >= 20 ? "text-bosque" : margenPct > 0 ? "text-amber-700" : "text-red-700"}`}>
+                      {sinPrecio ? "—" : `${margenPct.toFixed(1)}%`}
                     </td>
                   </tr>
                 );

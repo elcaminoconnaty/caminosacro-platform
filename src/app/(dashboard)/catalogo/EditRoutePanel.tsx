@@ -52,6 +52,7 @@ export default function EditRoutePanel({
   const [modality, setModality] = useState("senderismo");
   const [difficulty, setDifficulty] = useState("Media");
   const [description, setDescription] = useState("");
+  const [web, setWeb] = useState(false);
   const [prices, setPrices] = useState<PriceState>(emptyPrices);
 
   function setPrice(slug: string, field: "pilgrim" | "cs", value: string) {
@@ -81,6 +82,7 @@ export default function EditRoutePanel({
       setModality(rt.modality || "senderismo");
       setDifficulty(rt.difficulty ?? "");
       setDescription(rt.description ?? "");
+      setWeb(rt.web);
       const next: PriceState = { ...emptyPrices };
       for (const p of rt.prices) {
         next[p.modality] = {
@@ -116,6 +118,7 @@ export default function EditRoutePanel({
         modality,
         difficulty: difficulty.trim() || null,
         description: description.trim() || null,
+        web,
         prices: priceRows,
       });
       if (r?.error) setError(r.error);
@@ -202,6 +205,10 @@ export default function EditRoutePanel({
             <label className="text-xs text-muted sm:col-span-2 lg:col-span-3">
               Descripción
               <input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} />
+            </label>
+            <label className="text-xs text-muted sm:col-span-2 lg:col-span-3 inline-flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} className="rounded border-border" />
+              <span>Visible en el cotizador web (caminosacro.com). Para cotizar al instante necesita las 4 tarifas cargadas.</span>
             </label>
           </div>
 

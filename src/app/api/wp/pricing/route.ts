@@ -7,14 +7,14 @@ export const dynamic = "force-dynamic";
 const MODALIDADES = ["pension_doble", "hotel_doble", "pension_single", "hotel_single"] as const;
 
 /**
- * GET /api/wp/pricing — catálogo completo para el cotizador de caminosacro.com.
+ * GET /api/wp/pricing — catálogo para el cotizador de caminosacro.com.
  *
- * El CRM es la fuente de verdad del cotizador público: aquí viajan TODAS las
- * rutas activas (una ruta nueva en el CRM aparece sola en la web) y los
- * servicios opcionales activos. Las rutas con sus 4 tarifas completas llevan
- * `prices` y cotizan al instante; las demás van sin `prices` y la web las
- * deriva a WhatsApp como cotización a medida. Desactivar una ruta en el CRM
- * la saca de la web.
+ * El CRM es la fuente de verdad del cotizador público: aquí viajan solo las
+ * rutas activas con "Visible en cotizador web" (routes.web) marcado — las
+ * personalizadas/internas quedan fuera. Las rutas con sus 4 tarifas completas
+ * llevan `prices` y cotizan al instante; las demás van sin `prices` y la web
+ * las deriva a WhatsApp como cotización a medida. Desmarcar el check (o
+ * desactivar la ruta) en el CRM la saca de la web.
  *
  * Devuelve solo price_cs (venta); price_pilgrim jamás sale de la plataforma.
  * WordPress lo cachea 6 horas y usa el último payload bueno si esto no responde.
@@ -33,6 +33,7 @@ export async function GET(request: Request) {
       .from("routes")
       .select("id,slug,name,days,nights,stages,km,modality")
       .eq("active", true)
+      .eq("web", true)
       .order("days", { ascending: true, nullsFirst: false }),
     supabase.from("pricing").select("route_id,modality,price_cs").eq("season", "regular"),
     supabase

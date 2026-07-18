@@ -113,13 +113,18 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     }
   }
 
-  // Determinar qué slug eligió el cliente y armar bloques
+  // Determinar qué slug eligió el cliente y armar bloques.
+  // Tipo y habitación se detectan por separado para cubrir tanto los labels viejos
+  // ("Pensión doble") como los del reparto de habitaciones ("Pensión, habitación doble").
+  // Un label mixto ("Pensión · 2 dobles + 1 individual") menciona ambas habitaciones
+  // y no produce slug: ese caso lo cubre roomBreakdown más abajo.
   const m = (quote.modality || "").toLowerCase();
+  const tipoAloj = m.includes("hotel") ? "hotel" : m.includes("pensión") || m.includes("pension") ? "pension" : null;
+  const hasDoble = m.includes("doble");
+  const hasSingle = m.includes("single") || m.includes("individual");
   let chosenSlug: "pension_doble" | "pension_single" | "hotel_doble" | "hotel_single" | null = null;
-  if (m.includes("pensión single") || m.includes("pension single") || m.includes("pensión individual") || m.includes("pension individual")) chosenSlug = "pension_single";
-  else if (m.includes("pensión doble") || m.includes("pension doble")) chosenSlug = "pension_doble";
-  else if (m.includes("hotel single") || m.includes("hotel individual")) chosenSlug = "hotel_single";
-  else if (m.includes("hotel doble")) chosenSlug = "hotel_doble";
+  if (tipoAloj && hasSingle && !hasDoble) chosenSlug = `${tipoAloj}_single`;
+  else if (tipoAloj && hasDoble && !hasSingle) chosenSlug = `${tipoAloj}_doble`;
 
   type Block = { label: string; subLabel: string; pricePerPerson: number; isSelected: boolean };
   const priceBlocks: Block[] = [];

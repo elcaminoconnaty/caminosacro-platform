@@ -25,6 +25,7 @@ export default async function CotizarPage() {
       .from("routes")
       .select("id,name,family,origin,days,nights,km,modality")
       .eq("active", true)
+      .eq("web", true) // misma oferta que el cotizador de caminosacro.com
       .order("days", { ascending: false }),
     supabase.from("pricing").select("route_id,modality,price_cs").eq("season", "regular"),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),

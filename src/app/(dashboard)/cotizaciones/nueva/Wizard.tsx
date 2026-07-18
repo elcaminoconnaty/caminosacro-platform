@@ -2,11 +2,22 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createQuote, findClientByPhone, type ClientLite } from "./actions";
+import { createRoute, createItinerary, type NewRoutePrice, type NewStageInput } from "../../catalogo/actions";
+import CustomRoutePanel, { emptyCustomRoute, CUSTOM_MODALITIES, type CustomRouteData } from "./CustomRoutePanel";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 import { DEFAULT_STATUS, STATUS_LABELS } from "@/lib/quoteStatus";
 
 // Etiqueta para agrupar rutas activas sin "family" asignada, así no quedan invisibles en el asistente.
 const SIN_FAMILIA = "Otras rutas";
+// Valor especial del select de Camino: crear una ruta personalizada en el mismo formulario.
+const RUTA_CUSTOM = "__custom__";
+
+function numOrNull(s: string): number | null {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
 
 type PricingRow = {
   route_id: string;
@@ -16,20 +27,15 @@ type PricingRow = {
   price_cs: number;
 };
 
-const MODALITY_DISPLAY = [
-  { slug: "pension_doble", label: "Pensión doble" },
-  { slug: "pension_single", label: "Pensión single" },
-  { slug: "hotel_doble", label: "Hotel doble" },
-  { slug: "hotel_single", label: "Hotel single" },
+// Se elige solo el tipo de alojamiento; el reparto de habitaciones lo hace la
+// plataforma con el número de peregrinos (pares en dobles, el impar en individual),
+// igual que el cotizador de caminosacro.com (ver webQuote.ts).
+const TIPOS = [
+  { value: "pension", label: "Pensión" },
+  { value: "hotel", label: "Hotel" },
 ] as const;
 
 const EXTRA_MODALITIES = ["Doble + Triple", "Personalizada"];
-
-function modalityToSlug(label: string | null): string | null {
-  if (!label) return null;
-  const m = MODALITY_DISPLAY.find((x) => x.label === label);
-  return m?.slug ?? null;
-}
 
 const todayPlus = (days: number) =>
   new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -55,6 +61,9 @@ export default function Wizard({
   // Cotización — selección por cascada
   const [family, setFamily] = useState("");
   const [routeName, setRouteName] = useState("");
+  // Ruta personalizada creada desde el propio wizard (family === RUTA_CUSTOM)
+  const [custom, setCustom] = useState<CustomRouteData>(() => emptyCustomRoute());
+  const customMode = family === RUTA_CUSTOM;
   const [modality, setModality] = useState("");
   const [people, setPeople] = useState(1);
   const [startDate, setStartDate] = useState("");
@@ -88,12 +97,34 @@ export default function Wizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientPhone]);
 
-  // Match en catálogo
-  const catalogMatch = useMemo(() => {
-    const slug = modalityToSlug(modality);
-    if (!slug || !routeName) return null;
-    return pricing.find((p) => p.route_name === routeName && p.modality_slug === slug) || null;
-  }, [routeName, modality, pricing]);
+  // Reparto de habitaciones (misma regla que webQuote.ts): pares en doble, el impar en individual.
+  const esTipo = modality === "pension" || modality === "hotel";
+  const dobles = esTipo ? Math.floor(people / 2) : 0;
+  const individuales = esTipo ? people % 2 : 0;
+
+  // Tarifas para el tipo elegido (doble y single): del catálogo, o de las tecleadas
+  // en el panel de ruta personalizada (aún no existen en la DB al cotizar).
+  const catalogRates = useMemo(() => {
+    if (!esTipo) return null;
+    if (customMode) {
+      const mk = (slug: string) => {
+        const p = custom.prices[slug];
+        const cs = numOrNull(p?.cs ?? "");
+        if (cs == null || cs <= 0) return null;
+        return { price_cs: cs, price_pilgrim: numOrNull(p?.pilgrim ?? "") ?? 0 };
+      };
+      return { doble: mk(`${modality}_doble`), single: mk(`${modality}_single`) };
+    }
+    if (!routeName) return null;
+    const doble = pricing.find((p) => p.route_name === routeName && p.modality_slug === `${modality}_doble`) || null;
+    const single = pricing.find((p) => p.route_name === routeName && p.modality_slug === `${modality}_single`) || null;
+    return { doble, single };
+  }, [routeName, modality, pricing, esTipo, customMode, custom.prices]);
+
+  // El catálogo alcanza si tiene la tarifa de cada habitación que el reparto necesita.
+  const ratesOk = !!catalogRates &&
+    (dobles === 0 || !!catalogRates.doble) &&
+    (individuales === 0 || !!catalogRates.single);
 
   // Detección de temporada según fecha de inicio + fin
   const season = useMemo(
@@ -105,10 +136,11 @@ export default function Wizard({
   // El total/costo del bloque editable es la BASE sin suplemento de temporada.
   // El suplemento se desglosa al guardar (ver onSubmit) y aparece como línea aparte en el PDF.
   useEffect(() => {
-    if (!autoLink || !catalogMatch) return;
-    setTotalEur((catalogMatch.price_cs * people).toFixed(2));
-    setCostEur((catalogMatch.price_pilgrim * people).toFixed(2));
-  }, [catalogMatch, people, autoLink]);
+    if (!autoLink || !ratesOk || !catalogRates) return;
+    const enDoble = dobles * 2;
+    setTotalEur((enDoble * (catalogRates.doble?.price_cs ?? 0) + individuales * (catalogRates.single?.price_cs ?? 0)).toFixed(2));
+    setCostEur((enDoble * (catalogRates.doble?.price_pilgrim ?? 0) + individuales * (catalogRates.single?.price_pilgrim ?? 0)).toFixed(2));
+  }, [catalogRates, ratesOk, dobles, individuales, autoLink]);
 
   // Ruta seleccionada (para días)
   const selectedRoute = useMemo(
@@ -146,15 +178,18 @@ export default function Wizard({
     if (selectedRoute?.family && !family) setFamily(selectedRoute.family);
   }, [selectedRoute, family]);
 
+  // Días efectivos: de la ruta del catálogo, o los tecleados en la ruta personalizada.
+  const effectiveDays = customMode ? numOrNull(custom.days) : selectedRoute?.days ?? null;
+
   // Auto-calcular fecha fin = inicio + (días de la ruta - 1)
   const [endAuto, setEndAuto] = useState(true);
   useEffect(() => {
     if (!endAuto) return;
-    if (!startDate || !selectedRoute?.days) return;
+    if (!startDate || !effectiveDays) return;
     const start = new Date(startDate + "T00:00:00");
-    const end = new Date(start.getTime() + (selectedRoute.days - 1) * 24 * 60 * 60 * 1000);
+    const end = new Date(start.getTime() + (effectiveDays - 1) * 24 * 60 * 60 * 1000);
     setEndDate(end.toISOString().slice(0, 10));
-  }, [startDate, selectedRoute, endAuto]);
+  }, [startDate, effectiveDays, endAuto]);
 
   // Suplemento total (grupo) y final con suplemento incluido para preview de utilidad.
   const seasonSuppCs = season.surcharge_per_person_cs * people;
@@ -174,14 +209,87 @@ export default function Wizard({
     fd.set("people", String(people));
     fd.set("season_supplement_eur", seasonSuppCs.toFixed(2));
     fd.set("season_kind", season.type);
+    // Etiqueta de modalidad con el reparto real (mismos textos que webQuote.ts).
+    if (esTipo) {
+      const tipoNombre = modality === "hotel" ? "Hotel" : "Pensión";
+      fd.set(
+        "modality",
+        individuales === 0
+          ? `${tipoNombre}, habitación doble`
+          : dobles === 0
+            ? `${tipoNombre}, habitación individual`
+            : `${tipoNombre} · ${dobles} ${dobles === 1 ? "doble" : "dobles"} + 1 individual`,
+      );
+      // Desglose para el PDF, solo si el total salió de las tarifas del catálogo
+      // (con precios editados a mano el desglose no cuadraría con el total).
+      if (ratesOk && autoLink) {
+        fd.set(
+          "rooms_json",
+          JSON.stringify({
+            tipo: modality,
+            dobles,
+            individuales,
+            tarifa_doble: catalogRates?.doble?.price_cs ?? 0,
+            tarifa_single: catalogRates?.single?.price_cs ?? 0,
+          }),
+        );
+      }
+    } else {
+      fd.set("modality", modality);
+    }
+    if (customMode && !custom.name.trim()) {
+      setError("La ruta personalizada necesita un nombre.");
+      return;
+    }
     startTransition(async () => {
+      // Ruta personalizada: primero se crea la ruta (queda en el catálogo, fuera
+      // del cotizador web) y su itinerario, reusando las actions del catálogo.
+      if (customMode) {
+        const prices: NewRoutePrice[] = CUSTOM_MODALITIES.map((m) => ({
+          modality: m.slug,
+          price_pilgrim: numOrNull(custom.prices[m.slug].pilgrim),
+          price_cs: numOrNull(custom.prices[m.slug].cs),
+        }));
+        const rRoute = await createRoute({
+          name: custom.name.trim(),
+          family: custom.family.trim() || null,
+          origin: custom.origin.trim() || null,
+          destination: custom.destination.trim() || null,
+          days: numOrNull(custom.days),
+          nights: numOrNull(custom.nights),
+          km: numOrNull(custom.km),
+          modality: "senderismo",
+          difficulty: custom.difficulty.trim() || null,
+          description: null,
+          web: false,
+          prices,
+        });
+        if ("error" in rRoute && rRoute.error) {
+          setError(rRoute.error);
+          return;
+        }
+        const stages: NewStageInput[] = custom.stages
+          .filter((s) => s.from_place.trim() || s.to_place.trim() || s.km.trim() || s.accommodation.trim())
+          .map((s) => ({
+            from_place: s.from_place.trim() || null,
+            to_place: s.to_place.trim() || null,
+            km: numOrNull(s.km),
+            accommodation: s.accommodation.trim() || null,
+          }));
+        if (stages.length > 0 && "routeId" in rRoute && rRoute.routeId) {
+          const rStages = await createItinerary(rRoute.routeId, stages);
+          if (rStages?.error) {
+            setError(`La ruta se creó pero el itinerario falló: ${rStages.error}`);
+            return;
+          }
+        }
+        fd.set("route_name", custom.name.trim());
+      }
       const r = await createQuote(fd);
       if (r?.error) setError(r.error);
       // En caso éxito, el server hace redirect — no llegamos acá
     });
   }
-
-  const allModalities = [...MODALITY_DISPLAY.map((m) => m.label), ...EXTRA_MODALITIES];
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
@@ -244,30 +352,43 @@ export default function Wizard({
             >
               <option value="">— Elegí un Camino —</option>
               {families.map((f) => <option key={f} value={f}>{f}</option>)}
+              <option value={RUTA_CUSTOM}>+ Ruta personalizada (crear nueva)</option>
             </select>
           </label>
-          <label className="block md:col-span-2">
-            <span className="text-xs text-muted">Desde</span>
-            <select
-              name="route_name"
-              value={routeName}
-              onChange={(e) => setRouteName(e.target.value)}
-              disabled={!family}
-              className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="">{family ? "— Elegí desde dónde —" : "Primero elegí un Camino"}</option>
-              {familyRoutes.map((r) => (
-                <option key={r.id} value={r.name}>
-                  {r.origin} ({r.days} días, {r.km} km)
-                </option>
-              ))}
-            </select>
-            {selectedRoute && (
-              <span className="text-[11px] text-bosque mt-0.5 inline-block">
-                {selectedRoute.days} días · {selectedRoute.km} km · etapas oficiales cargadas
+          {customMode ? (
+            <div className="block md:col-span-2 self-end">
+              <span className="text-[11px] text-bosque inline-block pb-2.5">
+                Ruta nueva: completá nombre, días, etapas y tarifas abajo. Se guarda en el catálogo junto con la cotización.
               </span>
-            )}
-          </label>
+            </div>
+          ) : (
+            <label className="block md:col-span-2">
+              <span className="text-xs text-muted">Desde</span>
+              <select
+                name="route_name"
+                value={routeName}
+                onChange={(e) => setRouteName(e.target.value)}
+                disabled={!family}
+                className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">{family ? "— Elegí desde dónde —" : "Primero elegí un Camino"}</option>
+                {familyRoutes.map((r) => (
+                  <option key={r.id} value={r.name}>
+                    {r.name}{r.days ? ` · ${r.days} días` : ""}{r.km ? ` · ${r.km} km` : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedRoute && (
+                <span className="text-[11px] text-bosque mt-0.5 inline-block">
+                  {selectedRoute.days} días · {selectedRoute.km} km · etapas oficiales cargadas
+                </span>
+              )}
+            </label>
+          )}
+
+          {customMode && (
+            <CustomRoutePanel value={custom} onChange={setCustom} families={families.filter((f) => f !== SIN_FAMILIA)} />
+          )}
 
           <label className="block">
             <span className="text-xs text-muted">Personas</span>
@@ -282,16 +403,20 @@ export default function Wizard({
           <label className="block md:col-span-2">
             <span className="text-xs text-muted">Alojamiento</span>
             <select
-              name="modality"
               value={modality}
               onChange={(e) => setModality(e.target.value)}
               className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
             >
               <option value="">—</option>
-              {allModalities.map((m) => <option key={m} value={m}>{m}</option>)}
+              {TIPOS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {EXTRA_MODALITIES.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
             <span className="text-[11px] text-muted mt-0.5 inline-block">
-              Si el cliente quiere algo distinto (mezcla pensión + hotel, habitación triple, etc.) elegí "Personalizada" y describilo en las notas.
+              {esTipo
+                ? people === 1
+                  ? "1 persona → habitación individual."
+                  : `Reparto automático: ${dobles} hab. ${dobles === 1 ? "doble" : "dobles"}${individuales > 0 ? " + 1 individual" : ""} para ${people} personas.`
+                : "Elegí Pensión u Hotel y la plataforma reparte las habitaciones sola (pares en dobles, el impar en individual). Para algo distinto (mezclas, triple, etc.) elegí \"Personalizada\" y describilo en las notas."}
             </span>
           </label>
           <label className="block">
@@ -320,9 +445,13 @@ export default function Wizard({
               <span>Auto-cargar precios del catálogo</span>
             </label>
             <div className="space-y-1">
-              {catalogMatch ? (
+              {ratesOk && catalogRates ? (
                 <div className="text-bosque">
-                  Catálogo: Pilgrim {catalogMatch.price_pilgrim.toFixed(2)}€ · CS {catalogMatch.price_cs.toFixed(2)}€ por persona
+                  Catálogo:{" "}
+                  {dobles > 0 && `${dobles * 2} pers. en doble × ${(catalogRates.doble?.price_cs ?? 0).toFixed(2)}€`}
+                  {dobles > 0 && individuales > 0 && " + "}
+                  {individuales > 0 && `1 individual × ${(catalogRates.single?.price_cs ?? 0).toFixed(2)}€`}
+                  {" "}· costo Pilgrim {(dobles * 2 * (catalogRates.doble?.price_pilgrim ?? 0) + individuales * (catalogRates.single?.price_pilgrim ?? 0)).toFixed(2)}€
                 </div>
               ) : routeName && modality ? (
                 <div className="text-amber-700 italic">Sin precio en catálogo (modalidad/ruta custom)</div>
@@ -385,9 +514,9 @@ export default function Wizard({
           <label className="block">
             <span className="text-xs text-muted">
               Fecha fin
-              {selectedRoute?.days && endAuto && (
-                <span className="text-bosque ml-1">· auto ({selectedRoute.days} días)</span>
-              )}
+              {effectiveDays && endAuto ? (
+                <span className="text-bosque ml-1">· auto ({effectiveDays} días)</span>
+              ) : null}
             </span>
             <input
               name="end_date"
@@ -396,7 +525,7 @@ export default function Wizard({
               onChange={(e) => { setEndDate(e.target.value); setEndAuto(false); }}
               className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
             />
-            {!endAuto && selectedRoute?.days && (
+            {!endAuto && effectiveDays ? (
               <button
                 type="button"
                 onClick={() => setEndAuto(true)}
@@ -404,7 +533,7 @@ export default function Wizard({
               >
                 Restaurar cálculo automático
               </button>
-            )}
+            ) : null}
           </label>
           <label className="block">
             <span className="text-xs text-muted">Válida hasta</span>

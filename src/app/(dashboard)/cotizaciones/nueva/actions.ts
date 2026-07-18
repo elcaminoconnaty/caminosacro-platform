@@ -73,6 +73,14 @@ export async function createQuote(formData: FormData) {
   const validUntil = str(formData.get("valid_until")) ||
     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // Desglose de habitaciones (tipo, dobles, individuales y tarifas) que el wizard
+  // manda cuando el total salió del catálogo; el PDF lo usa para el resumen mixto.
+  let roomsJson: unknown = null;
+  const roomsRaw = str(formData.get("rooms_json"));
+  if (roomsRaw) {
+    try { roomsJson = JSON.parse(roomsRaw); } catch { roomsJson = null; }
+  }
+
   const baseEur = num(formData.get("total_eur")) ?? 0; // En el wizard, "Total €" = base ruta + aloj (sin suplemento)
   const seasonSupplement = num(formData.get("season_supplement_eur")) ?? 0;
   const seasonKindRaw = str(formData.get("season_kind"));
@@ -98,6 +106,7 @@ export async function createQuote(formData: FormData) {
       cost_eur: num(formData.get("cost_eur")) ?? 0,
       status: str(formData.get("status")) || "enviada",
       notes: str(formData.get("notes")),
+      rooms_json: roomsJson,
     })
     .select("id")
     .single();

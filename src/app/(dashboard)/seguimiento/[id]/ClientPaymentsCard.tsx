@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { addClientPayment, updateClientPayment, deleteClientPayment } from "./actions";
+import { addClientPayment, updateClientPayment, deleteClientPayment, generateClientReceipt, getSignedUrl } from "./actions";
 import { eur, fechaCorta } from "@/lib/format";
 import { ACCOUNTS, accountLabel } from "@/lib/accounts";
 
@@ -16,6 +16,8 @@ type Payment = {
   account: string | null;
   reference: string | null;
   notes: string | null;
+  receipt_path: string | null;
+  receipt_number: string | null;
 };
 
 const METHODS = ["transferencia", "efectivo", "tarjeta", "wise", "paypal", "otro"];
@@ -33,6 +35,7 @@ export default function ClientPaymentsCard({
 }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [receiptId, setReceiptId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -61,6 +64,24 @@ export default function ClientPaymentsCard({
     });
   }
 
+  function onReceipt(id: string) {
+    setError(null);
+    setReceiptId(id);
+    startTransition(async () => {
+      const r = await generateClientReceipt(quoteId, id);
+      setReceiptId(null);
+      if (r?.error) setError(r.error);
+    });
+  }
+
+  function onViewReceipt(path: string) {
+    startTransition(async () => {
+      const r = await getSignedUrl(path);
+      if ("url" in r && r.url) window.open(r.url, "_blank");
+      else if ("error" in r && r.error) setError(r.error);
+    });
+  }
+
   return (
     <section className="bg-bg-card border border-border rounded-xl overflow-hidden">
       <div className="px-5 py-3 border-b border-border flex items-center justify-between">
@@ -81,6 +102,10 @@ export default function ClientPaymentsCard({
 
       {adding && (
         <PaymentForm onSubmit={submitNew} onCancel={() => setAdding(false)} pending={pending} error={error} />
+      )}
+
+      {error && !adding && !editingId && (
+        <div className="mx-5 mt-3 px-3 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-xs">{error}</div>
       )}
 
       <ul className="divide-y divide-border">
@@ -111,8 +136,26 @@ export default function ClientPaymentsCard({
                     {p.reference && <span> · {p.reference}</span>}
                   </div>
                   {p.notes && <div className="text-xs text-muted mt-1 italic">{p.notes}</div>}
+                  {p.receipt_number && (
+                    <div className="text-xs mt-1">
+                      <button
+                        onClick={() => p.receipt_path && onViewReceipt(p.receipt_path)}
+                        className="text-bosque hover:underline"
+                        disabled={pending}
+                      >
+                        📄 {p.receipt_number}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
+                  <button
+                    onClick={() => onReceipt(p.id)}
+                    className="text-[10px] text-muted hover:text-bosque transition"
+                    disabled={pending}
+                  >
+                    {receiptId === p.id ? "generando…" : p.receipt_path ? "regenerar recibo" : "generar recibo"}
+                  </button>
                   <button
                     onClick={() => { setEditingId(p.id); setAdding(false); setError(null); }}
                     className="text-[10px] text-muted hover:text-bosque transition"

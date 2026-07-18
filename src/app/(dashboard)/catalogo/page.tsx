@@ -51,13 +51,26 @@ export default async function CatalogoPage() {
     price_cs: string | number | null;
     routes: { name: string } | null;
   }>) || []).map((p) => ({
-    id: p.id,
+    id: p.id as string | null,
     route_id: p.route_id,
     modality: p.modality,
     price_pilgrim: Number(p.price_pilgrim) || 0,
     price_cs: Number(p.price_cs) || 0,
     route_name: p.routes?.name ?? p.route_id,
-  })).sort((a, b) => a.route_name.localeCompare(b.route_name) || a.modality.localeCompare(b.modality));
+  }));
+
+  // Filas virtuales: toda ruta activa aparece en la tabla aunque no tenga precios
+  // (al teclear el primer valor se crea la fila real en `pricing`).
+  const STANDARD_MODALITIES = ["pension_doble", "pension_single", "hotel_doble", "hotel_single"];
+  const existing = new Set(rows.map((r) => `${r.route_id}:${r.modality}`));
+  for (const r of ((routesData as unknown as Array<{ id: string; name: string }>) || [])) {
+    for (const modality of STANDARD_MODALITIES) {
+      if (!existing.has(`${r.id}:${modality}`)) {
+        rows.push({ id: null, route_id: r.id, modality, price_pilgrim: 0, price_cs: 0, route_name: r.name });
+      }
+    }
+  }
+  rows.sort((a, b) => a.route_name.localeCompare(b.route_name) || a.modality.localeCompare(b.modality));
 
   const opts: Opt[] = ((optionals as unknown as Array<{
     id: string;

@@ -41,6 +41,7 @@ export default function CreateRoutePanel({ families, onClose }: { families: stri
   const [modality, setModality] = useState("senderismo");
   const [difficulty, setDifficulty] = useState("Media");
   const [description, setDescription] = useState("");
+  const [web, setWeb] = useState(false);
   const [prices, setPrices] = useState<PriceState>(emptyPrices);
 
   function setPrice(slug: string, field: "pilgrim" | "cs", value: string) {
@@ -70,6 +71,7 @@ export default function CreateRoutePanel({ families, onClose }: { families: stri
         modality,
         difficulty: difficulty.trim() || null,
         description: description.trim() || null,
+        web,
         prices: priceRows,
       });
       if (r?.error) setError(r.error);
@@ -138,6 +140,10 @@ export default function CreateRoutePanel({ families, onClose }: { families: stri
         <label className="text-xs text-muted sm:col-span-2 lg:col-span-3">
           Descripción
           <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Opcional" className={inputCls} />
+        </label>
+        <label className="text-xs text-muted sm:col-span-2 lg:col-span-3 inline-flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} className="rounded border-border" />
+          <span>Visible en el cotizador web (caminosacro.com). Para cotizar al instante necesita las 4 tarifas cargadas.</span>
         </label>
       </div>
 

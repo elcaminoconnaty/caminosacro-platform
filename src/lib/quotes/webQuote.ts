@@ -60,6 +60,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     .select("id,name,days")
     .eq("slug", datos.route_slug)
     .eq("active", true)
+    .eq("web", true)
     .maybeSingle();
   if (!route) return { ok: false, status: 404, error: "ruta_no_encontrada" };
 
