@@ -13,6 +13,9 @@ import DocumentsCard from "./DocumentsCard";
 import EmailPreviewCard from "./EmailPreviewCard";
 import OptionalsCard, { type OptionalCatalog, type OptionalLine } from "./OptionalsCard";
 import HotelsCard, { type InitialHotel } from "./HotelsCard";
+import ContractCard from "./ContractCard";
+import type { ContractRow } from "./contractActions";
+import { buildDefaultVariables } from "@/lib/contracts/render";
 
 function basename(p: string | null): string | null {
   if (!p) return null;
@@ -119,6 +122,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     { data: quoteLines },
     { data: seasonSetting },
     { data: hotelsData },
+    { data: contractRow },
     trmRow,
   ] = await Promise.all([
     supabase.from("quotes").select("*").eq("id", id).maybeSingle(),
@@ -145,11 +149,20 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .select("night_date,city,hotel_name,address,contact,notes,position")
       .eq("quote_id", id)
       .order("position"),
+    supabase.from("contracts").select("*").eq("quote_id", id).maybeSingle(),
     getTRMHoy().catch(() => null),
   ]);
   const seasonConfig = ((seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS);
 
   if (!quote) notFound();
+
+  // Si aún no hay contrato, precargamos las variables desde la cotización para
+  // que el equipo las revise en el formulario ANTES de crear el contrato.
+  let contractDefaults = null;
+  if (!contractRow) {
+    const d = await buildDefaultVariables(supabase, id);
+    if (d.ok) contractDefaults = d.variables;
+  }
 
   const cobrado = (cps || []).reduce((s, p) => {
     const v = p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0);
@@ -231,6 +244,16 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         quoteId={id}
         storagePath={quote.pdf_path}
         filename={basename(quote.pdf_path)}
+      />
+
+      {/* key: cuando el contrato aparece (o cambia), React remonta la card para
+          que su estado interno (vars/plan) se inicialice con la fila fresca. */}
+      <ContractCard
+        key={(contractRow as ContractRow | null)?.id ?? "sin-contrato"}
+        quoteId={id}
+        contract={(contractRow as ContractRow | null) ?? null}
+        defaultVariables={contractDefaults}
+        totalEur={total}
       />
 
       {isFullyPaid(quote.status) && (

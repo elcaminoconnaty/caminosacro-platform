@@ -4,7 +4,9 @@ import { createServerClient } from "@supabase/ssr";
 // /cotizar es el cotizador público que enlaza caminosacro.com: no exige sesión.
 // /api/wp son los endpoints del cotizador de WordPress: traen su propia
 // autenticación por secreto compartido (x-cs-api-key), no sesión de usuario.
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/cotizar", "/api/wp"];
+// /contrato es la firma pública del contrato: autentica por token único con
+// expiración en la URL (ver src/app/contrato/[token]).
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
