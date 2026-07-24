@@ -35,11 +35,11 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     supabase.from("quotes").select("*").eq("id", quoteId).maybeSingle(),
     supabase
       .from("optional_services")
-      .select("category,name,unit,price_cs")
+      .select("id,category,name,unit,price_cs")
       .eq("active", true),
     supabase
       .from("quote_lines")
-      .select("description,quantity,unit_price,total")
+      .select("description,quantity,unit_price,total,reference_id")
       .eq("quote_id", quoteId)
       .eq("type", "optional"),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
@@ -224,6 +224,37 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     price_cs: Number(o.price_cs) || 0,
   })).filter((o) => o.price_cs > 0);
 
+  // Extras del itinerario: noches extra en Santiago y tours contratados, derivados de las
+  // líneas opcionales seleccionadas. El componente los usa para extender el itinerario, el
+  // conteo de días/noches y el rango de fechas del PDF.
+  const categoryById = new Map<string, string>();
+  for (const o of (optionalsRaw || []) as Array<{ id: string; category: string }>) {
+    categoryById.set(o.id, o.category);
+  }
+  // Habitaciones del reparto: convierten "cantidad = habitaciones × noches" en noches.
+  const roomsCount = roomBreakdown
+    ? roomBreakdown.dobles + roomBreakdown.individuales
+    : chosenSlug
+      ? (chosenSlug.endsWith("single") ? peopleCount : Math.ceil(peopleCount / 2))
+      : 1;
+  const roomsSafe = Math.max(1, roomsCount);
+  let extraNights = 0;
+  let extraNightTipo: "pension" | "hotel" = "pension";
+  const tours: string[] = [];
+  for (const l of ((selectedLines || []) as Array<{ description: string; quantity: number | string; reference_id: string | null }>)) {
+    const cat = l.reference_id ? categoryById.get(l.reference_id) : undefined;
+    if (cat === "noche_extra") {
+      extraNights += Math.round((Number(l.quantity) || 0) / roomsSafe);
+      if (/hotel|casa rural/i.test(l.description)) extraNightTipo = "hotel";
+    } else if (cat === "tour") {
+      // El nombre viene como "Tour X (por persona)"; quito la unidad entre paréntesis.
+      tours.push(l.description.replace(/\s*\([^)]*\)\s*$/, "").trim());
+    }
+  }
+  const itineraryExtras = extraNights > 0 || tours.length > 0
+    ? { extraNights, extraNightTipo, tours }
+    : null;
+
   // Cargar imagen de cover
   const fsMod = await import("node:fs");
   const pathMod = await import("node:path");
@@ -274,6 +305,7 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
       total: Number(l.total) || 0,
     })),
     roomBreakdown,
+    itineraryExtras,
     baseEur: Number(quote.base_eur) || Number(quote.total_eur) || 0,
     seasonSupplement: {
       kind: (quote.season_kind === "high_season" || quote.season_kind === "easter" ? quote.season_kind : "regular") as "regular" | "high_season" | "easter",

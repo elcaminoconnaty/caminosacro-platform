@@ -15,7 +15,7 @@ const solicitudSchema = z.object({
   route_id: z.string().uuid(),
   modality: z.enum(["pension_doble", "pension_single", "hotel_doble", "hotel_single"]),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  people: z.number().int().min(1).max(20),
+  people: z.number().int().min(1).max(12),
   full_name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(160),
   phone: z.string().trim().min(6).max(40),

@@ -229,10 +229,10 @@ export default function PublicQuoter({
               <input
                 type="number"
                 min={1}
-                max={20}
+                max={12}
                 disabled={!route}
                 value={people}
-                onChange={(e) => setPeople(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+                onChange={(e) => setPeople(Math.min(12, Math.max(1, Number(e.target.value) || 1)))}
                 className="mt-1 w-full rounded-md border border-border bg-white px-3 py-2"
               />
             </label>

@@ -395,8 +395,9 @@ export default function Wizard({
             <input
               type="number"
               min={1}
+              max={30}
               value={people}
-              onChange={(e) => setPeople(Math.max(1, Number(e.target.value) || 1))}
+              onChange={(e) => setPeople(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
               className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
             />
           </label>

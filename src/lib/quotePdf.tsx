@@ -138,12 +138,14 @@ const s = StyleSheet.create({
   itinTableHead: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: C.borde, paddingVertical: 6, marginBottom: 2 },
   itinTH: { fontFamily: SANS_BOLD, fontSize: 8, color: C.sec, letterSpacing: 0.5 },
   itinTHDay: { width: 30 },
+  itinTHFecha: { width: 50 },
   itinTHEtapa: { flex: 1 },
-  itinTHAloj: { width: 200, textAlign: "right" },
+  itinTHAloj: { width: 150, textAlign: "right" },
   itinRow: { flexDirection: "row", paddingVertical: 5, borderBottomWidth: 0.25, borderBottomColor: C.borde },
   itinDay: { width: 30, fontFamily: SANS_BOLD, fontSize: 9, color: C.oroH },
+  itinFecha: { width: 50, fontFamily: SANS, fontSize: 8.5, color: C.sec },
   itinEtapa: { flex: 1, fontFamily: SANS, fontSize: 9, color: C.txt },
-  itinAloj: { width: 200, fontFamily: SANS, fontSize: 9, color: C.sec, textAlign: "right" },
+  itinAloj: { width: 150, fontFamily: SANS, fontSize: 9, color: C.sec, textAlign: "right" },
 
   // Servicios incluidos / no incluidos
   servicesRow: { flexDirection: "row", gap: 12, marginBottom: 18 },
@@ -285,6 +287,15 @@ export type QuotePDFProps = {
     tarifa_doble: number;
     tarifa_single: number;
   } | null;
+  /**
+   * Extras contratados que personalizan el itinerario: noches extra en Santiago y tours.
+   * Extienden el itinerario, el conteo de días/noches y el rango de fechas del PDF.
+   */
+  itineraryExtras?: {
+    extraNights: number;
+    extraNightTipo: "pension" | "hotel";
+    tours: string[];
+  } | null;
 };
 
 // =============== HELPERS ===============
@@ -306,6 +317,24 @@ function fechaCorta(d: string | null): string {
   if (!d) return "";
   const dt = new Date(d + "T00:00:00");
   return `${String(dt.getDate()).padStart(2, "0")}`;
+}
+
+const MES_ABBR = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+// Fecha del día N del itinerario (día 1 = fecha de inicio). Formato corto "28 sep".
+function fechaDia(start: string | null, dayOffset: number): string {
+  if (!start) return "";
+  const d = new Date(start + "T00:00:00");
+  d.setDate(d.getDate() + dayOffset);
+  return `${d.getDate()} ${MES_ABBR[d.getMonth()]}`;
+}
+
+// Suma días a una fecha ISO y devuelve ISO (para el rango de portada con noches extra).
+function sumarDiasIso(start: string | null, dias: number): string | null {
+  if (!start) return null;
+  const d = new Date(start + "T00:00:00");
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
 }
 
 function buildDateLine(start: string | null, end: string | null): string {
@@ -344,7 +373,9 @@ function buildItinerarioStages(
   tipoAlojamiento: string,
   origin: string,
   destination: string,
-): Array<{ day: number; etapa: string; alojamiento: string }> {
+  startDate: string | null,
+  extras: QuotePDFProps["itineraryExtras"],
+): Array<{ day: number; fecha: string; etapa: string; alojamiento: string }> {
   if (!stages || stages.length === 0) return [];
   const walking = [...stages]
     .filter((st) => (Number(st.km) || 0) > 0)
@@ -354,32 +385,48 @@ function buildItinerarioStages(
   const firstOrigin = origin || walking[0].from_place || "—";
   const lastDest = destination || walking[walking.length - 1].to_place || "Santiago de Compostela";
 
-  const rows: Array<{ day: number; etapa: string; alojamiento: string }> = [];
+  const rows: Array<{ day: number; fecha: string; etapa: string; alojamiento: string }> = [];
+  const push = (day: number, etapa: string, alojamiento: string) =>
+    rows.push({ day, fecha: fechaDia(startDate, day - 1), etapa, alojamiento });
 
-  rows.push({
-    day: 1,
-    etapa: `Llegada a ${firstOrigin}`,
-    alojamiento: `${tipoAlojamiento} ${firstOrigin}`,
-  });
+  push(1, `Llegada a ${firstOrigin}`, `${tipoAlojamiento} ${firstOrigin}`);
 
   walking.forEach((st, idx) => {
     const km = Number(st.km) || 0;
     const tramo = st.from_place && st.to_place
       ? `${st.from_place} → ${st.to_place}`
       : (st.to_place || st.from_place || "—");
-    rows.push({
-      day: idx + 2,
-      etapa: `${tramo} (${Math.round(km)} km)`,
-      alojamiento: st.accommodation
-        || (st.to_place ? `${tipoAlojamiento} ${st.to_place}` : "—"),
-    });
+    push(
+      idx + 2,
+      `${tramo} (${Math.round(km)} km)`,
+      st.accommodation || (st.to_place ? `${tipoAlojamiento} ${st.to_place}` : "—"),
+    );
   });
 
-  rows.push({
-    day: walking.length + 2,
-    etapa: `Fin de servicios en ${lastDest}`,
-    alojamiento: "—",
-  });
+  // Noches extra en Santiago: una fila por noche. Los tours contratados ocupan esos días
+  // libres; si sobran tours, se agrupan en la última fila libre.
+  const extraNights = extras?.extraNights ?? 0;
+  const tours = extras?.tours ?? [];
+  const extraLabel = extras?.extraNightTipo === "hotel" ? "Hotel" : "Pensión";
+  const destCorto = destination || lastDest;
+  for (let i = 0; i < extraNights; i++) {
+    let etapa: string;
+    if (i < extraNights - 1) {
+      etapa = tours[i] || `Día libre en ${destCorto}`;
+    } else {
+      const resto = tours.slice(i);
+      etapa = resto.length > 0 ? resto.join(" · ") : `Día libre en ${destCorto}`;
+    }
+    push(walking.length + 2 + i, etapa, `${extraLabel} ${destCorto}`);
+  }
+
+  // Fin de servicios. Si hay tours pero ninguna noche extra (0 días libres), se anexan
+  // al texto del Fin para no inventar días de estadía.
+  const finDay = walking.length + 2 + extraNights;
+  const finEtapa = extraNights === 0 && tours.length > 0
+    ? `Fin de servicios en ${lastDest} · ${tours.join(" · ")}`
+    : `Fin de servicios en ${lastDest}`;
+  push(finDay, finEtapa, "—");
 
   return rows;
 }
@@ -412,7 +459,7 @@ const CAT_TITLE: Record<string, string> = {
 const CAT_ORDER = ["seguro", "noche_extra", "meal", "transfer", "tour", "gift"];
 
 // =============== COMPONENT ===============
-export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceBlocks, selectedOptionals, baseEur, seasonSupplement, roomBreakdown }: QuotePDFProps) {
+export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceBlocks, selectedOptionals, baseEur, seasonSupplement, roomBreakdown, itineraryExtras }: QuotePDFProps) {
   const total = Number(quote.total_eur) || 0;
   const base = Number(baseEur) || total;
   const people = quote.people || 1;
@@ -427,13 +474,20 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
   const stagesCount = (stages || []).filter((s) => (Number(s.km) || 0) > 0).length;
   // El itinerario mostrado tiene N+2 filas (Llegada + N etapas + Fin). DÍAS y NOCHES se calculan
   // desde stagesCount para que el cuadro de stats coincida con la tabla de itinerario del PDF.
-  const days = stagesCount > 0 ? stagesCount + 2 : (route?.days ?? 0);
-  const nights = stagesCount > 0 ? stagesCount + 1 : (route?.nights ?? 0);
+  // Las noches extra en Santiago suman a ambos conteos.
+  const extraNights = itineraryExtras?.extraNights ?? 0;
+  const days = (stagesCount > 0 ? stagesCount + 2 : (route?.days ?? 0)) + extraNights;
+  const nights = (stagesCount > 0 ? stagesCount + 1 : (route?.nights ?? 0)) + extraNights;
   const km = route?.km || (stages || []).reduce((a, b) => a + (Number(b.km) || 0), 0);
   const difficulty = route?.difficulty || "Media";
   const modalityKind = (route?.modality === "bici") ? "EN BICI" : "A PIE";
 
-  const dateLine = buildDateLine(quote.start_date, quote.end_date);
+  // El rango de fechas se calcula desde la duración mostrada (con noches extra), no desde
+  // la end_date guardada, que no incluye las noches extra. No muta el dato en la BD.
+  const displayEndDate = quote.start_date && days > 0
+    ? sumarDiasIso(quote.start_date, days - 1)
+    : quote.end_date;
+  const dateLine = buildDateLine(quote.start_date, displayEndDate);
   const subtituloRuta = "CAMINO DE SANTIAGO";
 
   // Desglose mixto solo cuando de verdad hay dobles E individuales; con un solo
@@ -441,7 +495,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
   const mixto = roomBreakdown && roomBreakdown.dobles > 0 && roomBreakdown.individuales > 0 ? roomBreakdown : null;
   const tipoAlojMixto = mixto?.tipo === "hotel" ? "hotel" : "pensión";
 
-  const itin = buildItinerarioStages(stages, modInfo.tipoAlojamiento, origin, destination);
+  const itin = buildItinerarioStages(stages, modInfo.tipoAlojamiento, origin, destination, quote.start_date, itineraryExtras);
 
   // Optionals agrupados
   const optsByCat = new Map<string, NonNullable<typeof optionals>>();
@@ -570,12 +624,14 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
           <>
             <View style={s.itinTableHead}>
               <Text style={[s.itinTH, s.itinTHDay]}>DÍA</Text>
+              <Text style={[s.itinTH, s.itinTHFecha]}>FECHA</Text>
               <Text style={[s.itinTH, s.itinTHEtapa]}>ETAPA</Text>
               <Text style={[s.itinTH, s.itinTHAloj]}>ALOJAMIENTO</Text>
             </View>
             {itin.map((row) => (
               <View key={row.day} style={s.itinRow} wrap={false}>
                 <Text style={s.itinDay}>{row.day}</Text>
+                <Text style={s.itinFecha}>{row.fecha}</Text>
                 <Text style={s.itinEtapa}>{row.etapa}</Text>
                 <Text style={s.itinAloj}>{row.alojamiento}</Text>
               </View>
