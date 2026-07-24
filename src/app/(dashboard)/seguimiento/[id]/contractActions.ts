@@ -256,7 +256,7 @@ export async function sendContractLink(
       alojamiento: vars.modalidad,
       total_eur: null,
       pdf_url: pdfUrl,
-      subject: `Tu contrato Camino Sacro — ${vars.codigo_cotizacion}`,
+      subject: `${vars.viajero_nombre} - Contrato para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
       body: [
         `Hola ${vars.viajero_nombre.split(/\s+/)[0] || ""},`,
         ``,
@@ -272,6 +272,17 @@ export async function sendContractLink(
         ``,
         `Buen Camino,`,
         `Camino Sacro · reservas@caminosacro.com`,
+      ].join("\n"),
+      attachment_name: `Contrato-${vars.codigo_cotizacion}.pdf`,
+      aviso_subject: `${vars.viajero_nombre} - Contrato enviado para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
+      aviso_body: [
+        `Se envió un contrato para firma.`,
+        ``,
+        `Contrato: ${vars.codigo_cotizacion}`,
+        `Cliente: ${vars.viajero_nombre}`,
+        `Ruta: ${vars.ruta_nombre || "-"}`,
+        ``,
+        `Cuando el cliente firme, te llegará el aviso de "Contrato firmado".`,
       ].join("\n"),
     });
   }

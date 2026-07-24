@@ -17,6 +17,12 @@ export type CorreoContratoPayload = {
   pdf_url: string | null;
   subject: string;
   body: string;
+  // Nombre del archivo adjunto (para que diga "Contrato-..." y no "Cotizacion-...").
+  attachment_name?: string;
+  // Asunto/cuerpo del aviso interno a reservas@ (si no se envían, el workflow usa
+  // su aviso de lead por defecto).
+  aviso_subject?: string;
+  aviso_body?: string;
 };
 
 export async function enviarCorreoContrato(payload: CorreoContratoPayload): Promise<boolean> {

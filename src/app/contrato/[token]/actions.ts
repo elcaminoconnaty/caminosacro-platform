@@ -78,7 +78,14 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   if (!ext) return { ok: false, error: "El pasaporte debe ser una imagen (JPG, PNG, WebP) o un PDF." };
   if (passport.size > PASSPORT_MAX_BYTES) return { ok: false, error: "El archivo del pasaporte supera 12 MB." };
 
-  const vars = c.variables_json as ContractVariables;
+  const varsBase = c.variables_json as ContractVariables;
+  // El número de pasaporte que el viajero ingresa al firmar queda dentro del
+  // contrato (identificación de EL VIAJERO como Pasaporte).
+  const vars: ContractVariables = {
+    ...varsBase,
+    viajero_tipo_documento: "Pasaporte",
+    viajero_documento: signerDocument,
+  };
   const plan = c.payment_plan_json as PaymentPlan;
   const code = vars.codigo_cotizacion || c.quote_id;
   const signedAt = new Date().toISOString();
@@ -134,6 +141,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     .from("contracts")
     .update({
       status: "firmado",
+      variables_json: vars, // ahora con el número de pasaporte del firmante
       signed_pdf_path: `comercial-contracts/${signedFilename}`,
       passport_path: `comercial-passports/${passportFilename}`,
       signer_name: signerName,
@@ -173,19 +181,35 @@ export async function firmarContrato(token: string, formData: FormData): Promise
       alojamiento: vars.modalidad || null,
       total_eur: null,
       pdf_url: signedUrl?.signedUrl ?? null,
-      subject: `Tu contrato firmado — Camino Sacro ${code}`,
+      subject: `${signerName} - Contrato firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
       body: [
         `Hola ${signerName.split(/\s+/)[0]},`,
         ``,
         `¡Listo! Tu contrato quedó firmado el ${new Date(signedAt).toLocaleString("es-CO", { timeZone: "America/Bogota" })}.`,
         ``,
-        `Adjunto encuentras tu copia del Acuerdo de Prestación de Servicios Turísticos (cotización ${code}).`,
+        `Adjunto encuentras tu copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}.`,
         `Huella digital del documento (SHA-256): ${docHash}`,
         ``,
         `Nuestro equipo continúa con la gestión de tus reservas y te iremos contando cada avance.`,
         ``,
         `Buen Camino,`,
         `Camino Sacro · reservas@caminosacro.com`,
+      ].join("\n"),
+      attachment_name: `Contrato-${code}-firmado.pdf`,
+      // El correo que le llega a reservas@ (Nico) con el asunto pedido.
+      aviso_subject: `${signerName} - Contrato firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
+      aviso_body: [
+        `Se firmó un contrato.`,
+        ``,
+        `Contrato: ${code}`,
+        `Cliente: ${signerName}`,
+        `Pasaporte: ${signerDocument}`,
+        `Ruta: ${vars.ruta_nombre || "-"}`,
+        `Fecha de firma: ${new Date(signedAt).toLocaleString("es-CO", { timeZone: "America/Bogota" })}`,
+        `Huella SHA-256: ${docHash}`,
+        ``,
+        `Contrato firmado y pasaporte disponibles en Seguimiento:`,
+        `https://caminosacro-platform-production.up.railway.app/seguimiento`,
       ].join("\n"),
     });
   }

@@ -145,25 +145,22 @@ export default function SignForm({
           />
         </label>
         <label className="text-xs">
-          <span className="text-muted">Número de {docType || "documento"}</span>
+          <span className="text-muted">Número de pasaporte</span>
           <input
             name="signer_document"
-            defaultValue={defaultDocument}
+            defaultValue={docType === "Pasaporte" ? defaultDocument : ""}
             required
             minLength={4}
+            placeholder="Como aparece en tu pasaporte"
             className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-white"
           />
+          <span className="block text-[11px] text-muted mt-1">Este número quedará dentro de tu contrato firmado.</span>
         </label>
-      </div>
-
-      <div>
-        <p className="text-xs text-muted mb-1.5">Tu firma</p>
-        <SignatureCanvas onChange={setSignature} />
       </div>
 
       <label className="text-xs block">
         <span className="text-muted">
-          Foto o escaneo de tu pasaporte (página de datos) — la necesitamos para gestionar tus reservas
+          Foto o escaneo de tu pasaporte (página de datos) — debe coincidir con el número de arriba
         </span>
         <input
           name="passport"
@@ -173,6 +170,11 @@ export default function SignForm({
           className="mt-1.5 block w-full text-xs file:mr-3 file:px-3 file:py-2 file:rounded-md file:border-0 file:bg-bosque file:text-white file:cursor-pointer hover:file:bg-bosque-medio"
         />
       </label>
+
+      <div>
+        <p className="text-xs text-muted mb-1.5">Tu firma</p>
+        <SignatureCanvas onChange={setSignature} />
+      </div>
 
       <label className="flex items-start gap-2.5 text-xs text-fg">
         <input type="checkbox" name="accept" required className="mt-0.5" />

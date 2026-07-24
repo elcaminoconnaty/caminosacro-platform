@@ -100,7 +100,7 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
           <div className="px-6 py-4 border-b border-border flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-display text-lg text-bosque">Acuerdo de Prestación de Servicios Turísticos</h2>
             <p className="text-xs text-muted">
-              Cotización {v.codigo_cotizacion} · {v.ruta_nombre}
+              Contrato No. {v.codigo_cotizacion} · {v.ruta_nombre}
             </p>
           </div>
 

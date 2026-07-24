@@ -152,7 +152,7 @@ export function ContractPDF({
       <Page size="A4" style={s.page}>
         <Membrete />
         <Text style={s.titulo}>Acuerdo de Prestación de Servicios Turísticos</Text>
-        <Text style={s.subtitulo}>Camino Sacro · Cotización {v.codigo_cotizacion}</Text>
+        <Text style={s.subtitulo}>Camino Sacro · Contrato No. {v.codigo_cotizacion}</Text>
 
         {contractIntro(v).map((p, i) => (
           <Text key={`i${i}`} style={s.p}>{p}</Text>
