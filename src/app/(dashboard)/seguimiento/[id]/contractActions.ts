@@ -14,6 +14,7 @@ import {
 } from "@/lib/contracts/render";
 import type { ContractVariables, PaymentPlan } from "@/lib/contracts/template";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
+import { rutaContrato, sinBucket } from "@/lib/storage/paths";
 
 const TOKEN_TTL_DAYS = 21;
 
@@ -175,21 +176,22 @@ export async function generateContractPdf(
   }
 
   const vars = c.variables_json as ContractVariables;
-  const filename = `Contrato-${vars.codigo_cotizacion || quoteId}.pdf`;
+  const pdfPath = rutaContrato(vars.codigo_cotizacion || quoteId);
+  const filePath = sinBucket(pdfPath);
   const { error: upErr } = await supabase.storage
     .from("comercial-contracts")
-    .upload(filename, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+    .upload(filePath, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase
     .from("contracts")
-    .update({ pdf_path: `comercial-contracts/${filename}` })
+    .update({ pdf_path: pdfPath })
     .eq("id", c.id);
   if (dbErr) return { error: mensajeError(dbErr) };
 
   const { data: signed } = await supabase.storage
     .from("comercial-contracts")
-    .createSignedUrl(filename, 60 * 10);
+    .createSignedUrl(filePath, 60 * 10);
 
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true, url: signed?.signedUrl };
@@ -239,10 +241,9 @@ export async function sendContractLink(
     let pdfUrl: string | null = null;
     const { data: fresh } = await supabase.from("contracts").select("pdf_path").eq("id", c.id).maybeSingle();
     if (fresh?.pdf_path) {
-      const filePath = String(fresh.pdf_path).replace(/^comercial-contracts\//, "");
       const { data: signed } = await supabase.storage
         .from("comercial-contracts")
-        .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+        .createSignedUrl(sinBucket(String(fresh.pdf_path)), 60 * 60 * 24 * 7);
       pdfUrl = signed?.signedUrl ?? null;
     }
     emailEnviado = await enviarCorreoContrato({

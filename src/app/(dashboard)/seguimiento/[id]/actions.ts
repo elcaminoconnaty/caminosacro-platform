@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { isQuoteStatus } from "@/lib/quoteStatus";
-import { buildPdfFilename, renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
+import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
+import { rutaCotizacion, rutaHoteles, rutaRecibo, sinBucket } from "@/lib/storage/paths";
+import { enviarCorreoWebhook } from "@/lib/email/webhook";
 
 // Borra un archivo de Storage a partir de su ruta "bucket/archivo".
 async function removeStoragePath(
@@ -290,8 +292,7 @@ export async function generateClientReceipt(quoteId: string, paymentId: string) 
     return { error: mensajeError(e as Error, "No se pudo generar el recibo.") };
   }
 
-  const filename = buildPdfFilename(receiptNumber, quote.client_name, quote.route_name);
-  const pdfPath = `comercial-receipts/${filename}`;
+  const pdfPath = rutaRecibo(receiptNumber, quote.code, quote.client_name, quote.route_name);
 
   if (payment.receipt_path && payment.receipt_path !== pdfPath) {
     await removeStoragePath(supabase, payment.receipt_path);
@@ -299,7 +300,7 @@ export async function generateClientReceipt(quoteId: string, paymentId: string) 
 
   const { error: upErr } = await supabase.storage
     .from("comercial-receipts")
-    .upload(filename, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+    .upload(sinBucket(pdfPath), buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase
@@ -383,6 +384,99 @@ export async function generateQuotePdf(quoteId: string) {
   const result = await renderAndStoreQuotePdf(supabase, quoteId);
   if (result.ok) revalidatePath(`/seguimiento/${quoteId}`);
   return result;
+}
+
+// TTL del enlace del PDF que viaja al correo: Brevo lo descarga al enviar, pero
+// se firma a 7 días (igual que el contrato) por si hay reintentos o demoras.
+const EMAIL_PDF_TTL = 60 * 60 * 24 * 7;
+
+/**
+ * Envía la cotización al cliente desde reservas@caminosacro.com con el PDF
+ * adjunto, por el webhook n8n → Brevo. El asunto y el cuerpo son los que el
+ * equipo ve (y pudo editar) en la tarjeta de correo del CRM.
+ *
+ * El destinatario SIEMPRE sale de `client_email` en la base: lo que llega del
+ * navegador es solo el texto del mensaje.
+ */
+export async function enviarCorreoCotizacion(
+  quoteId: string,
+  mensaje: { subject: string; body: string },
+): Promise<{ ok?: true; email?: string; error?: string }> {
+  const subject = mensaje.subject.trim();
+  const body = mensaje.body.trim();
+  if (!subject) return { error: "El asunto no puede estar vacío." };
+  if (!body) return { error: "El cuerpo del correo no puede estar vacío." };
+
+  const supabase = await createCommercialClient();
+  const { data: quote, error: qErr } = await supabase
+    .from("quotes")
+    .select("id,code,client_name,client_email,client_phone,route_name,start_date,people,modality,total_eur,pdf_path")
+    .eq("id", quoteId)
+    .maybeSingle();
+  if (qErr) return { error: mensajeError(qErr) };
+  if (!quote) return { error: "No encontré la cotización." };
+
+  const email = String(quote.client_email || "").trim();
+  if (!email) return { error: "La cotización no tiene correo del cliente. Agrégalo y vuelve a intentar." };
+
+  // Sin PDF no hay adjunto: lo generamos antes de enviar.
+  let pdfPath = quote.pdf_path as string | null;
+  if (!pdfPath) {
+    const gen = await renderAndStoreQuotePdf(supabase, quoteId);
+    if (gen.error) return { error: `No se pudo generar el PDF: ${gen.error}` };
+    const { data: fresh } = await supabase.from("quotes").select("pdf_path").eq("id", quoteId).maybeSingle();
+    pdfPath = (fresh?.pdf_path as string | null) ?? null;
+  }
+  if (!pdfPath) return { error: "La cotización no tiene PDF y no se pudo generar." };
+
+  const [bucket, ...rest] = pdfPath.split("/");
+  const { data: signed, error: urlErr } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(rest.join("/"), EMAIL_PDF_TTL);
+  if (urlErr || !signed?.signedUrl) {
+    return { error: `No se pudo preparar el PDF adjunto: ${mensajeError(urlErr)}` };
+  }
+
+  const nombre = String(quote.client_name || "").trim();
+  const envio = await enviarCorreoWebhook({
+    code: quote.code,
+    nombre,
+    email,
+    telefono: quote.client_phone ?? null,
+    ruta: quote.route_name ?? null,
+    fecha_inicio: quote.start_date ?? null,
+    personas: Number(quote.people) || 1,
+    alojamiento: quote.modality ?? null,
+    total_eur: quote.total_eur != null ? Number(quote.total_eur) : null,
+    pdf_url: signed.signedUrl,
+    subject,
+    body,
+    attachment_name: `Cotizacion-${quote.code}.pdf`,
+    // Sin esto el workflow manda su aviso por defecto de "Nuevo lead del
+    // cotizador web", que aquí sería falso: esto lo envió alguien del equipo.
+    aviso_subject: `${nombre || "Cliente"} - Cotización enviada - ${quote.code}${quote.route_name ? ` - ${quote.route_name}` : ""}`,
+    aviso_body: [
+      `Se envió una cotización al cliente desde el CRM.`,
+      ``,
+      `Cotización: ${quote.code}`,
+      `Cliente: ${nombre || "-"}`,
+      `Correo: ${email}`,
+      `WhatsApp: ${quote.client_phone || "-"}`,
+      ``,
+      `Ruta: ${quote.route_name || "-"}`,
+      `Salida: ${quote.start_date || "-"}`,
+      `Personas: ${quote.people ?? "-"}`,
+      `Alojamiento: ${quote.modality || "-"}`,
+      `Total: ${quote.total_eur != null ? `${quote.total_eur} EUR` : "-"}`,
+      ``,
+      `Respondiendo a este mensaje le escribes directo al cliente.`,
+    ].join("\n"),
+  });
+  if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
+
+  await supabase.from("quotes").update({ email_sent_at: new Date().toISOString() }).eq("id", quoteId);
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true, email };
 }
 
 // ---------------- LISTADO DE HOTELES ----------------
@@ -509,17 +603,15 @@ export async function generateHotelsPdf(quoteId: string) {
     return { error: mensajeError(e as Error, "No se pudo generar el PDF de hoteles.") };
   }
 
-  const filename = buildPdfFilename(`${quote.code}_hoteles`, quote.client_name, quote.route_name);
-  const pdfPath = `comercial-hotels/${filename}`;
+  const pdfPath = rutaHoteles(quote.code, quote.client_name, quote.route_name);
 
   if (quote.hotels_pdf_path && quote.hotels_pdf_path !== pdfPath) {
-    const oldFilePath = quote.hotels_pdf_path.replace(/^comercial-hotels\//, "");
-    await supabase.storage.from("comercial-hotels").remove([oldFilePath]).catch(() => {});
+    await removeStoragePath(supabase, quote.hotels_pdf_path);
   }
 
   const { error: upErr } = await supabase.storage
     .from("comercial-hotels")
-    .upload(filename, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+    .upload(sinBucket(pdfPath), buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ hotels_pdf_path: pdfPath }).eq("id", quoteId);
@@ -543,18 +635,16 @@ export async function uploadQuotePdf(quoteId: string, formData: FormData) {
     .maybeSingle();
   if (!q) return { error: "Cotización no encontrada" };
 
-  const path = buildPdfFilename(q.code, q.client_name, q.route_name);
-  const pdfPath = `comercial-quotes/${path}`;
+  const pdfPath = rutaCotizacion(q.code, q.client_name, q.route_name);
 
   if (q.pdf_path && q.pdf_path !== pdfPath) {
-    const oldFilePath = q.pdf_path.replace(/^comercial-quotes\//, "");
-    await supabase.storage.from("comercial-quotes").remove([oldFilePath]).catch(() => {});
+    await removeStoragePath(supabase, q.pdf_path);
   }
 
   const buffer = await file.arrayBuffer();
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
-    .upload(path, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+    .upload(sinBucket(pdfPath), buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);

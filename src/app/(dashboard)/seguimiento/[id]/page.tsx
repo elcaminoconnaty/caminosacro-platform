@@ -266,7 +266,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       )}
 
       <EmailPreviewCard
+        quoteId={id}
         to={quote.client_email || ""}
+        emailSentAt={quote.email_sent_at ?? null}
         subject={renderTemplate(
           emailTpl?.subject || "Cotización {{code}} - Camino Sacro",
           buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name)),

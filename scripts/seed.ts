@@ -18,6 +18,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: path.resolve(__dirname, "..", ".env.local") });
 import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
+import { carpetaCotizacion } from "../src/lib/storage/paths";
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
 const MASTER_XLSX = path.join(PROJECT_ROOT, "camino_sacro_catalogo_master.xlsx");
@@ -279,7 +280,13 @@ async function ensureBuckets() {
   }
 }
 
-async function uploadDir(localDir: string, bucket: string, table?: "welcome_letters" | "route_catalogs") {
+// `prefix`: carpeta destino dentro del bucket (ver src/lib/storage/paths.ts).
+async function uploadDir(
+  localDir: string,
+  bucket: string,
+  prefix: string,
+  table?: "welcome_letters" | "route_catalogs",
+) {
   if (!fs.existsSync(localDir)) {
     log(`✗ ${localDir} no existe`);
     return;
@@ -290,7 +297,7 @@ async function uploadDir(localDir: string, bucket: string, table?: "welcome_lett
   for (const fname of files) {
     const local = path.join(localDir, fname);
     const buf = fs.readFileSync(local);
-    const remote = fname;
+    const remote = `${prefix}${fname}`;
     const { error } = await storageClient.storage
       .from(bucket)
       .upload(remote, buf, { contentType: "application/pdf", upsert: true });
@@ -340,7 +347,7 @@ async function seedAprilQuoteStubs() {
 
     // Upload PDF
     const buf = fs.readFileSync(path.join(ABRIL_DIR, fname));
-    const remote = `${code}.pdf`;
+    const remote = `${carpetaCotizacion(code)}/${code}.pdf`;
     await storageClient.storage.from("comercial-quotes").upload(remote, buf, { contentType: "application/pdf", upsert: true });
 
     await supabase.from("quotes").upsert(
@@ -413,8 +420,8 @@ async function main() {
   await seedRouteStages();
   await seedOptionalServices();
   await ensureBuckets();
-  await uploadDir(WELCOME_DIR, "comercial-welcome", "welcome_letters");
-  await uploadDir(CATALOGS_DIR, "comercial-catalogs", "route_catalogs");
+  await uploadDir(WELCOME_DIR, "comercial-welcome", "cartas-bienvenida/", "welcome_letters");
+  await uploadDir(CATALOGS_DIR, "comercial-catalogs", "fichas-de-viaje/", "route_catalogs");
   await seedAprilQuoteStubs();
   console.log("\n✓ Seed completo");
 }

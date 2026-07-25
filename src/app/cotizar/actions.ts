@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
+import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { mensajeError } from "@/lib/errors";
 import { MODALIDAD_LABEL } from "./constants";
 
@@ -173,12 +174,12 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
     console.error("[cotizar] PDF falló para", quote.code, pdf.error);
   }
 
-  // 5. Correo con el PDF (webhook n8n → Microsoft 365, reservas@), con subject/body
+  // 5. Correo con el PDF (webhook n8n → Brevo, reservas@), con subject/body
   //    renderizados desde la plantilla `cotizacion_enviada` del CRM. Si el envío
   //    falla, la cotización ya existe y el cliente igual ve su enlace en pantalla:
   //    no se pierde el lead.
   const correo = await armarCorreoCotizacion(supabase, quote.id);
-  const emailEnviado = await enviarCorreo({
+  const { ok: emailEnviado } = await enviarCorreoWebhook({
     code: quote.code,
     nombre: datos.full_name,
     email: datos.email,
@@ -194,29 +195,4 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
   });
 
   return { ok: true, code: quote.code, totalEur, pdfUrl, emailEnviado };
-}
-
-async function enviarCorreo(payload: Record<string, unknown>): Promise<boolean> {
-  const url = process.env.QUOTE_EMAIL_WEBHOOK_URL;
-  if (!url) {
-    console.warn("[cotizar] QUOTE_EMAIL_WEBHOOK_URL sin configurar: no se envió el correo.");
-    return false;
-  }
-  try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(process.env.QUOTE_EMAIL_WEBHOOK_SECRET
-          ? { "x-webhook-secret": process.env.QUOTE_EMAIL_WEBHOOK_SECRET }
-          : {}),
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000),
-    });
-    return r.ok;
-  } catch (e) {
-    console.error("[cotizar] no se pudo enviar el correo:", e);
-    return false;
-  }
 }

@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { mensajeError } from "@/lib/errors";
 import { getTRMHoy } from "@/lib/trm";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
+import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
 
 /**
  * Cliente del schema `comercial`: el de sesión (dashboard) o el admin (cotizador público,
@@ -14,20 +15,8 @@ export type ComercialClient =
   | Awaited<ReturnType<typeof createCommercialClient>>
   | ReturnType<typeof createAdminClient>;
 
-function sanitizeFilenamePart(s: string | null | undefined): string {
-  if (!s) return "";
-  return s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Za-z0-9-]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 60);
-}
-
-export function buildPdfFilename(code: string, clientName: string | null, routeName: string | null): string {
-  const parts = [code, sanitizeFilenamePart(clientName), sanitizeFilenamePart(routeName)].filter(Boolean);
-  return `${parts.join("_")}.pdf`;
-}
+// El nombre y la ubicaci\u00f3n de los archivos viven en @/lib/storage/paths.
+export { buildPdfFilename } from "@/lib/storage/paths";
 
 export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId: string) {
 
@@ -322,19 +311,17 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     return { error: mensajeError(e as Error, "No se pudo generar el PDF de la cotización.") };
   }
 
-  const path = buildPdfFilename(quote.code, quote.client_name, quote.route_name);
-  const pdfPath = `comercial-quotes/${path}`;
+  const pdfPath = rutaCotizacion(quote.code, quote.client_name, quote.route_name);
 
   if (quote.pdf_path && quote.pdf_path !== pdfPath) {
-    const oldFilePath = quote.pdf_path.replace(/^comercial-quotes\//, "");
-    await supabase.storage.from("comercial-quotes").remove([oldFilePath]).catch(() => {});
+    await supabase.storage.from("comercial-quotes").remove([sinBucket(quote.pdf_path)]).catch(() => {});
   }
 
   // cacheControl "no-cache": la ruta del archivo es determinista (mismo nombre al regenerar),
   // así que sin esto la CDN/URL firmada seguiría sirviendo el PDF viejo tras regenerar.
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
-    .upload(path, buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+    .upload(sinBucket(pdfPath), buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);

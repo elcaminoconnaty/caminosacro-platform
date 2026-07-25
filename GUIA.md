@@ -218,6 +218,12 @@ Cargadas en Railway → Service → Variables. Si rotás la `service_role` key, 
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `TRM_API_PRIMARY`
 - `TRM_API_FALLBACK`
+- `WP_QUOTER_SECRET` — secreto compartido con WordPress para `/api/wp/*`
+- `QUOTE_EMAIL_WEBHOOK_URL` — webhook n8n "Correo Cotización — Camino Sacro"
+- `QUOTE_EMAIL_WEBHOOK_SECRET` — header `x-webhook-secret` que valida ese workflow
+
+Sin las dos últimas **no sale ningún correo** (cotizaciones del CRM, cotizador
+público y contratos usan el mismo webhook → Brevo → `reservas@caminosacro.com`).
 
 Cambiar una variable redespliega automáticamente.
 
@@ -270,6 +276,45 @@ Servicio actual en `asia-southeast1` (Singapur). Edge sirve global desde Virgini
 - La `publishable` key (`sb_publishable_*`) es pública por diseño, no es un secreto.
 - RLS está activo en `comercial.*` — solo usuarios autenticados ven datos.
 - Storage buckets son privados, accesibles vía URLs firmadas (10 min de validez).
+
+---
+
+## 9b. Cómo se organizan los archivos en Storage
+
+Todos los documentos se guardan por **expediente**: año y código de cotización.
+Así, todo lo de un cliente queda junto y navegable desde el explorador de Supabase.
+
+```
+comercial-quotes/     2026/CS-2026-034/CS-2026-034_Amalia_Matallana_Frances.pdf
+comercial-hotels/     2026/CS-2026-034/CS-2026-034_hoteles_Amalia.pdf
+comercial-receipts/   2026/CS-2026-034/REC-CS-2026-034-1_Amalia.pdf
+comercial-contracts/  2026/CS-2026-034/Contrato-CS-2026-034.pdf  (+ -firmado)
+comercial-passports/  2026/CS-2026-034/Pasaporte-CS-2026-034-<ts>.jpg
+comercial-catalogs/   fichas-de-viaje/...
+comercial-welcome/    cartas-bienvenida/...
+fotos-instagram/      camino-sacro/2026/06/DDC_3232.jpg
+```
+
+- **Quién decide la ruta**: `src/lib/storage/paths.ts`, único lugar. Si hay que
+  cambiar la estructura, se cambia ahí y se recorre el script de abajo.
+- En la BD las rutas se guardan **con el bucket adelante** (`comercial-quotes/2026/...`).
+  Los lectores (`getSignedUrl`, `getResourceUrl`, `removeStoragePath`) parten por
+  el primer `/` y rearman el resto, así que soportan subcarpetas.
+- **Reorganizar archivos ya existentes**:
+  ```bash
+  npx tsx scripts/reorganize_storage.ts            # dry-run: muestra de → a
+  npx tsx scripts/reorganize_storage.ts --apply    # ejecuta
+  npx tsx scripts/reorganize_storage.ts --apply --fotos   # incluye fotos-instagram
+  ```
+  Es idempotente (se puede correr las veces que sea) y mueve con la API de Storage,
+  nunca con `UPDATE storage.objects` (esta versión mantiene además `storage.prefixes`).
+  Tras mover, actualiza las columnas de rutas en la BD y hace un repaso final por si
+  quedó alguna desalineada.
+- **Cuidado con `fotos-instagram`**: `public.registrar_fotos_nuevas()` compara
+  `storage.objects.name` contra `fotos.storage_path`. Si se mueven fotos sin
+  actualizar esa columna, el pipeline de Instagram las re-registra como nuevas y
+  puede republicar fotos ya usadas. Por eso `--fotos` va aparte y conviene correrlo
+  lejos del pg_cron `camino-sacro-publicar-diario` (`0 0 * * *` UTC = 7pm Bogotá).
 
 ---
 

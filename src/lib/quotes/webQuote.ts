@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
+import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { mensajeError } from "@/lib/errors";
 
 const PDF_URL_TTL = 60 * 60 * 24 * 7; // 7 días, igual que el cotizador público interno.
@@ -194,12 +195,12 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     console.error("[wp-quote] PDF falló para", quote.code, "error" in pdf ? pdf.error : "");
   }
 
-  // 7. Correo al cliente con su PDF (webhook n8n → Microsoft 365, reservas@).
+  // 7. Correo al cliente con su PDF (webhook n8n → Brevo, reservas@).
   //    subject/body van renderizados desde la plantilla `cotizacion_enviada`
   //    del CRM: es el mismo mensaje que ve el equipo en la tarjeta de correo.
   //    La notificación interna a reservas@ la envía WordPress; aquí solo va la del cliente.
   const correo = await armarCorreoCotizacion(supabase, quote.id);
-  const emailSent = await enviarCorreo({
+  const { ok: emailSent } = await enviarCorreoWebhook({
     code: quote.code,
     nombre: datos.full_name,
     email: datos.email,
@@ -236,31 +237,4 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
       total_eur: totalEur,
     },
   };
-}
-
-// Copia local del helper privado de cotizar/actions.ts (no se exporta desde un
-// "use server" sin convertirlo en action; copiar es más seguro que tocarlo).
-async function enviarCorreo(payload: Record<string, unknown>): Promise<boolean> {
-  const url = process.env.QUOTE_EMAIL_WEBHOOK_URL;
-  if (!url) {
-    console.warn("[wp-quote] QUOTE_EMAIL_WEBHOOK_URL sin configurar: no se envió el correo.");
-    return false;
-  }
-  try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(process.env.QUOTE_EMAIL_WEBHOOK_SECRET
-          ? { "x-webhook-secret": process.env.QUOTE_EMAIL_WEBHOOK_SECRET }
-          : {}),
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000),
-    });
-    return r.ok;
-  } catch (e) {
-    console.error("[wp-quote] no se pudo enviar el correo:", e);
-    return false;
-  }
 }

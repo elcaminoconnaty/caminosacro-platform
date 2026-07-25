@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { renderContractPdfBuffer, sha256Hex, getOrgSignature } from "@/lib/contracts/render";
 import type { ContractVariables, PaymentPlan } from "@/lib/contracts/template";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
+import { rutaContrato, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
 
 export type ResultadoFirma =
   | { ok: true; emailEnviado: boolean }
@@ -91,11 +92,11 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   const signedAt = new Date().toISOString();
 
   // ---- 1. Pasaporte al bucket privado ----
-  const passportFilename = `Pasaporte-${code}-${Date.now()}.${ext}`;
+  const passportPath = rutaPasaporte(code, ext);
   const passportBuffer = Buffer.from(await passport.arrayBuffer());
   const { error: passErr } = await supabase.storage
     .from("comercial-passports")
-    .upload(passportFilename, passportBuffer, { contentType: passport.type, upsert: true, cacheControl: "no-cache" });
+    .upload(sinBucket(passportPath), passportBuffer, { contentType: passport.type, upsert: true, cacheControl: "no-cache" });
   if (passErr) {
     console.error("[firmar] subida de pasaporte falló:", passErr);
     return { ok: false, error: "No pudimos guardar el pasaporte. Inténtalo de nuevo." };
@@ -127,10 +128,10 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   }
   const docHash = sha256Hex(signedPdf);
 
-  const signedFilename = `Contrato-${code}-firmado.pdf`;
+  const signedPdfPath = rutaContrato(code, true);
   const { error: pdfErr } = await supabase.storage
     .from("comercial-contracts")
-    .upload(signedFilename, signedPdf, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+    .upload(sinBucket(signedPdfPath), signedPdf, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (pdfErr) {
     console.error("[firmar] subida del PDF firmado falló:", pdfErr);
     return { ok: false, error: "No pudimos guardar el contrato firmado. Inténtalo de nuevo." };
@@ -142,8 +143,8 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     .update({
       status: "firmado",
       variables_json: vars, // ahora con el número de pasaporte del firmante
-      signed_pdf_path: `comercial-contracts/${signedFilename}`,
-      passport_path: `comercial-passports/${passportFilename}`,
+      signed_pdf_path: signedPdfPath,
+      passport_path: passportPath,
       signer_name: signerName,
       signer_document: signerDocument,
       signer_email: vars.viajero_email || null,
@@ -168,7 +169,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   let emailEnviado = false;
   const { data: signedUrl } = await supabase.storage
     .from("comercial-contracts")
-    .createSignedUrl(signedFilename, SIGNED_COPY_TTL);
+    .createSignedUrl(sinBucket(signedPdfPath), SIGNED_COPY_TTL);
   if (vars.viajero_email) {
     emailEnviado = await enviarCorreoContrato({
       code,
