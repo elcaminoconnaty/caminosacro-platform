@@ -20,6 +20,11 @@ const PASSPORT_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+  // Formato nativo de las fotos de iPhone. Safari suele convertirlo a JPEG al subirlo y
+  // el navegador lo recomprime a JPEG antes de enviarlo, pero algunos Android lo mandan
+  // tal cual y no vale la pena rechazar la firma por eso.
+  "image/heic": "heic",
+  "image/heif": "heif",
   "application/pdf": "pdf",
 };
 const SIGNATURE_MAX_CHARS = 400_000; // data URL PNG del canvas (~300 KB reales)

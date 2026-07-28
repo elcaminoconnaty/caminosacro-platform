@@ -24,6 +24,19 @@ import {
   type Cuota,
 } from "@/lib/contracts/template";
 
+// Igual que MAX_RECORDATORIOS en /api/cron/recordatorios-contrato: solo para el rótulo.
+const MAX_RECORDATORIOS = 5;
+
+/** "Recordatorio 2 de 5 · último el 14 de agosto", o null si aún no se ha enviado ninguno. */
+function rotuloRecordatorios(contract: ContractRow | null): string | null {
+  if (contract?.status !== "enviado" || !contract.reminder_count) return null;
+  const fecha = contract.last_reminder_at
+    ? new Date(contract.last_reminder_at).toLocaleDateString("es-CO", { day: "numeric", month: "long" })
+    : null;
+  const tope = contract.reminder_count >= MAX_RECORDATORIOS ? " · sin más envíos, conviene llamarlo" : "";
+  return `Recordatorio ${contract.reminder_count} de ${MAX_RECORDATORIOS}${fecha ? ` · último el ${fecha}` : ""}${tope}`;
+}
+
 const STATUS_CHIP: Record<string, { label: string; cls: string }> = {
   borrador: { label: "En revisión", cls: "bg-taupe/60 text-fg" },
   enviado: { label: "Aprobado · esperando firma", cls: "bg-amber-100 text-amber-800" },
@@ -93,6 +106,9 @@ export default function ContractCard({
 
   const firmado = contract?.status === "firmado";
   const chip = STATUS_CHIP[contract?.status ?? "borrador"];
+
+  // Rastro de los recordatorios automáticos de firma (los envía el cron cada 4 días).
+  const recordatorios = rotuloRecordatorios(contract);
 
   const sumaCuotas = useMemo(
     () => (plan.type === "financiado" ? plan.cuotas.reduce((s, c) => s + (Number(c.monto_eur) || 0), 0) : 0),
@@ -237,6 +253,11 @@ export default function ContractCard({
           <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${existe ? chip.cls : "bg-dorado/30 text-dorado-oscuro"}`}>
             {existe ? chip.label : "Nuevo · por revisar"}
           </span>
+          {recordatorios && (
+            <span className="text-[10px] text-muted" title="Recordatorios automáticos de firma, cada 4 días (máximo 5)">
+              {recordatorios}
+            </span>
+          )}
           <button
             onClick={() => setOpen((o) => !o)}
             className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition"

@@ -6,7 +6,9 @@ import { createServerClient } from "@supabase/ssr";
 // autenticación por secreto compartido (x-cs-api-key), no sesión de usuario.
 // /contrato es la firma pública del contrato: autentica por token único con
 // expiración en la URL (ver src/app/contrato/[token]).
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato"];
+// /api/cron son los disparadores programados de n8n: autentican por secreto
+// compartido (x-cron-secret), no por sesión de usuario.
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato", "/api/cron"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

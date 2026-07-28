@@ -34,6 +34,9 @@ export type ContractRow = {
   signed_at: string | null;
   signer_ip: string | null;
   doc_hash: string | null;
+  sent_at: string | null;
+  last_reminder_at: string | null;
+  reminder_count: number;
 };
 
 /** Devuelve el contrato de la cotización; si no existe, lo crea como borrador
@@ -227,7 +230,14 @@ export async function sendContractLink(
   const expires = new Date(Date.now() + TOKEN_TTL_DAYS * 86400000).toISOString();
   const { error } = await supabase
     .from("contracts")
-    .update({ token, token_expires_at: expires, status: "enviado" })
+    .update({
+      token,
+      token_expires_at: expires,
+      status: "enviado",
+      // Reenviar a mano reinicia el ciclo de recordatorios automáticos: el siguiente
+      // sale 4 días después de este envío, no del anterior.
+      ...(opts.email ? { sent_at: new Date().toISOString(), last_reminder_at: null, reminder_count: 0 } : {}),
+    })
     .eq("id", c.id);
   if (error) return { error: mensajeError(error) };
 

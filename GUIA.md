@@ -101,6 +101,23 @@ update comercial.email_templates
 ```
 Variables disponibles: `{{nombre}}`, `{{nombre_completo}}`, `{{code}}`, `{{ruta}}`, `{{ruta_descripcion}}`, `{{fechas}}`, `{{fechas_largas}}`, `{{duracion}}`, `{{dias_camino}}`, `{{personas}}`, `{{alojamiento_descripcion}}`, `{{precio_total}}`, `{{total_eur}}`, `{{total_cop}}`, `{{trm}}`, `{{validez}}`.
 
+### D2. Recordatorios de firma del contrato
+Cuando un contrato queda "Aprobado · esperando firma", la plataforma le reenvía el enlace
+al peregrino **cada 4 días, hasta 5 veces**, renovando el vencimiento del enlace en cada
+envío. Al quinto le llega un aviso a `reservas@` para llamarlo y no se envía más.
+
+- Lo despierta el workflow n8n **"Recordatorio de firma — Camino Sacro"** (Schedule diario
+  9:00 am), que llama a `/api/cron/recordatorios-contrato`. Toda la lógica está en el
+  código de la app, no en n8n; correrlo de más no duplica correos.
+- **Para pausar los recordatorios:** desactivá ese workflow en n8n.
+- **Para dejar de insistirle a un cliente en concreto:** en Seguimiento, "Anular enlace"
+  (vuelve a borrador y sale del ciclo).
+- **Reenviar a mano reinicia el contador** a 0: el siguiente automático sale 4 días después.
+- Cambiar la cadencia o el tope: `DIAS_ENTRE_RECORDATORIOS` y `MAX_RECORDATORIOS` en
+  `src/app/api/cron/recordatorios-contrato/route.ts` (y el rótulo del CRM en `ContractCard.tsx`).
+
+En la tarjeta del contrato en Seguimiento se ve "Recordatorio 2 de 5 · último el 14 de agosto".
+
 ### E. Cambiar suplementos de temporada
 ```sql
 update comercial.settings set value = jsonb_set(value, '{high_season,price_cs}', '90'::jsonb)
@@ -221,9 +238,13 @@ Cargadas en Railway → Service → Variables. Si rotás la `service_role` key, 
 - `WP_QUOTER_SECRET` — secreto compartido con WordPress para `/api/wp/*`
 - `QUOTE_EMAIL_WEBHOOK_URL` — webhook n8n "Correo Cotización — Camino Sacro"
 - `QUOTE_EMAIL_WEBHOOK_SECRET` — header `x-webhook-secret` que valida ese workflow
+- `APP_BASE_URL` — URL pública de la plataforma; la usa el cron de recordatorios para
+  armar el enlace de firma (sin ella el endpoint responde 500)
+- `CRON_SECRET` — header `x-cron-secret` con el que n8n llama a `/api/cron/*`
 
-Sin las dos últimas **no sale ningún correo** (cotizaciones del CRM, cotizador
-público y contratos usan el mismo webhook → Brevo → `reservas@caminosacro.com`).
+Sin `QUOTE_EMAIL_WEBHOOK_URL` y `QUOTE_EMAIL_WEBHOOK_SECRET` **no sale ningún correo**
+(cotizaciones del CRM, cotizador público y contratos usan el mismo webhook → Brevo →
+`reservas@caminosacro.com`).
 
 Cambiar una variable redespliega automáticamente.
 

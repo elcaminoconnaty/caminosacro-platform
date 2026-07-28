@@ -6,6 +6,42 @@
 import { useRef, useState, useTransition } from "react";
 import { firmarContrato, type ResultadoFirma } from "./actions";
 
+// Las fotos de pasaporte que llegan del celular pesan 3-8 MB y hacían que el envío
+// superara el límite de la Server Action (por ahí se cayó la primera firma real).
+// Reducirlas aquí, antes de enviarlas, deja el pasaporte en cientos de KB sin perder
+// legibilidad y hace la subida viable en datos móviles.
+const PASAPORTE_LADO_MAX = 1600;
+const PASAPORTE_CALIDAD = 0.82;
+
+async function comprimeImagen(archivo: File): Promise<File> {
+  if (!archivo.type.startsWith("image/")) return archivo; // los PDF viajan enteros
+  try {
+    const bitmap = await createImageBitmap(archivo);
+    const escala = Math.min(1, PASAPORTE_LADO_MAX / Math.max(bitmap.width, bitmap.height));
+    const ancho = Math.round(bitmap.width * escala);
+    const alto = Math.round(bitmap.height * escala);
+
+    const lienzo = document.createElement("canvas");
+    lienzo.width = ancho;
+    lienzo.height = alto;
+    const ctx = lienzo.getContext("2d");
+    if (!ctx) return archivo;
+    ctx.drawImage(bitmap, 0, 0, ancho, alto);
+    bitmap.close();
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      lienzo.toBlob(resolve, "image/jpeg", PASAPORTE_CALIDAD),
+    );
+    // Si comprimir no ayudó (imagen ya pequeña), nos quedamos con el original.
+    if (!blob || blob.size >= archivo.size) return archivo;
+    return new File([blob], "Pasaporte.jpg", { type: "image/jpeg" });
+  } catch {
+    // Formato que el navegador no sabe decodificar (p. ej. HEIC en algún Android):
+    // seguimos con el original — comprimir nunca debe impedir firmar.
+    return archivo;
+  }
+}
+
 function SignatureCanvas({ onChange }: { onChange: (dataUrl: string | null) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
@@ -91,11 +127,13 @@ export default function SignForm({
   financiado: boolean;
 }) {
   const [pending, startTransition] = useTransition();
+  const [preparando, setPreparando] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
   const [done, setDone] = useState<ResultadoFirma | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const enviando = pending || preparando;
 
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     if (!signature) {
@@ -104,10 +142,30 @@ export default function SignForm({
     }
     const fd = new FormData(e.currentTarget);
     fd.set("signature", signature);
+
+    const pasaporte = fd.get("passport");
+    if (pasaporte instanceof File && pasaporte.size > 0) {
+      setPreparando(true);
+      try {
+        fd.set("passport", await comprimeImagen(pasaporte));
+      } finally {
+        setPreparando(false);
+      }
+    }
+
     startTransition(async () => {
-      const r = await firmarContrato(token, fd);
-      if (r.ok) setDone(r);
-      else setError(r.error);
+      try {
+        const r = await firmarContrato(token, fd);
+        if (r.ok) setDone(r);
+        else setError(r.error);
+      } catch (e) {
+        // Sin este catch, un fallo de red o del servidor reventaba el error boundary y
+        // el peregrino perdía todo lo que había llenado.
+        console.error("[firma] la acción falló:", e);
+        setError(
+          "No pudimos enviar tu firma. Revisa tu conexión e inténtalo de nuevo; si sigue fallando, escríbenos a reservas@caminosacro.com.",
+        );
+      }
     });
   }
 
@@ -165,7 +223,7 @@ export default function SignForm({
         <input
           name="passport"
           type="file"
-          accept="image/jpeg,image/png,image/webp,application/pdf"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
           required
           className="mt-1.5 block w-full text-xs file:mr-3 file:px-3 file:py-2 file:rounded-md file:border-0 file:bg-bosque file:text-white file:cursor-pointer hover:file:bg-bosque-medio"
         />
@@ -190,10 +248,10 @@ export default function SignForm({
 
       <button
         type="submit"
-        disabled={pending}
+        disabled={enviando}
         className="w-full py-3.5 rounded-full bg-bosque text-white font-medium hover:bg-bosque-medio transition disabled:opacity-50"
       >
-        {pending ? "Firmando…" : "Firmar contrato y enviar"}
+        {preparando ? "Preparando tu pasaporte…" : pending ? "Firmando…" : "Firmar contrato y enviar"}
       </button>
     </form>
   );

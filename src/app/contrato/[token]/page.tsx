@@ -15,6 +15,7 @@ import {
   type PaymentPlan,
 } from "@/lib/contracts/template";
 import SignForm from "./SignForm";
+import Aviso from "./Aviso";
 
 export const metadata: Metadata = {
   title: "Firma de contrato — Camino Sacro",
@@ -22,24 +23,6 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = "force-dynamic";
-
-function Aviso({ titulo, detalle }: { titulo: string; detalle: string }) {
-  return (
-    <main className="min-h-screen bg-crema flex items-center justify-center px-4">
-      <div className="bg-white border border-border rounded-2xl px-8 py-10 max-w-md text-center shadow-sm">
-        <p className="text-xs uppercase tracking-[0.18em] text-dorado-oscuro">Camino Sacro</p>
-        <p className="font-display text-3xl text-bosque mt-3">{titulo}</p>
-        <p className="text-sm text-muted mt-3">{detalle}</p>
-        <a
-          href="mailto:reservas@caminosacro.com"
-          className="inline-block mt-6 rounded-full border border-bosque px-6 py-2.5 text-sm font-medium text-bosque transition hover:bg-bosque hover:text-white"
-        >
-          Escríbenos
-        </a>
-      </div>
-    </main>
-  );
-}
 
 export default async function FirmaContrato({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
