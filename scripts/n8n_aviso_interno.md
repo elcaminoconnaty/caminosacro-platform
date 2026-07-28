@@ -1,12 +1,23 @@
-# n8n — que el aviso interno se pueda apagar (dejar de mandar dos correos)
+# n8n — el aviso interno se puede apagar (ya no salen dos correos)
+
+> **APLICADO Y VERIFICADO en producción el 2026-07-28.** Este documento queda como
+> registro de cómo se hizo y de lo que hay que cuidar si se vuelve a tocar.
 
 Cada envío dispara las **dos ramas** del workflow: "Enviar por Brevo" (al destinatario) y
-"Aviso Lead a Reservas" (siempre a `reservas@caminosacro.com`). Por eso salen dos correos
-por acción. La app ya manda un campo `aviso` (booleano) diciendo cuál de los dos casos es;
-falta que el workflow lo respete.
+"Aviso Lead a Reservas" (a `reservas@caminosacro.com`). Por eso salían dos correos por
+acción. La app manda un campo `aviso` (booleano) y ahora el workflow lo respeta gracias a un
+nodo `If` ("¿Avisar a Reservas?") delante de la segunda rama.
 
-**Mientras no se aplique no se rompe nada**: el workflow ignora el campo y sigue mandando
-el aviso siempre, como hasta ahora.
+Verificación en producción, leyendo las ejecuciones de n8n:
+
+| Caso | Ejecución | Resultado |
+|---|---|---|
+| Cotización enviada desde el CRM (`aviso:false`) | 29414 | El `If` se fue por **false**; "Aviso Lead a Reservas" no se ejecutó. Un solo correo. |
+| Contrato enviado para firma (`aviso:false`) | 29415 | Igual: un solo correo. |
+| **Contrato firmado** (`aviso:true`) | 29417 | Corrieron **las dos** ramas, cada una con su `messageId` de Brevo. |
+
+Las tres ejecuciones terminaron en `success` y "Enviar por Brevo" devolvió `messageId`, que
+es la prueba de que la credencial quedó bien puesta después de rehacer el workflow.
 
 **Sobre aplicarlo por SDK — probado el 2026-07-28, y la advertencia vieja se confirma.**
 `validate_workflow` **acepta** `credentials: { httpHeaderAuth: { id: 'adVh190atfVSI1dP',
@@ -27,7 +38,9 @@ HTTP, seleccionar la credencial **"Brevo API key"** y recién ahí publicar.
 
 Workflow: **"Correo Cotización — Camino Sacro"** (`HgErNCbopi95CdiI`).
 
-## Paso 1 — exponer el campo en "Validar y Preparar"
+## Cómo quedó (los pasos que se siguieron)
+
+### Paso 1 — exponer el campo en "Validar y Preparar"
 
 Al final del nodo Code está esta línea:
 
@@ -45,7 +58,7 @@ const aviso = body.aviso !== false;
 return [{ json: { code, email, subject, numAdjuntos, aviso, brevoBody, avisoBody } }];
 ```
 
-## Paso 2 — cortar la rama del aviso
+### Paso 2 — cortar la rama del aviso
 
 1. Borra la conexión que va de **"Validar y Preparar"** a **"Aviso Lead a Reservas"**
    (la de abajo; la de "Enviar por Brevo" no se toca).
@@ -55,7 +68,7 @@ return [{ json: { code, email, subject, numAdjuntos, aviso, brevoBody, avisoBody
    "Aviso Lead a Reservas". La salida **false** se deja suelta.
 5. Guarda y publica.
 
-## Qué avisa y qué no, después de esto
+## Qué avisa y qué no
 
 | Acción | ¿Avisa a reservas@? | Por qué |
 |---|---|---|
