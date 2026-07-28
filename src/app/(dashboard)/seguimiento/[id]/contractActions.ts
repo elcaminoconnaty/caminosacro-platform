@@ -544,6 +544,9 @@ export async function sendContractLink(
         `Camino Sacro · reservas@caminosacro.com`,
       ].join("\n"),
       attachment_name: `Contrato-${vars.codigo_cotizacion}.pdf`,
+      // Sin aviso interno: lo dispara alguien del equipo desde el CRM. El aviso de
+      // verdad llega cuando el cliente firma, que es lo que nadie está mirando.
+      aviso: false,
       aviso_subject: `${prefijo}${vars.viajero_nombre} - Contrato enviado para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
       aviso_body: [
         esPrueba ? `PRUEBA: se envió a ${destino} en vez del viajero.` : `Se envió un contrato para firma.`,

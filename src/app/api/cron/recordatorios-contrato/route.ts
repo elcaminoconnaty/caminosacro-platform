@@ -159,7 +159,9 @@ export async function POST(request: Request) {
           `Camino Sacro · reservas@caminosacro.com`,
         ].join("\n"),
         attachment_name: `Contrato-${code}.pdf`,
-        // Al último recordatorio se le avisa a Nico para que entre a llamar.
+        // Solo el último recordatorio avisa, que es el que pide entrar a llamar.
+        // Los intermedios los manda el cron sin que nadie tenga que hacer nada.
+        aviso: esUltimo,
         aviso_subject: esUltimo
           ? `ATENCION: ${vars.viajero_nombre} no ha firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`
           : `Recordatorio ${numero} de ${MAX_RECORDATORIOS} enviado - ${code} - ${vars.viajero_nombre}`,

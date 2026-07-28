@@ -455,8 +455,11 @@ export async function enviarCorreoCotizacion(
     subject,
     body,
     attachment_name: `Cotizacion-${quote.code}.pdf`,
-    // Sin esto el workflow manda su aviso por defecto de "Nuevo lead del
-    // cotizador web", que aquí sería falso: esto lo envió alguien del equipo.
+    // Sin aviso interno: lo mandó alguien del equipo desde el CRM, así que ya lo
+    // sabe y el aviso solo duplicaba el correo en reservas@. El asunto/cuerpo se
+    // dejan puestos porque, si algún día se vuelve a encender, el aviso por
+    // defecto del workflow ("Nuevo lead del cotizador web") aquí sería falso.
+    aviso: false,
     aviso_subject: `${nombre || "Cliente"} - Cotización enviada - ${quote.code}${quote.route_name ? ` - ${quote.route_name}` : ""}`,
     aviso_body: [
       `Se envió una cotización al cliente desde el CRM.`,
@@ -550,6 +553,8 @@ export async function enviarCorreoPilgrim(
     body: esPrueba
       ? `(Correo de PRUEBA. El destinatario real sería ${ajustes.email || "—"}.)\n\n${body}`
       : body,
+    // Sin aviso interno: lo dispara alguien del equipo desde el CRM.
+    aviso: false,
     aviso_subject: `${prefijo}Reserva enviada a Pilgrim - ${quote.code}${quote.route_name ? ` - ${quote.route_name}` : ""}`,
     aviso_body: [
       esPrueba ? `PRUEBA: se envió a ${destino} en vez de a Pilgrim.` : `Se le envió la reserva a Pilgrim pidiendo el link de pago.`,

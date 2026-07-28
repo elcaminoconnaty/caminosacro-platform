@@ -29,14 +29,26 @@ export type CorreoPayload = {
   // El asunto sale prefijado con AVISO_PREFIJO; no hay que escribirlo a mano.
   aviso_subject?: string;
   aviso_body?: string;
+  // `false` apaga el aviso interno: se manda UN solo correo, el del destinatario.
+  // Ver AVISO_POR_DEFECTO para el criterio.
+  aviso?: boolean;
 };
 
-// Cada envío produce DOS correos: el del destinatario y el aviso interno a
-// reservas@ (son las dos ramas del workflow). Si los dos llevan el mismo asunto,
-// en la bandeja se ven como un correo duplicado y Gmail los mete en el mismo hilo
-// — que es justo lo que pasaba con el aviso de "Contrato firmado". El prefijo va
-// acá, en el emisor único, para que ningún flujo nuevo pueda volver a chocar.
+// Cada envío dispara las dos ramas del workflow: el correo al destinatario y el
+// aviso interno a reservas@. De ahí salían dos correos por acción.
+//
+// El criterio para conservar el aviso es si el equipo se entera de otra forma:
+//  - Lo que dispara alguien desde el CRM (mandar la cotización, mandar el contrato,
+//    escribirle a Pilgrim) NO avisa: quien lo hizo ya lo sabe, y el aviso llegaba
+//    como un segundo correo casi idéntico.
+//  - Lo que pasa solo, sin nadie mirando, SÍ avisa: el cliente firma, el cron manda
+//    el último recordatorio, entra un lead del cotizador web.
+//
+// El prefijo del asunto va acá, en el emisor único, para que ningún flujo nuevo
+// pueda volver a chocar con el asunto del correo del cliente. Sirve además para
+// filtrarlos en Gmail con `subject:[CRM]`.
 const AVISO_PREFIJO = "[CRM]";
+const AVISO_POR_DEFECTO = true;
 
 /**
  * Envía el correo por el webhook. Nunca lanza: devuelve `{ ok: false, error }`
@@ -54,10 +66,14 @@ export async function enviarCorreoWebhook(
   if (!payload.email) {
     return { ok: false, error: "No hay correo del destinatario." };
   }
-  const conPrefijo: CorreoPayload = payload.aviso_subject
-    && !payload.aviso_subject.startsWith(AVISO_PREFIJO)
-    ? { ...payload, aviso_subject: `${AVISO_PREFIJO} ${payload.aviso_subject}` }
-    : payload;
+  const aviso = payload.aviso ?? AVISO_POR_DEFECTO;
+  const conPrefijo: CorreoPayload = {
+    ...payload,
+    aviso,
+    aviso_subject: aviso && payload.aviso_subject && !payload.aviso_subject.startsWith(AVISO_PREFIJO)
+      ? `${AVISO_PREFIJO} ${payload.aviso_subject}`
+      : payload.aviso_subject,
+  };
   try {
     const r = await fetch(url, {
       method: "POST",
