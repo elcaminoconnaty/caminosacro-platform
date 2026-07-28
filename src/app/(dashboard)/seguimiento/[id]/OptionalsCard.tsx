@@ -9,6 +9,7 @@ export type OptionalCatalog = {
   name: string;
   unit: string;
   price_cs: number;
+  price_pilgrim: number;
 };
 
 export type OptionalLine = {
@@ -18,6 +19,7 @@ export type OptionalLine = {
   quantity: number;
   unit_price: number;
   total: number;
+  cost_unit: number;
 };
 
 const eur = (n: number) =>
@@ -39,6 +41,7 @@ export default function OptionalsCard({
   selected,
   baseEur,
   totalEur,
+  seasonSupplementEur,
   people,
 }: {
   quoteId: string;
@@ -46,6 +49,7 @@ export default function OptionalsCard({
   selected: OptionalLine[];
   baseEur: number;
   totalEur: number;
+  seasonSupplementEur: number;
   people: number | null;
 }) {
   const [pending, startTransition] = useTransition();
@@ -53,6 +57,9 @@ export default function OptionalsCard({
 
   const selectedByRef = new Map(selected.filter((l) => l.reference_id).map((l) => [l.reference_id!, l]));
   const sumOptionals = selected.reduce((s, l) => s + (Number(l.total) || 0), 0);
+  // Lo que estos opcionales le cuestan a Pilgrim: es la parte que antes no entraba
+  // al costo y por eso la utilidad salía inflada.
+  const sumOptionalsCost = selected.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.cost_unit) || 0), 0);
 
   async function onToggle(optionalId: string, on: boolean) {
     setError(null);
@@ -82,12 +89,22 @@ export default function OptionalsCard({
       <div className="px-5 py-3 border-b border-border flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="font-display text-lg text-bosque">Servicios opcionales</h2>
-          <p className="text-xs text-muted mt-0.5">Marcá los que van con la cotización. Se suman al total automáticamente.</p>
+          <p className="text-xs text-muted mt-0.5">
+            Marcá los que van con la cotización. Se suman al total y al costo Pilgrim automáticamente.
+          </p>
         </div>
         <div className="text-right text-xs">
           <div className="text-muted">Base ruta: <span className="font-medium text-fg">{eur(Number(baseEur) || 0)}</span></div>
+          {Number(seasonSupplementEur) > 0 && (
+            <div className="text-muted">+ Suplemento temporada: <span className="font-medium text-fg">{eur(Number(seasonSupplementEur))}</span></div>
+          )}
           <div className="text-muted">+ Opcionales: <span className="font-medium text-fg">{eur(sumOptionals)}</span></div>
           <div className="font-display text-lg text-bosque mt-0.5">Total: {eur(Number(totalEur) || 0)}</div>
+          {sumOptionalsCost > 0 && (
+            <div className="text-muted mt-1">
+              Opcionales le cuestan a Pilgrim: <span className="font-medium text-fg">{eur(sumOptionalsCost)}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -130,6 +147,14 @@ export default function OptionalsCard({
                       {checked && line && (
                         <span className="text-xs text-muted w-12 text-right tabular-nums">× {eur(Number(line.unit_price) || 0)}</span>
                       )}
+                      <span
+                        className="text-xs w-24 text-right tabular-nums text-muted"
+                        title="Lo que este servicio le cuesta a Pilgrim"
+                      >
+                        {checked && line
+                          ? `Pilgrim ${eur((Number(line.quantity) || 0) * (Number(line.cost_unit) || 0))}`
+                          : `Pilgrim ${eur(it.price_pilgrim)}`}
+                      </span>
                       <span className={`text-sm w-20 text-right tabular-nums ${checked ? "font-medium text-bosque" : "text-muted"}`}>
                         {checked && line ? eur(Number(line.total) || 0) : eur(it.price_cs)}
                       </span>

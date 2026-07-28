@@ -205,7 +205,10 @@ export default function Wizard({
     setError(null);
     const fd = new FormData(e.currentTarget);
     fd.set("total_eur", totalEur); // base = ruta + alojamiento (sin suplemento ni opcionales)
-    fd.set("cost_eur", String(((Number(costEur) || 0) + seasonSuppPilgrim).toFixed(2))); // costo Pilgrim total con suplemento
+    // Costo Pilgrim desglosado igual que el lado cliente: la base va aparte del
+    // suplemento, y el cost_eur total lo arma recompute_quote_money() en la BD.
+    fd.set("cost_base_eur", String((Number(costEur) || 0).toFixed(2)));
+    fd.set("season_supplement_cost_eur", seasonSuppPilgrim.toFixed(2));
     fd.set("people", String(people));
     fd.set("season_supplement_eur", seasonSuppCs.toFixed(2));
     fd.set("season_kind", season.type);

@@ -14,8 +14,10 @@ import EmailPreviewCard from "./EmailPreviewCard";
 import OptionalsCard, { type OptionalCatalog, type OptionalLine } from "./OptionalsCard";
 import HotelsCard, { type InitialHotel } from "./HotelsCard";
 import ContractCard from "./ContractCard";
-import type { ContractRow } from "./contractActions";
+import PilgrimEmailCard from "./PilgrimEmailCard";
+import type { ContractRow, TravelerRow } from "./contractActions";
 import { buildDefaultVariables } from "@/lib/contracts/render";
+import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 
 function basename(p: string | null): string | null {
   if (!p) return null;
@@ -122,7 +124,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     { data: quoteLines },
     { data: seasonSetting },
     { data: hotelsData },
-    { data: contractRow },
+    { data: contractRows },
+    { data: travelers },
     trmRow,
   ] = await Promise.all([
     supabase.from("quotes").select("*").eq("id", id).maybeSingle(),
@@ -136,11 +139,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     supabase.from("email_templates").select("subject,body_md").eq("slug", "cotizacion_enviada").maybeSingle(),
     supabase
       .from("optional_services")
-      .select("id,category,name,unit,price_cs")
+      .select("id,category,name,unit,price_cs,price_pilgrim")
       .eq("active", true),
     supabase
       .from("quote_lines")
-      .select("id,reference_id,description,quantity,unit_price,total,type")
+      .select("id,reference_id,description,quantity,unit_price,total,cost_unit,type")
       .eq("quote_id", id)
       .eq("type", "optional"),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
@@ -149,20 +152,36 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .select("night_date,city,hotel_name,address,contact,notes,position")
       .eq("quote_id", id)
       .order("position"),
-    supabase.from("contracts").select("*").eq("quote_id", id).maybeSingle(),
+    // Una cotización puede tener N contratos, uno por viajero.
+    supabase.from("contracts").select("*").eq("quote_id", id),
+    supabase
+      .from("quote_travelers")
+      .select("id,quote_id,position,full_name,email,phone,document_type,document_number,is_holder")
+      .eq("quote_id", id)
+      .order("position"),
     getTRMHoy().catch(() => null),
   ]);
   const seasonConfig = ((seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS);
 
   if (!quote) notFound();
 
-  // Si aún no hay contrato, precargamos las variables desde la cotización para
-  // que el equipo las revise en el formulario ANTES de crear el contrato.
+  // Si aún no hay contratos, precargamos las variables desde la cotización para
+  // que el equipo las revise ANTES de crearlos.
   let contractDefaults = null;
-  if (!contractRow) {
+  if (!contractRows?.length) {
     const d = await buildDefaultVariables(supabase, id);
     if (d.ok) contractDefaults = d.variables;
   }
+
+  // El correo a Pilgrim se arma en el servidor a partir del costo ya corregido y de
+  // los viajeros con su pasaporte; en la tarjeta se puede editar antes de enviar.
+  const [pilgrimSettings, pilgrimArmado] = await Promise.all([
+    getPilgrimSettings(supabase),
+    armarCorreoPilgrim(supabase, id),
+  ]);
+  const pilgrimMail = pilgrimArmado.ok
+    ? pilgrimArmado.correo
+    : { subject: "", body: "", adjuntos: [], pendientes: [], total: 0 };
 
   const cobrado = (cps || []).reduce((s, p) => {
     const v = p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0);
@@ -222,11 +241,19 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         <Card label="Margen real" value={eur(margenReal)} accent />
       </section>
 
+      {/* Orden del expediente: la cotización con su correo → el contrato → el correo
+          a Pilgrim → los hoteles → los pagos. Sigue el recorrido real de una venta:
+          los contratos se firman ANTES del correo a Pilgrim, que es justo cuando
+          entran los números de pasaporte que ese correo necesita. */}
       <QuoteEditor quote={quote} routes={routes || []} pricing={pricingFlat} seasonConfig={seasonConfig} />
 
       <OptionalsCard
         quoteId={id}
-        catalog={((optsCatalog as unknown) as OptionalCatalog[] || []).map((o) => ({ ...o, price_cs: Number(o.price_cs) || 0 }))}
+        catalog={((optsCatalog as unknown) as OptionalCatalog[] || []).map((o) => ({
+          ...o,
+          price_cs: Number(o.price_cs) || 0,
+          price_pilgrim: Number(o.price_pilgrim) || 0,
+        }))}
         selected={((quoteLines as unknown) as OptionalLine[] || []).map((l) => ({
           id: l.id,
           reference_id: l.reference_id,
@@ -234,9 +261,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           quantity: Number(l.quantity) || 1,
           unit_price: Number(l.unit_price) || 0,
           total: Number(l.total) || 0,
+          cost_unit: Number(l.cost_unit) || 0,
         }))}
         baseEur={Number(quote.base_eur) || total}
         totalEur={total}
+        seasonSupplementEur={Number(quote.season_supplement_eur) || 0}
         people={quote.people}
       />
 
@@ -245,25 +274,6 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         storagePath={quote.pdf_path}
         filename={basename(quote.pdf_path)}
       />
-
-      {/* key: cuando el contrato aparece (o cambia), React remonta la card para
-          que su estado interno (vars/plan) se inicialice con la fila fresca. */}
-      <ContractCard
-        key={(contractRow as ContractRow | null)?.id ?? "sin-contrato"}
-        quoteId={id}
-        contract={(contractRow as ContractRow | null) ?? null}
-        defaultVariables={contractDefaults}
-        totalEur={total}
-      />
-
-      {isFullyPaid(quote.status) && (
-        <HotelsCard
-          quoteId={id}
-          initialHotels={((hotelsData as unknown) as InitialHotel[]) || []}
-          pdfPath={quote.hotels_pdf_path ?? null}
-          pdfFilename={basename(quote.hotels_pdf_path ?? null)}
-        />
-      )}
 
       <EmailPreviewCard
         quoteId={id}
@@ -278,6 +288,35 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name)),
         )}
       />
+
+      <ContractCard
+        quoteId={id}
+        quoteCode={quote.code}
+        people={Number(quote.people) || 1}
+        travelers={(travelers as TravelerRow[] | null) ?? []}
+        contracts={(contractRows as ContractRow[] | null) ?? []}
+        sharedVariables={contractDefaults}
+        totalEur={total}
+      />
+
+      <PilgrimEmailCard
+        quoteId={id}
+        to={pilgrimSettings.email}
+        sentAt={quote.pilgrim_email_sent_at ?? null}
+        subject={pilgrimMail.subject}
+        body={pilgrimMail.body}
+        adjuntos={pilgrimMail.adjuntos}
+        pendientes={pilgrimMail.pendientes}
+      />
+
+      {isFullyPaid(quote.status) && (
+        <HotelsCard
+          quoteId={id}
+          initialHotels={((hotelsData as unknown) as InitialHotel[]) || []}
+          pdfPath={quote.hotels_pdf_path ?? null}
+          pdfFilename={basename(quote.hotels_pdf_path ?? null)}
+        />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <ClientPaymentsCard quoteId={id} payments={cps || []} cobrado={cobrado} saldo={saldoCliente} />

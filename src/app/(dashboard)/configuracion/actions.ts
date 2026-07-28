@@ -32,3 +32,34 @@ export async function clearOrgSignature(): Promise<{ ok?: true; error?: string }
   revalidatePath("/configuracion");
   return { ok: true };
 }
+
+/**
+ * Datos del proveedor Pilgrim. Van en `settings` y no en una variable de entorno
+ * para poder cambiarlos desde el CRM sin redesplegar.
+ */
+export async function savePilgrimSettings(datos: {
+  email: string;
+  nombre: string;
+  contacto: string;
+}): Promise<{ ok?: true; error?: string }> {
+  const email = datos.email.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "Ese correo no es válido." };
+  }
+  const supabase = await createCommercialClient();
+  const { error } = await supabase.from("settings").upsert(
+    {
+      key: "pilgrim",
+      value: {
+        email,
+        nombre: datos.nombre.trim() || "Pilgrim",
+        contacto: datos.contacto.trim(),
+        updated_at: new Date().toISOString(),
+      },
+    },
+    { onConflict: "key" },
+  );
+  if (error) return { error: mensajeError(error) };
+  revalidatePath("/configuracion");
+  return { ok: true };
+}

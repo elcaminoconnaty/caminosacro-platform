@@ -67,8 +67,15 @@ export function rutaRecibo(
   return `comercial-receipts/${carpetaCotizacion(code)}/${buildPdfFilename(receiptNumber, cliente, ruta)}`;
 }
 
-export function rutaContrato(code: string, firmado = false): string {
-  const archivo = firmado ? `Contrato-${code}-firmado.pdf` : `Contrato-${code}.pdf`;
+/**
+ * Un viaje de grupo tiene un contrato POR VIAJERO, y todos viven en la carpeta de la
+ * misma cotización: sin el sufijo de posición se pisarían el PDF entre ellos.
+ * El viajero 1 (el titular) conserva el nombre de siempre, así que los contratos
+ * que ya existían siguen apuntando a su archivo.
+ */
+export function rutaContrato(code: string, firmado = false, posicion?: number | null): string {
+  const sufijo = posicion && posicion > 1 ? `-${posicion}` : "";
+  const archivo = firmado ? `Contrato-${code}${sufijo}-firmado.pdf` : `Contrato-${code}${sufijo}.pdf`;
   return `comercial-contracts/${carpetaCotizacion(code)}/${archivo}`;
 }
 

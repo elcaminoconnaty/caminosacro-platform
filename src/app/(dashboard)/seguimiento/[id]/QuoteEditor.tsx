@@ -18,11 +18,13 @@ type Quote = {
   modality: string | null;
   total_eur: number | string | null; // grand total = base + suplemento + opcionales
   base_eur: number | string | null; // ruta + alojamiento (sin suplemento ni opcionales)
-  cost_eur: number | string | null;
+  cost_eur: number | string | null; // derivado = cost_base + suplemento Pilgrim + opcionales
+  cost_base_eur?: number | string | null; // ruta + alojamiento a precio Pilgrim
   status: string | null;
   valid_until: string | null;
   notes: string | null;
   season_supplement_eur?: number | string | null;
+  season_supplement_cost_eur?: number | string | null;
   season_kind?: string | null;
 };
 
@@ -74,7 +76,10 @@ export default function QuoteEditor({
   // base_eur = ruta + alojamiento (lo que el usuario controla aquí). El total_eur se recalcula auto sumando suplemento + opcionales.
   const initialBase = quote.base_eur != null ? Number(quote.base_eur) : Number(quote.total_eur) || 0;
   const [totalEur, setTotalEur] = useState<string>(initialBase ? String(initialBase) : "");
-  const [costEur, setCostEur] = useState<string>(quote.cost_eur != null ? String(Number(quote.cost_eur)) : "");
+  // Espejo del lado cliente: acá se edita la BASE Pilgrim (ruta + alojamiento). El
+  // cost_eur total lo arma la BD sumándole suplemento y opcionales.
+  const initialCostBase = quote.cost_base_eur != null ? Number(quote.cost_base_eur) : Number(quote.cost_eur) || 0;
+  const [costEur, setCostEur] = useState<string>(initialCostBase ? String(initialCostBase) : "");
   const [autoLink, setAutoLink] = useState(true); // true = recalcular cuando cambian ruta/modalidad/personas
 
   // Detección de temporada según fechas actuales — se recalcula al cambiar start/end/people
@@ -106,6 +111,8 @@ export default function QuoteEditor({
     setCostEur((catalogMatch.price_pilgrim * people).toFixed(2));
   }, [catalogMatch, people, autoLink]);
 
+  // Solo ruta + suplemento: los opcionales no se editan acá, así que esta cifra es
+  // la utilidad DE LA RUTA. La utilidad completa es el KPI de arriba, que sí los suma.
   const utilidadPreview = useMemo(() => {
     const cliente = (Number(totalEur) || 0) + seasonSuppCs;
     const proveedor = (Number(costEur) || 0) + seasonSuppPilgrim;
@@ -116,13 +123,14 @@ export default function QuoteEditor({
     setError(null);
     // Aseguramos que los campos controlados se envíen
     formData.set("total_eur", totalEur);
-    formData.set("cost_eur", costEur);
+    formData.set("cost_base_eur", costEur);
     formData.set("people", String(people));
     formData.set("route_name", routeName);
     formData.set("modality", modality);
     formData.set("start_date", startDate);
     formData.set("end_date", endDate);
     formData.set("season_supplement_eur", seasonSuppCs.toFixed(2));
+    formData.set("season_supplement_cost_eur", seasonSuppPilgrim.toFixed(2));
     formData.set("season_kind", season.type);
     startTransition(async () => {
       const r = await updateQuote(quote.id, formData);
@@ -163,7 +171,12 @@ export default function QuoteEditor({
             }
           />
           <Field label="Total cotización €" v={quote.total_eur != null ? Number(quote.total_eur).toFixed(2) : null} />
-          <Field label="Costo Pilgrim €" v={quote.cost_eur != null ? Number(quote.cost_eur).toFixed(2) : null} />
+          <Field label="Base Pilgrim €" v={quote.cost_base_eur != null ? Number(quote.cost_base_eur).toFixed(2) : null} />
+          <Field
+            label="Suplemento temporada Pilgrim €"
+            v={Number(quote.season_supplement_cost_eur) > 0 ? Number(quote.season_supplement_cost_eur).toFixed(2) : null}
+          />
+          <Field label="Costo Pilgrim total €" v={quote.cost_eur != null ? Number(quote.cost_eur).toFixed(2) : null} />
           <Field label="Estado" v={statusLabel(quote.status)} />
         </dl>
         {quote.notes && (
@@ -329,7 +342,7 @@ export default function QuoteEditor({
               )}
             </label>
             <label className="block">
-              <span className="text-xs text-muted">Costo Pilgrim € (total grupo)</span>
+              <span className="text-xs text-muted">Costo Pilgrim base — ruta + alojamiento € (sin suplemento ni opcionales)</span>
               <input
                 type="number"
                 step="0.01"
@@ -340,9 +353,12 @@ export default function QuoteEditor({
               {catalogMatch && (
                 <span className="text-[10px] text-muted">= {catalogMatch.price_pilgrim.toFixed(2)} × {people}</span>
               )}
+              {season.type !== "regular" && (
+                <span className="text-[10px] text-dorado-oscuro">+ {seasonSuppPilgrim.toFixed(2)}€ suplemento → costo Pilgrim {((Number(costEur)||0) + seasonSuppPilgrim).toFixed(2)}€</span>
+              )}
             </label>
             <div className="text-xs self-end pb-2">
-              <div className="text-muted">Utilidad proyectada</div>
+              <div className="text-muted">Utilidad de ruta (sin opcionales)</div>
               <div className="text-bosque font-medium text-base">€{utilidadPreview.toFixed(2)}</div>
               {matchesCatalog && (
                 <div className="text-[10px] text-bosque">Coincide con catálogo</div>

@@ -102,10 +102,13 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   const totalEur = baseEur + suplementoEur;
 
   // Costo interno del proveedor (margen del dashboard): mismo reparto con price_pilgrim.
+  // Desglosado como el lado cliente para que recompute_quote_money() lo recalcule
+  // bien cuando después se le agreguen opcionales desde el CRM.
   const pilgrimDoble = Number(fila(modDoble)?.price_pilgrim) || 0;
   const pilgrimSingle = Number(fila(modSingle)?.price_pilgrim) || 0;
-  const costEur =
-    enDoble * pilgrimDoble + individuales * pilgrimSingle + season.surcharge_per_person_pilgrim * datos.people;
+  const costBaseEur = enDoble * pilgrimDoble + individuales * pilgrimSingle;
+  const suplementoCostEur = season.surcharge_per_person_pilgrim * datos.people;
+  const costEur = costBaseEur + suplementoCostEur;
 
   // 4. Cliente: dedup por teléfono (igual que el wizard interno), guardando consentimientos.
   const ahora = new Date().toISOString();
@@ -162,6 +165,8 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
       season_supplement_eur: suplementoEur,
       season_kind: season.type,
       total_eur: totalEur,
+      cost_base_eur: costBaseEur,
+      season_supplement_cost_eur: suplementoCostEur,
       cost_eur: costEur,
       status: "enviada",
       source: "wordpress",

@@ -103,7 +103,11 @@ export async function createQuote(formData: FormData) {
       season_supplement_eur: seasonSupplement,
       season_kind: seasonKind,
       total_eur: baseEur + seasonSupplement, // sin opcionales aún → total = base + suplemento
-      cost_eur: num(formData.get("cost_eur")) ?? 0,
+      // Lado Pilgrim desglosado igual que el cliente. cost_eur queda derivado:
+      // sin opcionales todavía, es base + suplemento.
+      cost_base_eur: num(formData.get("cost_base_eur")) ?? 0,
+      season_supplement_cost_eur: num(formData.get("season_supplement_cost_eur")) ?? 0,
+      cost_eur: (num(formData.get("cost_base_eur")) ?? 0) + (num(formData.get("season_supplement_cost_eur")) ?? 0),
       status: str(formData.get("status")) || "enviada",
       notes: str(formData.get("notes")),
       rooms_json: roomsJson,

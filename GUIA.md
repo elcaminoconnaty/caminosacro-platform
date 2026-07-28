@@ -118,6 +118,52 @@ envío. Al quinto le llega un aviso a `reservas@` para llamarlo y no se envía m
 
 En la tarjeta del contrato en Seguimiento se ve "Recordatorio 2 de 5 · último el 14 de agosto".
 
+### D3. Contratos de un grupo (un contrato por viajero)
+Una cotización de N personas tiene N **viajeros** (`comercial.quote_travelers`) y N
+contratos, uno por cada uno: cada viajero recibe su propio enlace, firma a su nombre y
+sube su pasaporte.
+
+- En la card **"Contratos"**: botón "Crear las N filas" precarga tantas filas como
+  personas tenga la cotización; se completan nombre y correo, "Guardar viajeros".
+- Los datos del **viaje** (fechas, valores, textos del anexo, plan de pago) se editan
+  **una sola vez** y se aplican a todos con "Aplicar a todos los contratos".
+- "Crear los N contratos" y "Enviar todos para firma" hacen el lote. Cada fila también
+  tiene sus acciones individuales.
+- El **número de pasaporte lo escribe cada viajero al firmar**; al firmar se copia a
+  `quote_travelers.document_number`, que es de donde lo toma el correo a Pilgrim.
+- Un viajero que ya tiene contrato **no se puede borrar** de la lista (arrastraría el
+  contrato, y si está firmado destruiría una prueba legal): primero hay que anularlo.
+
+### D4. Costo Pilgrim y utilidad
+`quotes.cost_eur` es **derivado**, no se escribe a mano. Lo calcula
+`comercial.recompute_quote_money()`, espejando el lado del cliente:
+
+| Cliente | Pilgrim |
+|---|---|
+| `base_eur` | `cost_base_eur` |
+| `season_supplement_eur` | `season_supplement_cost_eur` |
+| `quote_lines.unit_price × quantity` | `quote_lines.cost_unit × quantity` |
+| `total_eur` (derivado) | `cost_eur` (derivado) |
+
+`recompute_quote_total()` quedó como envoltorio de `recompute_quote_money()`, así que
+cualquier sitio que ya la llamara recalcula ambos lados. **Si agregas un flujo nuevo que
+cree cotizaciones, escribe `cost_base_eur` + `season_supplement_cost_eur` y deja que el
+RPC arme el total** — no escribas `cost_eur` directo.
+
+### D5. Correo a Pilgrim
+Card **"Correo a Pilgrim"** en el seguimiento: le manda la reserva a **precios de ellos**
+(el TOTAL A PAGAR es exactamente el KPI "Costo Pilgrim"), con los pasaportes de los
+viajeros adjuntos, pidiendo el link de pago. Asunto y cuerpo son editables antes de enviar.
+
+- Destinatario: `/configuracion` → "Proveedor Pilgrim" (llave `pilgrim` en `settings`).
+- **Modo prueba**: checkbox "Enviar como prueba a…" desvía el correo a otra dirección con
+  el mismo contenido y adjuntos, y **no** marca `pilgrim_email_sent_at`. También existe en
+  el envío masivo de contratos.
+- Los adjuntos múltiples requieren un ajuste de una vez en n8n:
+  ver `scripts/n8n_varios_adjuntos.md`.
+- Para ensayar con 1, 2, 3 y 20 personas:
+  `npx tsx scripts/seed_pruebas.ts tucorreo@gmail.com` (y `--limpiar` para borrarlas).
+
 ### E. Cambiar suplementos de temporada
 ```sql
 update comercial.settings set value = jsonb_set(value, '{high_season,price_cs}', '90'::jsonb)
@@ -283,6 +329,10 @@ Servicio actual en `asia-southeast1` (Singapur). Edge sirve global desde Virgini
 | Marcar opcionales que va el cliente | `/seguimiento/[id]` → checkbox en "Servicios opcionales" |
 | Generar PDF | `/seguimiento/[id]` → "Generar PDF" |
 | Copiar email para cliente | `/seguimiento/[id]` → botones "Copiar..." en card de email |
+| Cargar los viajeros de un grupo | `/seguimiento/[id]` → card "Contratos" → "Crear las N filas" |
+| Enviar los contratos a firmar | `/seguimiento/[id]` → card "Contratos" → "Enviar todos para firma" |
+| Enviarle la reserva a Pilgrim | `/seguimiento/[id]` → card "Correo a Pilgrim" |
+| Cambiar el correo de Pilgrim | `/configuracion` → "Proveedor Pilgrim" |
 | Subir PDF manual (override) | `/seguimiento/[id]` → "Subir manual" |
 | Cambiar precio en catálogo | `/catalogo` → click en celda |
 | Ver etapas de una ruta | `/catalogo` → sección "Itinerarios y etapas" → click en ruta |

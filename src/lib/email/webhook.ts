@@ -21,6 +21,9 @@ export type CorreoPayload = {
   body: string | null;
   // Nombre del archivo adjunto (para que diga "Contrato-..." y no "Cotizacion-...").
   attachment_name?: string;
+  // Varios adjuntos (el correo a Pilgrim lleva un pasaporte por viajero). Si viene,
+  // el workflow lo usa en vez del par pdf_url + attachment_name.
+  attachments?: { url: string; name: string }[];
   // Asunto/cuerpo del aviso interno a reservas@ (si no se envían, el workflow usa
   // su aviso de lead por defecto, que dice "Nuevo lead del cotizador web").
   aviso_subject?: string;

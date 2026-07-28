@@ -55,7 +55,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   const supabase = createAdminClient("comercial");
   const { data: c } = await supabase
     .from("contracts")
-    .select("id,quote_id,status,token_expires_at,variables_json,payment_plan_json")
+    .select("id,quote_id,traveler_id,status,token_expires_at,variables_json,payment_plan_json")
     .eq("token", token)
     .maybeSingle();
 
@@ -96,6 +96,15 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   const code = vars.codigo_cotizacion || c.quote_id;
   const signedAt = new Date().toISOString();
 
+  // En un grupo hay un contrato por viajero: sin la posición en el nombre, el PDF
+  // firmado de uno pisaría el de otro dentro de la carpeta de la cotización.
+  const { data: viajero } = await supabase
+    .from("quote_travelers")
+    .select("position")
+    .eq("id", c.traveler_id)
+    .maybeSingle();
+  const posicion = viajero?.position ?? null;
+
   // ---- 1. Pasaporte al bucket privado ----
   const passportPath = rutaPasaporte(code, ext);
   const passportBuffer = Buffer.from(await passport.arrayBuffer());
@@ -133,7 +142,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   }
   const docHash = sha256Hex(signedPdf);
 
-  const signedPdfPath = rutaContrato(code, true);
+  const signedPdfPath = rutaContrato(code, true, posicion);
   const { error: pdfErr } = await supabase.storage
     .from("comercial-contracts")
     .upload(sinBucket(signedPdfPath), signedPdf, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
@@ -169,6 +178,20 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     console.error("[firmar] update falló:", updErr);
     return { ok: false, error: "No pudimos registrar la firma. Inténtalo de nuevo." };
   }
+
+  // El nombre y el pasaporte reales quedan en la ficha del viajero: de ahí los toma
+  // el correo a Pilgrim, sin tener que abrir el variables_json de cada contrato.
+  // Que esto falle no invalida una firma ya registrada, así que no corta el flujo.
+  const { error: viajeroErr } = await supabase
+    .from("quote_travelers")
+    .update({
+      full_name: signerName,
+      document_type: "Pasaporte",
+      document_number: signerDocument,
+      updated_at: signedAt,
+    })
+    .eq("id", c.traveler_id);
+  if (viajeroErr) console.error("[firmar] no se pudo actualizar el viajero:", viajeroErr);
 
   // ---- 4. Copia por correo (webhook n8n → Brevo; también avisa a reservas@) ----
   let emailEnviado = false;

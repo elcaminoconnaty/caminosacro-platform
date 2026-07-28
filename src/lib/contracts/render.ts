@@ -16,8 +16,28 @@ type AnyClient = SupabaseClient<any, any, any>;
 
 const fmtEntero = (n: number) => new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(n);
 
-/** Variables por defecto del contrato a partir de la cotización + cliente + catálogo. */
-export async function buildDefaultVariables(supabase: AnyClient, quoteId: string): Promise<
+/** Datos del viajero que personalizan SU contrato. El resto de variables (el viaje,
+ *  los valores, los anexos) son comunes a todos los contratos de la cotización. */
+export type TravelerSeed = {
+  full_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  document_type?: string | null;
+  document_number?: string | null;
+};
+
+/**
+ * Variables por defecto del contrato a partir de la cotización + cliente + catálogo.
+ *
+ * Con `traveler`, los campos del firmante se toman de ese viajero en vez del titular
+ * de la cotización: es lo que hace que los 20 contratos de un grupo salgan
+ * personalizados, cada uno a nombre de quien lo firma.
+ */
+export async function buildDefaultVariables(
+  supabase: AnyClient,
+  quoteId: string,
+  traveler?: TravelerSeed | null,
+): Promise<
   { ok: true; variables: ContractVariables; totalEur: number; startDate: string | null; clientId: string | null }
   | { ok: false; error: string }
 > {
@@ -78,12 +98,15 @@ export async function buildDefaultVariables(supabase: AnyClient, quoteId: string
 
   const variables: ContractVariables = {
     codigo_cotizacion: String(quote.code || ""),
-    viajero_nombre: String(quote.client_name || ""),
-    viajero_tipo_documento: String(client?.document_type || "Pasaporte"),
-    viajero_documento: String(client?.document_number || ""),
-    viajero_email: String(quote.client_email || ""),
-    viajero_telefono: String(quote.client_phone || ""),
-    viajero_direccion: String(client?.address || ""),
+    // El viajero manda sobre el titular de la cotización cuando viene dado.
+    viajero_nombre: String(traveler?.full_name || quote.client_name || ""),
+    viajero_tipo_documento: String(traveler?.document_type || client?.document_type || "Pasaporte"),
+    viajero_documento: String(traveler?.document_number || client?.document_number || ""),
+    viajero_email: String(traveler?.email || quote.client_email || ""),
+    viajero_telefono: String(traveler?.phone || quote.client_phone || ""),
+    // La dirección solo se hereda del cliente para el titular: la de un acompañante
+    // sería inventada, y el viajero la corrige al firmar.
+    viajero_direccion: String(traveler ? "" : client?.address || ""),
     ruta_nombre: String(quote.route_name || ""),
     origen: String(route?.origin || ""),
     destino: String(route?.destination || "Santiago de Compostela"),

@@ -98,8 +98,11 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
   const suplementoEur = season.surcharge_per_person_cs * datos.people;
   const totalEur = baseEur + suplementoEur;
   // Costo interno del proveedor: se guarda para el margen del dashboard, nunca se devuelve al navegador.
-  const costEur =
-    ((Number(priceRow?.price_pilgrim) || 0) + season.surcharge_per_person_pilgrim) * datos.people;
+  // Desglosado como el lado cliente (base aparte del suplemento) para que
+  // recompute_quote_money() pueda recalcularlo al agregar opcionales.
+  const costBaseEur = (Number(priceRow?.price_pilgrim) || 0) * datos.people;
+  const suplementoCostEur = season.surcharge_per_person_pilgrim * datos.people;
+  const costEur = costBaseEur + suplementoCostEur;
 
   // 2. Cliente (dedup por teléfono, igual que el wizard interno)
   let clientId: string | null = null;
@@ -146,6 +149,8 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
       season_supplement_eur: suplementoEur,
       season_kind: season.type,
       total_eur: totalEur,
+      cost_base_eur: costBaseEur,
+      season_supplement_cost_eur: suplementoCostEur,
       cost_eur: costEur,
       status: "enviada",
       source: "web",
