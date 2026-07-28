@@ -8,15 +8,22 @@ falta que el workflow lo respete.
 **Mientras no se aplique no se rompe nada**: el workflow ignora el campo y sigue mandando
 el aviso siempre, como hasta ahora.
 
-**Sobre aplicarlo por SDK — la nota vieja quedó desactualizada.** `n8n_varios_adjuntos.md`
-dice que el SDK no puede referenciar una credencial existente, y eso **ya no es cierto**:
-`list_credentials` da el ID (la de Brevo es `adVh190atfVSI1dP`) y el nodo lo acepta con
-`credentials: { httpHeaderAuth: { id: 'adVh190atfVSI1dP', name: 'Brevo API key' } }`.
-Validado con `validate_workflow`.
+**Sobre aplicarlo por SDK — probado el 2026-07-28, y la advertencia vieja se confirma.**
+`validate_workflow` **acepta** `credentials: { httpHeaderAuth: { id: 'adVh190atfVSI1dP',
+name: 'Brevo API key' } }` y da `valid: true`, así que parece que se puede. Pero al aplicar,
+`update_workflow` **descarta ese bloque** y responde:
 
-Además `update_workflow` escribe sobre el **borrador**, no sobre la versión activa: se puede
-actualizar, comprobar que la credencial quedó pegada y publicar solo si está bien. O sea que
-el riesgo que motivó hacerlo a mano ya no existe.
+> HTTP Request nodes (Enviar por Brevo, Aviso Lead a Reservas) were skipped during
+> credential auto-assignment. Their credentials must be configured manually.
+
+O sea: el borrador queda con la topología correcta pero **con los dos nodos HTTP sin
+credencial**. Publicar así tumba todo el correo de la plataforma.
+
+Lo que sí ayuda: `update_workflow` escribe el **borrador**, no la versión activa. Se puede
+generar la estructura por SDK sin tocar producción, y luego —en la UI— abrir los dos nodos
+HTTP, seleccionar la credencial **"Brevo API key"** y recién ahí publicar.
+
+**Nunca publicar un borrador hecho por SDK sin volver a poner las credenciales a mano.**
 
 Workflow: **"Correo Cotización — Camino Sacro"** (`HgErNCbopi95CdiI`).
 
