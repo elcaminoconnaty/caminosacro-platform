@@ -8,10 +8,15 @@ falta que el workflow lo respete.
 **Mientras no se aplique no se rompe nada**: el workflow ignora el campo y sigue mandando
 el aviso siempre, como hasta ahora.
 
-**No lo apliqué automáticamente, por lo mismo de siempre.** El SDK de n8n no puede
-referenciar una credencial existente por su ID, así que reescribir el workflow desde código
-dejaría los dos nodos HTTP sin la credencial de Brevo — y este workflow es el único emisor
-de correo de toda la plataforma. Ver `n8n_varios_adjuntos.md`.
+**Sobre aplicarlo por SDK — la nota vieja quedó desactualizada.** `n8n_varios_adjuntos.md`
+dice que el SDK no puede referenciar una credencial existente, y eso **ya no es cierto**:
+`list_credentials` da el ID (la de Brevo es `adVh190atfVSI1dP`) y el nodo lo acepta con
+`credentials: { httpHeaderAuth: { id: 'adVh190atfVSI1dP', name: 'Brevo API key' } }`.
+Validado con `validate_workflow`.
+
+Además `update_workflow` escribe sobre el **borrador**, no sobre la versión activa: se puede
+actualizar, comprobar que la credencial quedó pegada y publicar solo si está bien. O sea que
+el riesgo que motivó hacerlo a mano ya no existe.
 
 Workflow: **"Correo Cotización — Camino Sacro"** (`HgErNCbopi95CdiI`).
 
