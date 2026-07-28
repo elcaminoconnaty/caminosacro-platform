@@ -26,9 +26,17 @@ export type CorreoPayload = {
   attachments?: { url: string; name: string }[];
   // Asunto/cuerpo del aviso interno a reservas@ (si no se envían, el workflow usa
   // su aviso de lead por defecto, que dice "Nuevo lead del cotizador web").
+  // El asunto sale prefijado con AVISO_PREFIJO; no hay que escribirlo a mano.
   aviso_subject?: string;
   aviso_body?: string;
 };
+
+// Cada envío produce DOS correos: el del destinatario y el aviso interno a
+// reservas@ (son las dos ramas del workflow). Si los dos llevan el mismo asunto,
+// en la bandeja se ven como un correo duplicado y Gmail los mete en el mismo hilo
+// — que es justo lo que pasaba con el aviso de "Contrato firmado". El prefijo va
+// acá, en el emisor único, para que ningún flujo nuevo pueda volver a chocar.
+const AVISO_PREFIJO = "[CRM]";
 
 /**
  * Envía el correo por el webhook. Nunca lanza: devuelve `{ ok: false, error }`
@@ -46,6 +54,10 @@ export async function enviarCorreoWebhook(
   if (!payload.email) {
     return { ok: false, error: "No hay correo del destinatario." };
   }
+  const conPrefijo: CorreoPayload = payload.aviso_subject
+    && !payload.aviso_subject.startsWith(AVISO_PREFIJO)
+    ? { ...payload, aviso_subject: `${AVISO_PREFIJO} ${payload.aviso_subject}` }
+    : payload;
   try {
     const r = await fetch(url, {
       method: "POST",
@@ -55,7 +67,7 @@ export async function enviarCorreoWebhook(
           ? { "x-webhook-secret": process.env.QUOTE_EMAIL_WEBHOOK_SECRET }
           : {}),
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(conPrefijo),
       signal: AbortSignal.timeout(10000),
     });
     if (!r.ok) {

@@ -241,8 +241,10 @@ export async function firmarContrato(token: string, formData: FormData): Promise
         `Camino Sacro · reservas@caminosacro.com`,
       ].join("\n"),
       attachment_name: `Contrato-${code}-firmado.pdf`,
-      // El correo que le llega a reservas@ (Nico) con el asunto pedido.
-      aviso_subject: `${signerName} - Contrato firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
+      // El correo que le llega a reservas@ (Nico). El asunto describe el evento en
+      // voz de adentro y NO repite el del correo del viajero: si fuera el mismo, en
+      // la bandeja se verían como un solo correo duplicado.
+      aviso_subject: `Firmó ${signerName} - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
       aviso_body: [
         `Se firmó un contrato.`,
         ``,
