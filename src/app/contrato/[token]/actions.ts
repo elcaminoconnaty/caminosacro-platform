@@ -1,8 +1,9 @@
 "use server";
 
 // Firma pública del contrato. Seguridad: token único de 64 hex con expiración,
-// validación de archivos, rate limit por IP, y trazabilidad completa de la firma
-// (IP, user-agent, timestamp, hash SHA-256 del PDF firmado) — Ley 527/Dec. 2364.
+// validación de archivos, rate limit por token (y por IP con tope holgado), y
+// trazabilidad completa de la firma (IP, user-agent, timestamp, hash SHA-256 del
+// PDF firmado) — Ley 527/Dec. 2364.
 
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -31,25 +32,40 @@ const SIGNATURE_MAX_CHARS = 400_000; // data URL PNG del canvas (~300 KB reales)
 const SIGNED_COPY_TTL = 60 * 60 * 24 * 30; // 30 días para el enlace del correo
 
 // Rate limit en memoria (mismo enfoque que /cotizar): corta el abuso obvio.
-const RATE = { max: 10, windowMs: 60 * 60 * 1000 };
+// La clave que manda es el token, que es uno por viajero: así se frena la fuerza
+// bruta contra un contrato concreto. Por IP el tope es holgado a propósito — un
+// grupo que firma junto (la familia en la misma casa, el WiFi del hotel) sale con
+// una sola IP pública, y con un tope bajo el viajero 11 no podría firmar.
+const RATE_TOKEN = { max: 8, windowMs: 60 * 60 * 1000 };
+const RATE_IP = { max: 120, windowMs: 60 * 60 * 1000 };
 const hits = new Map<string, number[]>();
-function superaLimite(ip: string): boolean {
+function superaLimite(clave: string, regla: { max: number; windowMs: number }): boolean {
   const ahora = Date.now();
-  const previos = (hits.get(ip) ?? []).filter((t) => ahora - t < RATE.windowMs);
+  const previos = (hits.get(clave) ?? []).filter((t) => ahora - t < regla.windowMs);
   previos.push(ahora);
-  hits.set(ip, previos);
+  hits.set(clave, previos);
   if (hits.size > 5000) hits.clear();
-  return previos.length > RATE.max;
+  return previos.length > regla.max;
 }
 
 export async function firmarContrato(token: string, formData: FormData): Promise<ResultadoFirma> {
   if (!token || token.length < 32) return { ok: false, error: "Enlace no válido." };
 
   const cabeceras = await headers();
-  const ip = (cabeceras.get("x-forwarded-for") ?? "desconocida").split(",")[0].trim();
+  // Sin cabecera de IP no metemos a todo el mundo en un mismo cubo: sería un cupo
+  // compartido por toda la plataforma. El límite por token ya cubre ese caso.
+  const ipCliente = (cabeceras.get("x-forwarded-for") ?? "").split(",")[0].trim() || null;
+  const ip = ipCliente ?? "desconocida";
   const userAgent = cabeceras.get("user-agent") ?? null;
-  if (superaLimite(ip)) {
-    return { ok: false, error: "Demasiados intentos seguidos. Espera unos minutos e inténtalo de nuevo." };
+  // Los dos se evalúan siempre para que ninguno de los dos contadores se quede corto.
+  const excedeToken = superaLimite(`token:${token}`, RATE_TOKEN);
+  const excedeIp = ipCliente ? superaLimite(`ip:${ipCliente}`, RATE_IP) : false;
+  if (excedeToken || excedeIp) {
+    return {
+      ok: false,
+      error: "Demasiados intentos seguidos con este enlace. Espera un momento y vuelve a intentarlo; " +
+        "si sigue pasando, escríbenos a reservas@caminosacro.com.",
+    };
   }
 
   const supabase = createAdminClient("comercial");
