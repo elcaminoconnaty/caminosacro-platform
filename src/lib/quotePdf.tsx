@@ -261,6 +261,11 @@ export type QuotePDFProps = {
   coverImage?: Buffer | string;
   /** Suplementos para la nota debajo de los precios */
   seasonNote?: { high: number; easter: number };
+  /**
+   * Aclaración bajo las tarjetas de precio. La usa el cotizador público cuando la tarifa
+   * es de un año anterior al de la salida ("precio de referencia, sujeto a confirmación").
+   */
+  priceNote?: string | null;
   /** Bloques de precio a mostrar (1 = solo pensión u hotel, 2 = ambos) */
   priceBlocks?: Array<{
     label: string;
@@ -459,7 +464,7 @@ const CAT_TITLE: Record<string, string> = {
 const CAT_ORDER = ["seguro", "noche_extra", "meal", "transfer", "tour", "gift"];
 
 // =============== COMPONENT ===============
-export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceBlocks, selectedOptionals, baseEur, seasonSupplement, roomBreakdown, itineraryExtras }: QuotePDFProps) {
+export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceNote, priceBlocks, selectedOptionals, baseEur, seasonSupplement, roomBreakdown, itineraryExtras }: QuotePDFProps) {
   const total = Number(quote.total_eur) || 0;
   const base = Number(baseEur) || total;
   const people = quote.people || 1;
@@ -603,6 +608,8 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
             {priceBlocks.length === 1 && <View style={{ flex: 1 }} />}
           </View>
         )}
+
+        {priceNote && <Text style={s.seasonNote}>{priceNote}</Text>}
 
         {seasonNote && (
           <Text style={s.seasonNote}>

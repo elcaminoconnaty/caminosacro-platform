@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { autorizado, noAutorizado } from "../auth";
+import { catalogYears, ratesForYearWithFallback } from "@/lib/pricing/year";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,11 @@ const MODALIDADES = ["pension_doble", "hotel_doble", "pension_single", "hotel_si
  *
  * Devuelve solo price_cs (venta); price_pilgrim jamás sale de la plataforma.
  * WordPress lo cachea 6 horas y usa el último payload bueno si esto no responde.
+ *
+ * `?year=` elige el año de tarifa (migración 0017). Sin el parámetro responde el año en
+ * curso, igual que antes de tener catálogo por año. Si el año pedido todavía no tiene
+ * tarifas cargadas cae al año cargado más reciente y lo marca en `is_fallback`, para que
+ * la web pueda mostrar "precio sujeto a confirmación". La forma del payload no cambia.
  */
 export async function GET(request: Request) {
   if (!autorizado(request)) return noAutorizado();
@@ -35,7 +41,7 @@ export async function GET(request: Request) {
       .eq("active", true)
       .eq("web", true)
       .order("days", { ascending: true, nullsFirst: false }),
-    supabase.from("pricing").select("route_id,modality,price_cs").eq("season", "regular"),
+    supabase.from("pricing").select("route_id,modality,year,price_cs").eq("season", "regular"),
     supabase
       .from("optional_services")
       .select("name,unit,price_cs,category")
@@ -48,12 +54,29 @@ export async function GET(request: Request) {
     return Response.json({ ok: false, error: "interno" }, { status: 500 });
   }
 
+  const years = catalogYears();
+  const pedido = Number(new URL(request.url).searchParams.get("year"));
+  const yearPedido = years.includes(pedido) ? pedido : new Date().getFullYear();
+
+  // El fallback se resuelve por ruta: puede haber rutas con tarifas del año pedido y otras
+  // que todavía solo tengan las del anterior.
+  const filas = (pricing || []) as Array<{ route_id: string; modality: string; year: number | null; price_cs: number | string | null }>;
+  const porRutaTodas = new Map<string, typeof filas>();
+  for (const p of filas) {
+    if ((Number(p.price_cs) || 0) <= 0) continue;
+    if (!porRutaTodas.has(p.route_id)) porRutaTodas.set(p.route_id, []);
+    porRutaTodas.get(p.route_id)!.push(p);
+  }
+
   const porRuta = new Map<string, Record<string, number>>();
-  for (const p of pricing || []) {
-    const precio = Number(p.price_cs) || 0;
-    if (precio <= 0) continue;
-    if (!porRuta.has(p.route_id)) porRuta.set(p.route_id, {});
-    porRuta.get(p.route_id)![p.modality] = precio;
+  const fallbackPorRuta = new Map<string, number>(); // route_id -> año realmente usado
+  for (const [routeId, rows] of porRutaTodas) {
+    const elegidas = ratesForYearWithFallback(rows, yearPedido);
+    if (elegidas.rows.length === 0) continue;
+    if (elegidas.isFallback) fallbackPorRuta.set(routeId, elegidas.year);
+    const mapa: Record<string, number> = {};
+    for (const p of elegidas.rows) mapa[p.modality] = Number(p.price_cs) || 0;
+    porRuta.set(routeId, mapa);
   }
 
   const rutas: Record<
@@ -66,6 +89,8 @@ export async function GET(request: Request) {
       km: number | null;
       modality: string;
       prices?: Record<string, number>;
+      /** Presente solo si las tarifas de esta ruta son de un año anterior al pedido. */
+      prices_year?: number;
     }
   > = {};
   for (const r of routes || []) {
@@ -80,6 +105,7 @@ export async function GET(request: Request) {
       modality: r.modality ?? "senderismo",
       // Sin las 4 tarifas no viaja ningún precio: la web la cotiza a medida.
       ...(completa ? { prices } : {}),
+      ...(completa && fallbackPorRuta.has(r.id) ? { prices_year: fallbackPorRuta.get(r.id) } : {}),
     };
   }
 
@@ -98,6 +124,9 @@ export async function GET(request: Request) {
     ok: true,
     generated_at: new Date().toISOString(),
     catalog: 2, // Versión del payload: 2 = catálogo completo (rutas sin precio incluidas + opcionales).
+    year: yearPedido,
+    // true si alguna ruta viaja con tarifas de un año anterior al pedido.
+    is_fallback: fallbackPorRuta.size > 0,
     seasons: {
       alta: {
         etiqueta: season.high_season.name,

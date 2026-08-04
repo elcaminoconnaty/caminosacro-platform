@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { applyMarkupRule, updatePricing, upsertPricing } from "./actions";
+import { applyMarkupRule, copyPricingFromPreviousYear, updatePricing, upsertPricing } from "./actions";
 
 export type Row = {
   id: string | null; // null = fila virtual (la ruta aún no tiene precio en esta modalidad)
@@ -25,12 +25,14 @@ const MODALITY_LABEL: Record<string, string> = {
   hotel_single: "Hotel single",
 };
 
-export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
+export default function PricingTable({ initialRows, year }: { initialRows: Row[]; year: number }) {
   const [rows, setRows] = useState<Row[]>(initialRows);
   const [pending, startTransition] = useTransition();
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmRule, setConfirmRule] = useState(false);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const vacio = rows.every((r) => r.id == null);
 
   function handleChange(key: string, field: "price_pilgrim" | "price_cs", value: string) {
     const num = value === "" ? 0 : Number(value);
@@ -46,7 +48,7 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
     startTransition(async () => {
       const r = row.id
         ? await updatePricing(row.id, field, value)
-        : await upsertPricing(row.route_id, row.modality, field, value);
+        : await upsertPricing(row.route_id, row.modality, field, value, year);
       setSavingId(null);
       if (r?.error) {
         setError(r.error);
@@ -61,7 +63,7 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
   async function handleApplyRule() {
     setError(null);
     startTransition(async () => {
-      const r = await applyMarkupRule();
+      const r = await applyMarkupRule(year);
       setConfirmRule(false);
       if (r?.error) setError(r.error);
       else if (r?.ok) {
@@ -77,6 +79,24 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
     });
   }
 
+  // Arranque de un año nuevo: copia el anterior como punto de partida para editar encima.
+  // Nunca pisa una tarifa ya cargada; el CRM sigue exigiendo el año exacto al cotizar.
+  async function handleCopyYear() {
+    setError(null);
+    setCopyMsg(null);
+    startTransition(async () => {
+      const r = await copyPricingFromPreviousYear(year);
+      if (r?.error) setError(r.error);
+      else if (r?.ok) {
+        setCopyMsg(
+          r.copied === 0
+            ? `No faltaba ninguna tarifa: ${year} ya tiene todas las de ${r.from}.`
+            : `Se copiaron ${r.copied} tarifas de ${r.from}. Recargá para verlas y ajustalas con los precios reales de ${year}.`,
+        );
+      }
+    });
+  }
+
   // Agrupado por ruta
   const byRoute = new Map<string, Row[]>();
   for (const r of rows) {
@@ -87,21 +107,41 @@ export default function PricingTable({ initialRows }: { initialRows: Row[] }) {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-muted">Click en cualquier precio para editarlo. Se guarda automáticamente al salir del campo. Toda edición queda registrada en histórico.</p>
-        <button
-          onClick={() => setConfirmRule(true)}
-          disabled={pending}
-          className="text-xs px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-taupe/40 transition disabled:opacity-50"
-        >
-          Aplicar regla automática
-        </button>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <p className="text-xs text-muted">Tarifas {year}. Click en cualquier precio para editarlo. Se guarda automáticamente al salir del campo. Toda edición queda registrada en histórico.</p>
+        <div className="flex gap-2 shrink-0">
+          <button
+            onClick={handleCopyYear}
+            disabled={pending}
+            className="text-xs px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-taupe/40 transition disabled:opacity-50"
+          >
+            Copiar tarifas de {year - 1}
+          </button>
+          <button
+            onClick={() => setConfirmRule(true)}
+            disabled={pending}
+            className="text-xs px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-taupe/40 transition disabled:opacity-50"
+          >
+            Aplicar regla automática
+          </button>
+        </div>
       </div>
+
+      {vacio && (
+        <div className="mb-3 px-4 py-3 rounded-md border border-amber-300 bg-amber-50 text-sm text-amber-900">
+          Todavía no hay tarifas {year} cargadas. Mientras estén vacías, el asistente no
+          autocarga precios para salidas de {year}: avisa y hay que teclearlos a mano.
+        </div>
+      )}
+
+      {copyMsg && (
+        <div className="mb-3 px-4 py-3 rounded-md border border-bosque/30 bg-bosque/5 text-sm text-bosque">{copyMsg}</div>
+      )}
 
       {confirmRule && (
         <div className="mb-3 px-4 py-3 rounded-md border border-amber-300 bg-amber-50 text-sm text-amber-900 flex items-center justify-between gap-3">
           <span>
-            Aplicar <code className="font-mono text-xs">max(Pilgrim+100, Pilgrim÷0.85)</code> a todas las filas con precio Pilgrim. Sobrescribe los precios CS actuales.
+            Aplicar <code className="font-mono text-xs">max(Pilgrim+100, Pilgrim÷0.85)</code> a todas las filas {year} con precio Pilgrim. Sobrescribe los precios CS actuales de {year}.
           </span>
           <div className="flex gap-2 shrink-0">
             <button onClick={() => setConfirmRule(false)} className="text-xs px-3 py-1 rounded-md border border-amber-300 hover:bg-amber-100">Cancelar</button>

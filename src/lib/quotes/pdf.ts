@@ -6,6 +6,7 @@ import { mensajeError } from "@/lib/errors";
 import { getTRMHoy } from "@/lib/trm";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
+import { quoteYear } from "@/lib/pricing/year";
 
 /**
  * Cliente del schema `comercial`: el de sesión (dashboard) o el admin (cotizador público,
@@ -61,7 +62,8 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
   let route: { days: number | null; nights: number | null; origin: string | null; destination: string | null; km: number | null; difficulty: string | null; modality: string | null } | null = null;
   let stages: Array<{ day: number; from_place: string | null; to_place: string | null; km: number | null; accommodation: string | null }> = [];
 
-  // Pricing del catálogo para la ruta (todas las modalidades)
+  // Precios de venta por persona que alimentan las tarjetas: del catálogo de la ruta,
+  // salvo que la cotización traiga los suyos (ver el override de price_blocks más abajo).
   let routePricing: Array<{ modality: string; price_cs: number }> = [];
   let routeId: string | null = null;
 
@@ -91,15 +93,29 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
         ...x,
         km: x.km != null ? Number(x.km) : null,
       }));
+      // Tarifas del año de salida (migración 0017): una salida 2027 no se compara contra
+      // precios 2026. Sin tarifas del año no hay tarjeta comparativa, que es lo correcto.
       const { data: prc } = await supabase
         .from("pricing")
         .select("modality,price_cs")
         .eq("route_id", r.id)
-        .eq("season", "regular");
+        .eq("season", "regular")
+        .eq("year", quoteYear(quote.start_date));
       routePricing = ((prc || []) as Array<{ modality: string; price_cs: number | string | null }>)
         .map((p) => ({ modality: p.modality, price_cs: Number(p.price_cs) || 0 }))
         .filter((p) => p.price_cs > 0);
     }
+  }
+
+  // Override por cotización (migración 0016): si la cotización trae precios propios —el caso
+  // típico cuando no se cargaron del catálogo, porque la tarifa del año todavía no existe—,
+  // esos son LOS precios del PDF: reemplazan al catálogo, no se mezclan. Así una cotización
+  // vendida solo en pensión sale con una sola tarjeta en vez de una comparación inventada.
+  const priceOverrides = (quote.price_blocks ?? null) as Record<string, number | string | null> | null;
+  if (priceOverrides && Object.keys(priceOverrides).length > 0) {
+    routePricing = Object.entries(priceOverrides)
+      .map(([modality, v]) => ({ modality, price_cs: Number(v) || 0 }))
+      .filter((p) => p.price_cs > 0);
   }
 
   // Determinar qué slug eligió el cliente y armar bloques.
@@ -286,6 +302,7 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     trm: trmRow,
     coverImage,
     seasonNote,
+    priceNote: (quote.price_note as string | null) ?? null,
     priceBlocks,
     selectedOptionals: ((selectedLines || []) as Array<{ description: string; quantity: number | string; unit_price: number | string; total: number | string }>).map((l) => ({
       description: l.description,

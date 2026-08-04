@@ -66,10 +66,34 @@ app/
 ## 3. Cambios comunes (sin tocar código)
 
 ### A. Cambiar precios del catálogo
-1. `/catalogo` → Click en cualquier celda de Pilgrim € o Mi precio €
-2. Cambiá el número, salí del campo (Tab o click afuera) → se guarda solo
-3. Cada cambio queda en `comercial.pricing_history` (audit log)
-4. Botón **"Aplicar regla automática"** recalcula CS = max(Pilgrim+100, Pilgrim÷0.85)
+1. `/catalogo` → arriba a la derecha, elegí el **año de tarifa** (2026, 2027…)
+2. Click en cualquier celda de Pilgrim € o Mi precio €
+3. Cambiá el número, salí del campo (Tab o click afuera) → se guarda solo
+4. Cada cambio queda en `comercial.pricing_history` (audit log)
+5. Botón **"Aplicar regla automática"** recalcula CS = max(Pilgrim+100, Pilgrim÷0.85) **del año activo**
+
+### A2. Catálogo por año (2026 vs 2027)
+Pilgrim sube tarifas cada año, así que `comercial.pricing` tiene columna `year` (migración
+0017) y cada año es un juego de precios independiente. La regla clave:
+
+> **La tarifa que aplica es la del año de SALIDA del viaje**, no la del año en que se cotiza.
+
+- **Arrancar un año nuevo**: `/catalogo?year=2027` → botón **"Copiar tarifas de 2026"**.
+  Crea solo las filas que faltan (nunca pisa una ya cargada) para editar encima con los
+  precios reales. También podés dejarlo vacío y teclear cada tarifa.
+- **CRM (asistente y editor)**: exige el año exacto. Si no hay tarifas del año de salida
+  avisa en ámbar — *"No hay tarifas 2027 cargadas para esta ruta"* — y **no autocarga nada**.
+  Hay que teclear los precios a mano. Es a propósito: así nunca se cuela una tarifa 2026 en
+  un viaje 2027.
+- **Cotizador público** (`/cotizar` y caminosacro.com): sí cae al año cargado más reciente,
+  porque necesita dar un número, y lo dice — la cotización sale con la nota *"Precio de
+  referencia 2026. Para salidas en 2027 queda sujeto a confirmación."* en pantalla y en el
+  PDF (`quotes.price_note`).
+- `GET /api/wp/pricing` acepta `?year=` y responde `year` + `is_fallback`; sin el parámetro
+  usa el año en curso, igual que antes.
+- **Ojo**: los servicios opcionales (`optional_services`) y los suplementos de temporada
+  (`settings.season_supplements`) **no** tienen dimensión de año todavía: son únicos para
+  todos los años.
 
 ### B. Agregar un servicio opcional nuevo
 Hoy se agrega vía SQL Editor en Supabase Dashboard:
@@ -185,6 +209,26 @@ where key = 'token_pricing';
 1. Abrí el archivo correspondiente (ver árbol arriba)
 2. Editá, guardá
 3. Si `npm run dev` está corriendo, recargá en el navegador (cambios casi instantáneos con Turbopack)
+
+### Las tarjetas de precio del PDF (pensión / hotel)
+Las tarjetas grandes de la página 2 salen de **`comercial.quotes.price_blocks`** (migración
+0016): un mapa `modalidad → precio de venta por persona`.
+
+```json
+{"pension_doble": 680}                       → una sola tarjeta
+{"pension_doble": 680, "hotel_doble": 790}   → dos tarjetas, la elegida en verde
+null                                          → se sacan del catálogo del año
+```
+
+Se llenan desde la grilla **"Precios que salen en el PDF (€ por persona)"** del asistente
+(`/cotizaciones/nueva`) y del editor (`/seguimiento/[id]`). **Dejar un alojamiento en blanco
+significa que esa tarjeta no se dibuja** — es la forma de cotizar solo pensión sin que el PDF
+invente un precio de hotel. La tarjeta cobrada siempre muestra el precio real derivado de
+`base_eur`, así que el override nunca puede contradecir la plata cotizada.
+
+Antes de la 0016 el PDF armaba siempre la tarjeta del alojamiento no elegido leyendo el
+catálogo. Con precios tecleados a mano eso producía comparaciones falsas (caso CS-2026-063:
+pensión 680 € tecleada contra hotel 650 € del catálogo 2026 — hotel más barato que pensión).
 
 ### Cambiar el diseño del PDF
 Archivo: `src/lib/quotePdf.tsx`

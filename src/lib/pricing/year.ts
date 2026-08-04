@@ -1,0 +1,84 @@
+/**
+ * Catálogo por año de vigencia (migración 0017).
+ *
+ * Regla del negocio: la tarifa que aplica es la del **año de salida** del viaje, no la del
+ * año en que se cotiza. Pilgrim sube precios cada año, así que cotizar una salida 2027 con
+ * la tarifa 2026 es cobrar de menos.
+ *
+ * Dos políticas distintas a propósito:
+ * - **CRM** (`ratesForYear`): coincidencia exacta. Si no hay tarifas del año, no autocarga
+ *   nada y avisa — que Nico teclee el precio real. Es lo que evita que se cuele una tarifa
+ *   vieja en un viaje futuro.
+ * - **Cotizador público** (`ratesForYearWithFallback`): cae al año cargado más reciente y
+ *   marca `isFallback` para que la pantalla y el PDF muestren "sujeto a confirmación". El
+ *   público necesita un número; el CRM necesita exactitud.
+ */
+
+/** Primer año del catálogo: todas las tarifas anteriores a la migración 0017 son de 2026. */
+export const CATALOG_BASE_YEAR = 2026;
+
+/** Los 4 slugs de `comercial.pricing.modality`. */
+export const MODALITY_SLUGS = [
+  "pension_doble",
+  "pension_single",
+  "hotel_doble",
+  "hotel_single",
+] as const;
+
+export type ModalitySlug = (typeof MODALITY_SLUGS)[number];
+
+/** Etiquetas cortas para la UI del catálogo y del asistente. */
+export const MODALITY_LABELS: Record<ModalitySlug, string> = {
+  pension_doble: "Pensión doble",
+  pension_single: "Pensión individual",
+  hotel_doble: "Hotel doble",
+  hotel_single: "Hotel individual",
+};
+
+/** Años que ofrece el selector del catálogo: desde el base hasta el próximo. */
+export function catalogYears(now: Date = new Date()): number[] {
+  const last = now.getFullYear() + 1;
+  const years: number[] = [];
+  for (let y = CATALOG_BASE_YEAR; y <= last; y++) years.push(y);
+  return years;
+}
+
+/**
+ * Año de tarifa de una cotización: el de la fecha de salida. Sin fecha, el año en curso.
+ * Se parsea el string ISO a mano para no depender de la zona horaria (`new Date("2027-01-01")`
+ * es UTC y en Bogotá cae el 31 de diciembre de 2026).
+ */
+export function quoteYear(startDate: string | null | undefined, now: Date = new Date()): number {
+  const m = /^(\d{4})-/.exec((startDate ?? "").trim());
+  return m ? Number(m[1]) : now.getFullYear();
+}
+
+/** Filas del año exacto. Vacío significa "no hay tarifas cargadas para ese año". */
+export function ratesForYear<T extends { year?: number | null }>(rows: T[], year: number): T[] {
+  return rows.filter((r) => Number(r.year ?? CATALOG_BASE_YEAR) === year);
+}
+
+/**
+ * Solo para el cotizador público: usa el año pedido y, si no hay nada cargado, cae al año
+ * cargado más reciente por debajo. `isFallback` avisa que el precio es de referencia.
+ */
+export function ratesForYearWithFallback<T extends { year?: number | null }>(
+  rows: T[],
+  year: number,
+): { rows: T[]; year: number; isFallback: boolean } {
+  const exact = ratesForYear(rows, year);
+  if (exact.length > 0) return { rows: exact, year, isFallback: false };
+
+  const earlier = rows
+    .map((r) => Number(r.year ?? CATALOG_BASE_YEAR))
+    .filter((y) => y < year);
+  if (earlier.length === 0) return { rows: [], year, isFallback: false };
+
+  const fallbackYear = Math.max(...earlier);
+  return { rows: ratesForYear(rows, fallbackYear), year: fallbackYear, isFallback: true };
+}
+
+/** Nota para pantalla y PDF cuando el precio salió de un año anterior. */
+export function fallbackPriceNote(usedYear: number, requestedYear: number): string {
+  return `Precio de referencia ${usedYear}. Para salidas en ${requestedYear} queda sujeto a confirmación.`;
+}

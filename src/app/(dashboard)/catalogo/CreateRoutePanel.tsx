@@ -27,7 +27,7 @@ function numOrNull(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export default function CreateRoutePanel({ families, onClose }: { families: string[]; onClose: () => void }) {
+export default function CreateRoutePanel({ families, onClose, year }: { families: string[]; onClose: () => void; year: number }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -73,6 +73,7 @@ export default function CreateRoutePanel({ families, onClose }: { families: stri
         description: description.trim() || null,
         web,
         prices: priceRows,
+        year,
       });
       if (r?.error) setError(r.error);
       else window.location.reload();

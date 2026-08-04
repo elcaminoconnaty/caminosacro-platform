@@ -9,9 +9,11 @@ import EditRoutePanel from "./EditRoutePanel";
 export default function CatalogToolbar({
   families,
   routes,
+  year,
 }: {
   families: string[];
   routes: { id: string; name: string }[];
+  year: number; // año de tarifa que se está editando; los precios del panel van a ese año
 }) {
   const [open, setOpen] = useState<"route" | "itinerary" | "edit" | null>(null);
 
@@ -44,9 +46,9 @@ export default function CatalogToolbar({
         </button>
       </div>
 
-      {open === "route" && <CreateRoutePanel families={families} onClose={() => setOpen(null)} />}
+      {open === "route" && <CreateRoutePanel families={families} onClose={() => setOpen(null)} year={year} />}
       {open === "itinerary" && <CreateItineraryPanel routes={routes} onClose={() => setOpen(null)} />}
-      {open === "edit" && <EditRoutePanel families={families} routes={routes} onClose={() => setOpen(null)} />}
+      {open === "edit" && <EditRoutePanel families={families} routes={routes} onClose={() => setOpen(null)} year={year} />}
     </div>
   );
 }

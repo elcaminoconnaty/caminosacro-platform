@@ -9,6 +9,7 @@ import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { mensajeError } from "@/lib/errors";
 import { MODALIDAD_LABEL } from "./constants";
+import { fallbackPriceNote, quoteYear, ratesForYearWithFallback } from "@/lib/pricing/year";
 
 const PDF_URL_TTL = 60 * 60 * 24 * 7; // 7 días: el cliente entra al PDF desde el correo, no en caliente.
 
@@ -72,19 +73,25 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
 
   // 1. Precio de catálogo. Se resuelve en el servidor: el precio que llegue del
   //    navegador no se usa para nada (si no, cualquiera lo edita).
-  const [{ data: route }, { data: priceRow }, { data: seasonSetting }] = await Promise.all([
+  const [{ data: route }, { data: priceRows }, { data: seasonSetting }] = await Promise.all([
     supabase.from("routes").select("id,name,days").eq("id", datos.route_id).eq("active", true).maybeSingle(),
+    // Todos los años: se elige el del viaje y, si aún no está cargado, el anterior con
+    // aviso — el público necesita un número (ver @/lib/pricing/year).
     supabase
       .from("pricing")
-      .select("price_cs,price_pilgrim")
+      .select("year,price_cs,price_pilgrim")
       .eq("route_id", datos.route_id)
       .eq("modality", datos.modality)
-      .eq("season", "regular")
-      .maybeSingle(),
+      .eq("season", "regular"),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
   ]);
 
   if (!route) return { ok: false, error: "Esa ruta ya no está disponible. Elige otra, por favor." };
+
+  const salidaYear = quoteYear(datos.start_date);
+  const tarifas = ratesForYearWithFallback((priceRows || []) as Array<{ year: number | null; price_cs: number | string | null; price_pilgrim: number | string | null }>, salidaYear);
+  const priceRow = tarifas.rows[0] ?? null;
+  const priceNote = tarifas.isFallback ? fallbackPriceNote(tarifas.year, salidaYear) : null;
   const precioPorPersona = Number(priceRow?.price_cs) || 0;
   if (precioPorPersona <= 0) {
     return { ok: false, error: "Esa combinación no tiene precio publicado: escríbenos y te la cotizamos a medida." };
@@ -155,6 +162,7 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
       status: "enviada",
       source: "web",
       notes: "Cotización generada por el cliente desde caminosacro.com",
+      price_note: priceNote,
     })
     .select("id,code")
     .single();

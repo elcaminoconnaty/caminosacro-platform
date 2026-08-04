@@ -19,6 +19,7 @@ loadEnv({ path: path.resolve(__dirname, "..", ".env.local") });
 import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { carpetaCotizacion } from "../src/lib/storage/paths";
+import { CATALOG_BASE_YEAR } from "../src/lib/pricing/year";
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
 const MASTER_XLSX = path.join(PROJECT_ROOT, "camino_sacro_catalogo_master.xlsx");
@@ -126,10 +127,12 @@ async function seedRoutes(): Promise<Map<string, string>> {
             route_id: route!.id,
             modality: m.slug,
             season: "regular",
+            // El xlsx maestro son las tarifas 2026 (ver migración 0017).
+            year: CATALOG_BASE_YEAR,
             valid_from: null,
             price_cs: v,
           },
-          { onConflict: "route_id,modality,season,valid_from" },
+          { onConflict: "route_id,modality,season,year" },
         );
     }
     log(`✓ ${name}`);
@@ -158,7 +161,7 @@ async function seedPilgrimPrices(slugById: Map<string, string>) {
         .eq("route_id", routeId)
         .eq("modality", m.slug)
         .eq("season", "regular")
-        .is("valid_from", null)
+        .eq("year", CATALOG_BASE_YEAR)
         .maybeSingle();
       if (existing) {
         await supabase.from("pricing").update({ price_pilgrim: v }).eq("id", existing.id);
@@ -167,6 +170,7 @@ async function seedPilgrimPrices(slugById: Map<string, string>) {
           route_id: routeId,
           modality: m.slug,
           season: "regular",
+          year: CATALOG_BASE_YEAR,
           price_pilgrim: v,
         });
       }

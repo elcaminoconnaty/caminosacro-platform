@@ -81,6 +81,13 @@ export async function createQuote(formData: FormData) {
     try { roomsJson = JSON.parse(roomsRaw); } catch { roomsJson = null; }
   }
 
+  // Precios por persona de las tarjetas del PDF (migración 0016). NULL = usar el catálogo.
+  let priceBlocks: unknown = null;
+  const blocksRaw = str(formData.get("price_blocks"));
+  if (blocksRaw) {
+    try { priceBlocks = JSON.parse(blocksRaw); } catch { priceBlocks = null; }
+  }
+
   const baseEur = num(formData.get("total_eur")) ?? 0; // En el wizard, "Total €" = base ruta + aloj (sin suplemento)
   const seasonSupplement = num(formData.get("season_supplement_eur")) ?? 0;
   const seasonKindRaw = str(formData.get("season_kind"));
@@ -93,6 +100,7 @@ export async function createQuote(formData: FormData) {
       client_name: fullName,
       client_phone: phone,
       client_email: email,
+      route_id: str(formData.get("route_id")) || null,
       route_name: str(formData.get("route_name")),
       start_date: str(formData.get("start_date")),
       end_date: str(formData.get("end_date")),
@@ -111,6 +119,7 @@ export async function createQuote(formData: FormData) {
       status: str(formData.get("status")) || "enviada",
       notes: str(formData.get("notes")),
       rooms_json: roomsJson,
+      price_blocks: priceBlocks,
     })
     .select("id")
     .single();

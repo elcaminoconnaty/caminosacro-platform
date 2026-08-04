@@ -20,11 +20,12 @@ export async function upsertPricing(
   modality: string,
   field: "price_pilgrim" | "price_cs",
   value: number | null,
+  year: number,
 ) {
   const supabase = await createCommercialClient();
   const { data, error } = await supabase
     .from("pricing")
-    .insert({ route_id: routeId, modality, season: "regular", [field]: value })
+    .insert({ route_id: routeId, modality, season: "regular", year, [field]: value })
     .select("id")
     .single();
   if (error) return { error: mensajeError(error) };
@@ -34,12 +35,13 @@ export async function upsertPricing(
   return { ok: true, id: data.id as string };
 }
 
-export async function applyMarkupRule() {
-  // Regla: max(pilgrim+100, pilgrim/0.85). Aplica a todas las filas con price_pilgrim > 0.
+export async function applyMarkupRule(year: number) {
+  // Regla: max(pilgrim+100, pilgrim/0.85). Aplica a las filas del año con price_pilgrim > 0.
   const supabase = await createCommercialClient();
   const { data, error } = await supabase
     .from("pricing")
     .select("id,price_pilgrim")
+    .eq("year", year)
     .not("price_pilgrim", "is", null);
   if (error) return { error: mensajeError(error) };
 
@@ -53,6 +55,45 @@ export async function applyMarkupRule() {
   }
   revalidatePath("/catalogo");
   return { ok: true, updated };
+}
+
+/**
+ * Arranca el catálogo de un año copiando el del año anterior: crea SOLO las filas que
+ * faltan, nunca pisa una tarifa ya cargada. Es un punto de partida para editar encima,
+ * no una vigencia automática — el CRM nunca usa tarifas de otro año por su cuenta.
+ */
+export async function copyPricingFromPreviousYear(year: number) {
+  const supabase = await createCommercialClient();
+  const from = year - 1;
+
+  const [{ data: source, error: errSource }, { data: target, error: errTarget }] = await Promise.all([
+    supabase.from("pricing").select("route_id,modality,price_pilgrim,price_cs,notes").eq("year", from).eq("season", "regular"),
+    supabase.from("pricing").select("route_id,modality").eq("year", year).eq("season", "regular"),
+  ]);
+  if (errSource) return { error: mensajeError(errSource) };
+  if (errTarget) return { error: mensajeError(errTarget) };
+  if (!source || source.length === 0) return { error: `No hay tarifas ${from} para copiar.` };
+
+  const existing = new Set((target || []).map((r) => `${r.route_id}:${r.modality}`));
+  const nuevas = source
+    .filter((r) => !existing.has(`${r.route_id}:${r.modality}`))
+    .map((r) => ({
+      route_id: r.route_id,
+      modality: r.modality,
+      season: "regular",
+      year,
+      price_pilgrim: r.price_pilgrim,
+      price_cs: r.price_cs,
+      notes: r.notes,
+    }));
+  if (nuevas.length === 0) return { ok: true, copied: 0, from };
+
+  const { error } = await supabase.from("pricing").insert(nuevas);
+  if (error) return { error: mensajeError(error) };
+  revalidatePath("/catalogo");
+  revalidatePath("/cotizaciones/nueva");
+  revalidatePath("/seguimiento");
+  return { ok: true, copied: nuevas.length, from };
 }
 
 export async function getResourceUrl(storagePath: string) {
@@ -119,6 +160,7 @@ export type NewRouteInput = {
   description: string | null;
   web?: boolean; // visible en el cotizador de caminosacro.com (default false)
   prices: NewRoutePrice[];
+  year: number; // año de vigencia de las tarifas que trae `prices`
 };
 
 export async function createRoute(input: NewRouteInput) {
@@ -156,6 +198,7 @@ export async function createRoute(input: NewRouteInput) {
       route_id: route.id,
       modality: p.modality,
       season: "regular",
+      year: input.year,
       price_pilgrim: p.price_pilgrim,
       price_cs: p.price_cs,
     }));
@@ -223,7 +266,7 @@ export type RouteForEdit = {
   prices: NewRoutePrice[];
 };
 
-export async function getRouteForEdit(routeId: string): Promise<{ route: RouteForEdit } | { error: string }> {
+export async function getRouteForEdit(routeId: string, year: number): Promise<{ route: RouteForEdit } | { error: string }> {
   const supabase = await createCommercialClient();
   const { data: r, error } = await supabase
     .from("routes")
@@ -236,7 +279,8 @@ export async function getRouteForEdit(routeId: string): Promise<{ route: RouteFo
     .from("pricing")
     .select("modality,price_pilgrim,price_cs")
     .eq("route_id", routeId)
-    .eq("season", "regular");
+    .eq("season", "regular")
+    .eq("year", year);
   const priceRows: NewRoutePrice[] = ((prices as { modality: string; price_pilgrim: string | number | null; price_cs: string | number | null }[]) || []).map((p) => ({
     modality: p.modality,
     price_pilgrim: p.price_pilgrim == null ? null : Number(p.price_pilgrim),
@@ -284,12 +328,14 @@ export async function updateRoute(routeId: string, input: NewRouteInput) {
     .eq("id", routeId);
   if (upErr) return { error: mensajeError(upErr) };
 
-  // Sincroniza precios: fila existente → update; con valores y sin fila → insert; vaciada → delete.
+  // Sincroniza precios DEL AÑO ACTIVO: fila existente → update; con valores y sin fila →
+  // insert; vaciada → delete. Los otros años quedan intactos.
   const { data: existing, error: selErr } = await supabase
     .from("pricing")
     .select("id,modality")
     .eq("route_id", routeId)
-    .eq("season", "regular");
+    .eq("season", "regular")
+    .eq("year", input.year);
   if (selErr) return { error: mensajeError(selErr) };
   const byMod = new Map(((existing as { id: string; modality: string }[]) || []).map((e) => [e.modality, e.id]));
 
@@ -300,7 +346,7 @@ export async function updateRoute(routeId: string, input: NewRouteInput) {
       const { error } = await supabase.from("pricing").update({ price_pilgrim: p.price_pilgrim, price_cs: p.price_cs }).eq("id", id);
       if (error) return { error: mensajeError(error) };
     } else if (has && !id) {
-      const { error } = await supabase.from("pricing").insert({ route_id: routeId, modality: p.modality, season: "regular", price_pilgrim: p.price_pilgrim, price_cs: p.price_cs });
+      const { error } = await supabase.from("pricing").insert({ route_id: routeId, modality: p.modality, season: "regular", year: input.year, price_pilgrim: p.price_pilgrim, price_cs: p.price_cs });
       if (error) return { error: mensajeError(error) };
     } else if (!has && id) {
       const { error } = await supabase.from("pricing").delete().eq("id", id);

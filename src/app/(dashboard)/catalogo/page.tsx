@@ -5,6 +5,8 @@ import OptionalsTable, { type Opt } from "./OptionalsTable";
 import ResourcesList, { type Resource } from "./ResourcesList";
 import RouteStagesEditor, { type RouteWithStagesEditable } from "./RouteStagesEditor";
 import CatalogToolbar from "./CatalogToolbar";
+import Link from "next/link";
+import { catalogYears, MODALITY_SLUGS } from "@/lib/pricing/year";
 
 // Siempre lee datos frescos de la DB (evita mostrar rutas/precios cacheados tras crear/editar).
 export const dynamic = "force-dynamic";
@@ -12,7 +14,17 @@ export const dynamic = "force-dynamic";
 // Familias conocidas de Caminos, para el autocompletado del alta de rutas.
 const KNOWN_FAMILIES = ["Francés", "Portugués", "Costero", "Primitivo", "Inglés", "Norte", "Fisterra"];
 
-export default async function CatalogoPage() {
+export default async function CatalogoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ year?: string }>;
+}) {
+  // Año de tarifas que se está editando. Por defecto el año en curso; el selector cambia
+  // el `?year=` y todo lo de esta página (tabla, alta y edición de rutas) apunta ahí.
+  const years = catalogYears();
+  const requested = Number((await searchParams).year);
+  const year = years.includes(requested) ? requested : Math.max(...years.filter((y) => y <= new Date().getFullYear()));
+
   const supabase = await createCommercialClient();
   const [
     { data: pricing, error: errPricing },
@@ -24,7 +36,8 @@ export default async function CatalogoPage() {
     supabase
       .from("pricing")
       .select("id,route_id,modality,price_pilgrim,price_cs,routes(name)")
-      .eq("season", "regular"),
+      .eq("season", "regular")
+      .eq("year", year),
     supabase
       .from("optional_services")
       .select("id,category,name,unit,price_pilgrim,price_cs")
@@ -61,10 +74,9 @@ export default async function CatalogoPage() {
 
   // Filas virtuales: toda ruta activa aparece en la tabla aunque no tenga precios
   // (al teclear el primer valor se crea la fila real en `pricing`).
-  const STANDARD_MODALITIES = ["pension_doble", "pension_single", "hotel_doble", "hotel_single"];
   const existing = new Set(rows.map((r) => `${r.route_id}:${r.modality}`));
   for (const r of ((routesData as unknown as Array<{ id: string; name: string }>) || [])) {
-    for (const modality of STANDARD_MODALITIES) {
+    for (const modality of MODALITY_SLUGS) {
       if (!existing.has(`${r.id}:${modality}`)) {
         rows.push({ id: null, route_id: r.id, modality, price_pilgrim: 0, price_cs: 0, route_name: r.name });
       }
@@ -140,12 +152,29 @@ export default async function CatalogoPage() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="font-display text-3xl text-bosque">Catálogo</h1>
-        <p className="text-muted text-sm mt-1">Precios Pilgrim vs precios Camino Sacro. Editable inline.</p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl text-bosque">Catálogo</h1>
+          <p className="text-muted text-sm mt-1">Precios Pilgrim vs precios Camino Sacro. Editable inline.</p>
+        </div>
+        {/* Selector de año de tarifa: cada año tiene su propio juego de precios. */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted mr-1">Tarifas</span>
+          {years.map((y) => (
+            <Link
+              key={y}
+              href={`/catalogo?year=${y}`}
+              className={`text-sm px-3 py-1.5 rounded-md border transition ${
+                y === year ? "bg-bosque text-white border-bosque" : "border-border bg-bg-card hover:bg-taupe/40"
+              }`}
+            >
+              {y}
+            </Link>
+          ))}
+        </div>
       </header>
 
-      <CatalogToolbar families={families} routes={routesList} />
+      <CatalogToolbar families={families} routes={routesList} year={year} />
 
       {error && (
         <div className="rounded-md border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
@@ -158,8 +187,8 @@ export default async function CatalogoPage() {
       )}
 
       <section>
-        <h2 className="font-display text-xl text-bosque mb-3">Rutas</h2>
-        <PricingTable initialRows={rows} />
+        <h2 className="font-display text-xl text-bosque mb-3">Rutas · tarifas {year}</h2>
+        <PricingTable key={year} initialRows={rows} year={year} />
       </section>
 
       <section>

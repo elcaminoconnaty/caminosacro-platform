@@ -22,6 +22,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: path.resolve(__dirname, "..", ".env.local") });
 
 import { createClient } from "@supabase/supabase-js";
+import { CATALOG_BASE_YEAR } from "../src/lib/pricing/year";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -89,7 +90,8 @@ async function main() {
     .from("pricing")
     .select("modality,price_cs,price_pilgrim")
     .eq("route_id", ruta.id)
-    .eq("season", "regular");
+    .eq("season", "regular")
+    .eq("year", CATALOG_BASE_YEAR);
   const tarifa = (slug: string) => tarifas?.find((t) => t.modality === slug);
   const doble = tarifa("pension_doble");
   const single = tarifa("pension_single");

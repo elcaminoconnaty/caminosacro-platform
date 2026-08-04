@@ -6,6 +6,7 @@ import { createRoute, createItinerary, type NewRoutePrice, type NewStageInput } 
 import CustomRoutePanel, { emptyCustomRoute, CUSTOM_MODALITIES, type CustomRouteData } from "./CustomRoutePanel";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 import { DEFAULT_STATUS, STATUS_LABELS } from "@/lib/quoteStatus";
+import { MODALITY_SLUGS, quoteYear, ratesForYear, type ModalitySlug } from "@/lib/pricing/year";
 
 // Etiqueta para agrupar rutas activas sin "family" asignada, así no quedan invisibles en el asistente.
 const SIN_FAMILIA = "Otras rutas";
@@ -23,9 +24,13 @@ type PricingRow = {
   route_id: string;
   route_name: string;
   modality_slug: string;
+  year: number;
   price_pilgrim: number;
   price_cs: number;
 };
+
+/** Tarifa por persona de una modalidad, venga del catálogo o de la ruta personalizada. */
+type Rate = { price_cs: number; price_pilgrim: number };
 
 // Se elige solo el tipo de alojamiento; el reparto de habitaciones lo hace la
 // plataforma con el número de peregrinos (pares en dobles, el impar en individual),
@@ -76,6 +81,11 @@ export default function Wizard({
   const [autoLink, setAutoLink] = useState(true);
   const [totalEur, setTotalEur] = useState("0");
   const [costEur, setCostEur] = useState("0");
+  // Tarifas de venta POR PERSONA por modalidad — son las que salen en las tarjetas del PDF
+  // (comercial.quotes.price_blocks). Se precargan del catálogo cuando hay tarifas del año;
+  // si no, se teclean. Las que queden vacías simplemente no salen en el PDF: así una
+  // cotización vendida solo en pensión no muestra un precio de hotel que nadie cotizó.
+  const [rates, setRates] = useState<Record<string, string>>({});
 
   // Buscar cliente por teléfono (debounce 500ms)
   useEffect(() => {
@@ -102,29 +112,40 @@ export default function Wizard({
   const dobles = esTipo ? Math.floor(people / 2) : 0;
   const individuales = esTipo ? people % 2 : 0;
 
-  // Tarifas para el tipo elegido (doble y single): del catálogo, o de las tecleadas
-  // en el panel de ruta personalizada (aún no existen en la DB al cotizar).
-  const catalogRates = useMemo(() => {
-    if (!esTipo) return null;
+  // La tarifa que aplica es la del AÑO DE SALIDA, no la del año en que se cotiza:
+  // Pilgrim sube precios cada año (ver @/lib/pricing/year).
+  const tarifaYear = quoteYear(startDate);
+
+  // Tarifas del catálogo de esa ruta y ese año, por slug de modalidad. En ruta
+  // personalizada salen de lo tecleado en el panel (aún no existen en la DB al cotizar).
+  const catalogBySlug = useMemo(() => {
+    const out: Partial<Record<ModalitySlug, Rate>> = {};
     if (customMode) {
-      const mk = (slug: string) => {
+      for (const slug of MODALITY_SLUGS) {
         const p = custom.prices[slug];
         const cs = numOrNull(p?.cs ?? "");
-        if (cs == null || cs <= 0) return null;
-        return { price_cs: cs, price_pilgrim: numOrNull(p?.pilgrim ?? "") ?? 0 };
-      };
-      return { doble: mk(`${modality}_doble`), single: mk(`${modality}_single`) };
+        if (cs != null && cs > 0) out[slug] = { price_cs: cs, price_pilgrim: numOrNull(p?.pilgrim ?? "") ?? 0 };
+      }
+      return out;
     }
-    if (!routeName) return null;
-    const doble = pricing.find((p) => p.route_name === routeName && p.modality_slug === `${modality}_doble`) || null;
-    const single = pricing.find((p) => p.route_name === routeName && p.modality_slug === `${modality}_single`) || null;
-    return { doble, single };
-  }, [routeName, modality, pricing, esTipo, customMode, custom.prices]);
+    if (!routeName) return out;
+    for (const row of ratesForYear(pricing, tarifaYear)) {
+      if (row.route_name !== routeName || row.price_cs <= 0) continue;
+      out[row.modality_slug as ModalitySlug] = { price_cs: row.price_cs, price_pilgrim: row.price_pilgrim };
+    }
+    return out;
+  }, [routeName, pricing, tarifaYear, customMode, custom.prices]);
+
+  // ¿Esta ruta tiene ALGUNA tarifa cargada para el año de salida? Distingue "todavía no
+  // cargamos el catálogo {año}" de "falta justo la modalidad que este reparto necesita".
+  const yearHasRates = customMode
+    ? Object.keys(catalogBySlug).length > 0
+    : !!routeName && ratesForYear(pricing, tarifaYear).some((p) => p.route_name === routeName && p.price_cs > 0);
 
   // El catálogo alcanza si tiene la tarifa de cada habitación que el reparto necesita.
-  const ratesOk = !!catalogRates &&
-    (dobles === 0 || !!catalogRates.doble) &&
-    (individuales === 0 || !!catalogRates.single);
+  const ratesOk = esTipo &&
+    (dobles === 0 || !!catalogBySlug[`${modality}_doble` as ModalitySlug]) &&
+    (individuales === 0 || !!catalogBySlug[`${modality}_single` as ModalitySlug]);
 
   // Detección de temporada según fecha de inicio + fin
   const season = useMemo(
@@ -132,15 +153,65 @@ export default function Wizard({
     [startDate, endDate, seasonConfig],
   );
 
-  // Auto-fill cuando cambian ruta/modalidad/personas y autoLink activo.
-  // El total/costo del bloque editable es la BASE sin suplemento de temporada.
+  // Slots de precio a pedir: los que el reparto de habitaciones necesita, para los dos
+  // tipos de alojamiento. El del tipo elegido manda la plata; el otro es la tarjeta
+  // comparativa del PDF y es opcional.
+  const rateSlots = useMemo(() => {
+    const slots: Array<{ slug: ModalitySlug; tipo: "pension" | "hotel"; label: string }> = [];
+    for (const tipo of ["pension", "hotel"] as const) {
+      const nombre = tipo === "hotel" ? "Hotel" : "Pensión";
+      if (dobles > 0) slots.push({ slug: `${tipo}_doble`, tipo, label: `${nombre} doble` });
+      if (individuales > 0) slots.push({ slug: `${tipo}_single`, tipo, label: `${nombre} individual` });
+    }
+    return slots;
+  }, [dobles, individuales]);
+
+  // Auto-fill desde el catálogo del año, mientras autoLink siga activo. Precarga los DOS
+  // tipos: el elegido para cobrar, el otro para la tarjeta comparativa del PDF.
+  useEffect(() => {
+    if (!autoLink || !esTipo) return;
+    setRates(() => {
+      const next: Record<string, string> = {};
+      for (const slug of MODALITY_SLUGS) {
+        const r = catalogBySlug[slug];
+        if (r) next[slug] = r.price_cs.toFixed(2);
+      }
+      return next;
+    });
+  }, [catalogBySlug, autoLink, esTipo]);
+
+  // El costo Pilgrim sigue saliendo del catálogo (es un total de grupo, no va al PDF).
+  useEffect(() => {
+    if (!autoLink || !ratesOk) return;
+    const doble = catalogBySlug[`${modality}_doble` as ModalitySlug];
+    const single = catalogBySlug[`${modality}_single` as ModalitySlug];
+    setCostEur((dobles * 2 * (doble?.price_pilgrim ?? 0) + individuales * (single?.price_pilgrim ?? 0)).toFixed(2));
+  }, [catalogBySlug, ratesOk, modality, dobles, individuales, autoLink]);
+
+  // La base del grupo se arma con las tarifas del tipo elegido (del catálogo o tecleadas).
+  // Si están completas manda ese cálculo; si no, el campo de base queda editable a mano
+  // (modalidades libres tipo "Doble + Triple", donde el reparto no aplica).
+  const chosenDoble = esTipo ? numOrNull(rates[`${modality}_doble`] ?? "") : null;
+  const chosenSingle = esTipo ? numOrNull(rates[`${modality}_single`] ?? "") : null;
+  const chosenComplete = esTipo &&
+    (dobles === 0 || (chosenDoble ?? 0) > 0) &&
+    (individuales === 0 || (chosenSingle ?? 0) > 0);
+  const baseFromRates = chosenComplete
+    ? dobles * 2 * (chosenDoble ?? 0) + individuales * (chosenSingle ?? 0)
+    : null;
+
+  // El total/costo del bloque de precios es la BASE sin suplemento de temporada.
   // El suplemento se desglosa al guardar (ver onSubmit) y aparece como línea aparte en el PDF.
   useEffect(() => {
-    if (!autoLink || !ratesOk || !catalogRates) return;
-    const enDoble = dobles * 2;
-    setTotalEur((enDoble * (catalogRates.doble?.price_cs ?? 0) + individuales * (catalogRates.single?.price_cs ?? 0)).toFixed(2));
-    setCostEur((enDoble * (catalogRates.doble?.price_pilgrim ?? 0) + individuales * (catalogRates.single?.price_pilgrim ?? 0)).toFixed(2));
-  }, [catalogRates, ratesOk, dobles, individuales, autoLink]);
+    if (baseFromRates == null) return;
+    setTotalEur(baseFromRates.toFixed(2));
+  }, [baseFromRates]);
+
+  // Editar una tarifa a mano corta el auto-fill: si no, el efecto la pisaría enseguida.
+  function setRate(slug: string, value: string) {
+    setAutoLink(false);
+    setRates((prev) => ({ ...prev, [slug]: value }));
+  }
 
   // Ruta seleccionada (para días)
   const selectedRoute = useMemo(
@@ -212,6 +283,8 @@ export default function Wizard({
     fd.set("people", String(people));
     fd.set("season_supplement_eur", seasonSuppCs.toFixed(2));
     fd.set("season_kind", season.type);
+    // route_id, para que el PDF no tenga que resolver la ruta por nombre.
+    if (!customMode && selectedRoute?.id) fd.set("route_id", selectedRoute.id);
     // Etiqueta de modalidad con el reparto real (mismos textos que webQuote.ts).
     if (esTipo) {
       const tipoNombre = modality === "hotel" ? "Hotel" : "Pensión";
@@ -223,22 +296,33 @@ export default function Wizard({
             ? `${tipoNombre}, habitación individual`
             : `${tipoNombre} · ${dobles} ${dobles === 1 ? "doble" : "dobles"} + 1 individual`,
       );
-      // Desglose para el PDF, solo si el total salió de las tarifas del catálogo
-      // (con precios editados a mano el desglose no cuadraría con el total).
-      if (ratesOk && autoLink) {
+      // Desglose para el PDF: vale siempre que las tarifas del tipo elegido estén
+      // completas, vengan del catálogo o tecleadas — así el total y el desglose cuadran.
+      if (chosenComplete) {
         fd.set(
           "rooms_json",
           JSON.stringify({
             tipo: modality,
             dobles,
             individuales,
-            tarifa_doble: catalogRates?.doble?.price_cs ?? 0,
-            tarifa_single: catalogRates?.single?.price_cs ?? 0,
+            tarifa_doble: chosenDoble ?? 0,
+            tarifa_single: chosenSingle ?? 0,
           }),
         );
       }
     } else {
       fd.set("modality", modality);
+    }
+    // Precios de las tarjetas del PDF: solo los que tienen valor. Si Nico llenó únicamente
+    // pensión, el PDF sale con una sola tarjeta en vez de inventar una comparación con el
+    // catálogo (ver migración 0016 y src/lib/quotes/pdf.ts).
+    if (esTipo) {
+      const blocks: Record<string, number> = {};
+      for (const { slug } of rateSlots) {
+        const v = numOrNull(rates[slug] ?? "");
+        if (v != null && v > 0) blocks[slug] = v;
+      }
+      fd.set("price_blocks", Object.keys(blocks).length > 0 ? JSON.stringify(blocks) : "");
     }
     if (customMode && !custom.name.trim()) {
       setError("La ruta personalizada necesita un nombre.");
@@ -266,6 +350,7 @@ export default function Wizard({
           description: null,
           web: false,
           prices,
+          year: tarifaYear, // las tarifas tecleadas son las del año de esta salida
         });
         if ("error" in rRoute && rRoute.error) {
           setError(rRoute.error);
@@ -287,6 +372,7 @@ export default function Wizard({
           }
         }
         fd.set("route_name", custom.name.trim());
+        if ("routeId" in rRoute && rRoute.routeId) fd.set("route_id", rRoute.routeId);
       }
       const r = await createQuote(fd);
       if (r?.error) setError(r.error);
@@ -449,16 +535,20 @@ export default function Wizard({
               <span>Auto-cargar precios del catálogo</span>
             </label>
             <div className="space-y-1">
-              {ratesOk && catalogRates ? (
+              {ratesOk ? (
                 <div className="text-bosque">
-                  Catálogo:{" "}
-                  {dobles > 0 && `${dobles * 2} pers. en doble × ${(catalogRates.doble?.price_cs ?? 0).toFixed(2)}€`}
+                  Catálogo {tarifaYear}:{" "}
+                  {dobles > 0 && `${dobles * 2} pers. en doble × ${(catalogBySlug[`${modality}_doble` as ModalitySlug]?.price_cs ?? 0).toFixed(2)}€`}
                   {dobles > 0 && individuales > 0 && " + "}
-                  {individuales > 0 && `1 individual × ${(catalogRates.single?.price_cs ?? 0).toFixed(2)}€`}
-                  {" "}· costo Pilgrim {(dobles * 2 * (catalogRates.doble?.price_pilgrim ?? 0) + individuales * (catalogRates.single?.price_pilgrim ?? 0)).toFixed(2)}€
+                  {individuales > 0 && `1 individual × ${(catalogBySlug[`${modality}_single` as ModalitySlug]?.price_cs ?? 0).toFixed(2)}€`}
+                  {" "}· costo Pilgrim {(dobles * 2 * (catalogBySlug[`${modality}_doble` as ModalitySlug]?.price_pilgrim ?? 0) + individuales * (catalogBySlug[`${modality}_single` as ModalitySlug]?.price_pilgrim ?? 0)).toFixed(2)}€
+                </div>
+              ) : routeName && modality && !yearHasRates ? (
+                <div className="text-amber-700 font-medium">
+                  ⚠ No hay tarifas {tarifaYear} cargadas para esta ruta — ingresá los precios a mano.
                 </div>
               ) : routeName && modality ? (
-                <div className="text-amber-700 italic">Sin precio en catálogo (modalidad/ruta custom)</div>
+                <div className="text-amber-700 italic">Sin precio {tarifaYear} en catálogo para este reparto de habitaciones</div>
               ) : (
                 <div className="text-muted">Elegí ruta y alojamiento para ver el catálogo</div>
               )}
@@ -469,15 +559,52 @@ export default function Wizard({
               )}
             </div>
           </div>
+          {/* Tarifas por persona = las tarjetas del PDF. La del tipo elegido arma la base
+              del grupo; la del otro tipo es opcional y solo sale como comparación. Vacía =
+              no se dibuja esa tarjeta. */}
+          {esTipo && rateSlots.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs text-muted">
+                Precios que salen en el PDF (€ por persona, sin suplemento). Dejá en blanco el
+                alojamiento que no querés ofrecer.
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {rateSlots.map((slot) => {
+                  const elegido = slot.tipo === modality;
+                  return (
+                    <label key={slot.slug} className="block">
+                      <span className={`text-xs ${elegido ? "text-bosque font-medium" : "text-muted"}`}>
+                        {slot.label}
+                        {elegido && " ·  cobrado"}
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={rates[slot.slug] ?? ""}
+                        onChange={(e) => setRate(slot.slug, e.target.value)}
+                        placeholder="—"
+                        className={`mt-1 w-full px-3 py-2 rounded-md border bg-white ${elegido ? "border-bosque" : "border-border"}`}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <label className="block">
-              <span className="text-xs text-muted">Base ruta + alojamiento € (total grupo, sin suplemento)</span>
+              <span className="text-xs text-muted">
+                Base ruta + alojamiento € (total grupo, sin suplemento)
+                {baseFromRates != null && <span className="text-bosque ml-1">· calculado</span>}
+              </span>
               <input
                 type="number"
                 step="0.01"
                 value={totalEur}
+                readOnly={baseFromRates != null}
                 onChange={(e) => { setTotalEur(e.target.value); setAutoLink(false); }}
-                className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+                className={`mt-1 w-full px-3 py-2 rounded-md border border-border ${baseFromRates != null ? "bg-taupe/40 text-muted" : "bg-white"}`}
               />
               {season.type !== "regular" && (
                 <span className="text-[10px] text-muted">+ {seasonSuppCs.toFixed(2)}€ suplemento {season.label.toLowerCase()} → total cliente {((Number(totalEur)||0) + seasonSuppCs).toFixed(2)}€</span>

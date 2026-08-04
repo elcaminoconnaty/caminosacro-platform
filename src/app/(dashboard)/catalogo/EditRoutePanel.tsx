@@ -31,10 +31,12 @@ export default function EditRoutePanel({
   families,
   routes,
   onClose,
+  year,
 }: {
   families: string[];
   routes: { id: string; name: string }[];
   onClose: () => void;
+  year: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +68,7 @@ export default function EditRoutePanel({
     setLoaded(false);
     if (!id) return;
     startTransition(async () => {
-      const r = await getRouteForEdit(id);
+      const r = await getRouteForEdit(id, year);
       if ("error" in r) {
         setError(r.error);
         return;
@@ -120,6 +122,7 @@ export default function EditRoutePanel({
         description: description.trim() || null,
         web,
         prices: priceRows,
+        year,
       });
       if (r?.error) setError(r.error);
       else window.location.reload();

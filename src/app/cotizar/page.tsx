@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTRMHoy } from "@/lib/trm";
+import { CATALOG_BASE_YEAR } from "@/lib/pricing/year";
 import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import PublicQuoter, { type PublicRoute } from "./PublicQuoter";
 import { WHATSAPP_NICO } from "./constants";
@@ -27,7 +28,7 @@ export default async function CotizarPage() {
       .eq("active", true)
       .eq("web", true) // misma oferta que el cotizador de caminosacro.com
       .order("days", { ascending: false }),
-    supabase.from("pricing").select("route_id,modality,price_cs").eq("season", "regular"),
+    supabase.from("pricing").select("route_id,modality,year,price_cs").eq("season", "regular"),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
     getTRMHoy(supabase).catch(() => null),
   ]);
@@ -42,13 +43,16 @@ export default async function CotizarPage() {
     easter: { ...seasonConfig.easter, price_pilgrim: 0 },
   };
 
-  const priceByRoute = new Map<string, Record<string, number>>();
-  for (const p of (pricing as Array<{ route_id: string; modality: string; price_cs: number | string | null }>) || []) {
+  // Tarifas agrupadas por ruta y año: el navegador elige el año de la salida y cae al
+  // anterior si aún no está cargado (ver tarifasDe() en PublicQuoter).
+  const priceByRoute = new Map<string, Record<string, Record<string, number>>>();
+  for (const p of (pricing as Array<{ route_id: string; modality: string; year: number | null; price_cs: number | string | null }>) || []) {
     const precio = Number(p.price_cs) || 0;
     if (precio <= 0) continue;
-    const actual = priceByRoute.get(p.route_id) ?? {};
-    actual[p.modality] = precio;
-    priceByRoute.set(p.route_id, actual);
+    const year = String(Number(p.year) || CATALOG_BASE_YEAR);
+    const porAnio = priceByRoute.get(p.route_id) ?? {};
+    porAnio[year] = { ...(porAnio[year] ?? {}), [p.modality]: precio };
+    priceByRoute.set(p.route_id, porAnio);
   }
 
   const publicRoutes: PublicRoute[] = (
@@ -70,7 +74,7 @@ export default async function CotizarPage() {
     days: r.days,
     km: r.km == null ? null : Number(r.km),
     modality: r.modality,
-    prices: priceByRoute.get(r.id) ?? {},
+    pricesByYear: priceByRoute.get(r.id) ?? {},
   }));
 
   return (

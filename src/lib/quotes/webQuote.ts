@@ -6,6 +6,7 @@ import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { mensajeError } from "@/lib/errors";
+import { fallbackPriceNote, quoteYear, ratesForYearWithFallback } from "@/lib/pricing/year";
 
 const PDF_URL_TTL = 60 * 60 * 24 * 7; // 7 días, igual que el cotizador público interno.
 
@@ -68,16 +69,22 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   const modDoble = `${datos.tipo}_doble`;
   const modSingle = `${datos.tipo}_single`;
   const [{ data: precios }, { data: seasonSetting }] = await Promise.all([
+    // Todos los años: se elige abajo el del viaje, con caída al anterior si aún no está
+    // cargado (el público necesita un número; el aviso de confirmación lo cubre).
     supabase
       .from("pricing")
-      .select("modality,price_cs,price_pilgrim")
+      .select("modality,year,price_cs,price_pilgrim")
       .eq("route_id", route.id)
       .eq("season", "regular")
       .in("modality", [modDoble, modSingle]),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
   ]);
 
-  const fila = (m: string) => (precios || []).find((p) => p.modality === m);
+  const salidaYear = quoteYear(datos.start_date);
+  const tarifas = ratesForYearWithFallback((precios || []) as Array<{ modality: string; year: number | null; price_cs: number | string | null; price_pilgrim: number | string | null }>, salidaYear);
+  const priceNote = tarifas.isFallback ? fallbackPriceNote(tarifas.year, salidaYear) : null;
+
+  const fila = (m: string) => tarifas.rows.find((p) => p.modality === m);
   const tarifaDoble = Number(fila(modDoble)?.price_cs) || 0;
   const tarifaSingle = Number(fila(modSingle)?.price_cs) || 0;
   if (tarifaDoble <= 0 || tarifaSingle <= 0) {
@@ -178,6 +185,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
         tarifa_doble: tarifaDoble,
         tarifa_single: tarifaSingle,
       },
+      price_note: priceNote,
     })
     .select("id,code")
     .single();

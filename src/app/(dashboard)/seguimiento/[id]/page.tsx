@@ -4,6 +4,7 @@ import { getTRMHoy } from "@/lib/trm";
 import { renderTemplate } from "@/lib/emailTemplate";
 import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { statusColor, statusLabel, isFullyPaid } from "@/lib/quoteStatus";
+import { CATALOG_BASE_YEAR } from "@/lib/pricing/year";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import QuoteEditor from "./QuoteEditor";
@@ -132,7 +133,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     supabase.from("routes").select("id,name,days,nights,origin,destination").order("name"),
     supabase
       .from("pricing")
-      .select("route_id,modality,price_pilgrim,price_cs,routes(name)")
+      // Todos los años: el editor filtra por el año de salida de la cotización.
+      .select("route_id,modality,year,price_pilgrim,price_cs,routes(name)")
       .eq("season", "regular"),
     supabase.from("client_payments").select("*").eq("quote_id", id).order("paid_at", { ascending: false }),
     supabase.from("provider_payments").select("*").eq("quote_id", id).order("paid_at", { ascending: false }),
@@ -198,6 +200,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const pricingFlat = ((pricing as unknown as Array<{
     route_id: string;
     modality: string;
+    year: number | null;
     price_pilgrim: string | number | null;
     price_cs: string | number | null;
     routes: { name: string } | null;
@@ -205,6 +208,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     route_id: p.route_id,
     route_name: p.routes?.name ?? "",
     modality_slug: p.modality,
+    year: Number(p.year) || CATALOG_BASE_YEAR,
     price_pilgrim: Number(p.price_pilgrim) || 0,
     price_cs: Number(p.price_cs) || 0,
   }));

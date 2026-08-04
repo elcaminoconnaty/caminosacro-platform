@@ -40,6 +40,13 @@ export async function updateQuote(id: string, formData: FormData) {
   const newBase = num(formData.get("total_eur"));
   const seasonKindRaw = str(formData.get("season_kind"));
   const seasonKind = (seasonKindRaw === "high_season" || seasonKindRaw === "easter") ? seasonKindRaw : "regular";
+  // Precios por persona de las tarjetas del PDF (migración 0016). Campo vacío = null =
+  // el PDF vuelve a sacarlos del catálogo.
+  let priceBlocks: unknown = null;
+  const blocksRaw = str(formData.get("price_blocks"));
+  if (blocksRaw) {
+    try { priceBlocks = JSON.parse(blocksRaw); } catch { priceBlocks = null; }
+  }
   const patch = {
     client_name: str(formData.get("client_name")),
     client_phone: str(formData.get("client_phone")),
@@ -58,6 +65,7 @@ export async function updateQuote(id: string, formData: FormData) {
     status: str(formData.get("status")) || "enviada",
     valid_until: str(formData.get("valid_until")),
     notes: str(formData.get("notes")),
+    price_blocks: priceBlocks,
   };
   const { error } = await supabase.from("quotes").update(patch).eq("id", id);
   if (error) return { error: mensajeError(error) };

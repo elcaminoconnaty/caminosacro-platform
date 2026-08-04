@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 import { crearCotizacionPublica, type ResultadoCotizacion } from "./actions";
 import { MODALIDADES, WHATSAPP_VENTAS } from "./constants";
+import { fallbackPriceNote, quoteYear } from "@/lib/pricing/year";
 
 export type PublicRoute = {
   id: string;
@@ -13,9 +14,27 @@ export type PublicRoute = {
   days: number | null;
   km: number | null;
   modality: string | null; // senderismo | bici | mixto
-  /** Solo price_cs (precio al cliente). El costo del proveedor nunca llega acá. */
-  prices: Record<string, number>;
+  /**
+   * Solo price_cs (precio al cliente), agrupado por año de vigencia. El costo del
+   * proveedor nunca llega acá. Se elige el año de la salida y, si aún no hay tarifas
+   * cargadas para ese año, el anterior con aviso (ver @/lib/pricing/year).
+   */
+  pricesByYear: Record<string, Record<string, number>>;
 };
+
+/** Tarifas que aplican a una salida: las del año, o las del año cargado más reciente. */
+function tarifasDe(route: PublicRoute | null, year: number): { prices: Record<string, number>; year: number; isFallback: boolean } {
+  if (!route) return { prices: {}, year, isFallback: false };
+  const exacto = route.pricesByYear[String(year)];
+  if (exacto && Object.keys(exacto).length > 0) return { prices: exacto, year, isFallback: false };
+  const anteriores = Object.keys(route.pricesByYear).map(Number).filter((y) => y < year);
+  if (anteriores.length === 0) return { prices: {}, year, isFallback: false };
+  const usado = Math.max(...anteriores);
+  return { prices: route.pricesByYear[String(usado)] ?? {}, year: usado, isFallback: true };
+}
+
+/** ¿La ruta tiene tarifas cargadas en algún año? (para separar "con precio" de "a medida") */
+const tienePrecio = (r: PublicRoute) => Object.values(r.pricesByYear).some((m) => Object.keys(m).length > 0);
 
 const hoyMas = (dias: number) => new Date(Date.now() + dias * 86400000).toISOString().slice(0, 10);
 const eur = (n: number) => `${n.toLocaleString("es-CO", { maximumFractionDigits: 0 })}€`;
@@ -47,8 +66,8 @@ export default function PublicQuoter({
   const [exito, setExito] = useState<Extract<ResultadoCotizacion, { ok: true }> | null>(null);
   const [rutaAMedida, setRutaAMedida] = useState<PublicRoute | null>(null);
 
-  const conPrecio = useMemo(() => routes.filter((r) => Object.keys(r.prices).length > 0), [routes]);
-  const sinPrecio = useMemo(() => routes.filter((r) => Object.keys(r.prices).length === 0), [routes]);
+  const conPrecio = useMemo(() => routes.filter(tienePrecio), [routes]);
+  const sinPrecio = useMemo(() => routes.filter((r) => !tienePrecio(r)), [routes]);
 
   const route = useMemo(() => routes.find((r) => r.id === routeId) ?? null, [routes, routeId]);
 
@@ -64,7 +83,10 @@ export default function PublicQuoter({
     [startDate, endDate, seasonConfig],
   );
 
-  const precioPersona = route && modality ? route.prices[modality] ?? 0 : 0;
+  // La tarifa que aplica es la del año de salida (ver @/lib/pricing/year).
+  const salidaYear = quoteYear(startDate || null);
+  const tarifas = useMemo(() => tarifasDe(route, salidaYear), [route, salidaYear]);
+  const precioPersona = modality ? tarifas.prices[modality] ?? 0 : 0;
   const base = precioPersona * people;
   const suplemento = season.surcharge_per_person_cs * people;
   const total = base + suplemento;
@@ -154,7 +176,8 @@ export default function PublicQuoter({
           <h2 className="font-display text-xl text-bosque">1 · ¿Qué Camino quieres hacer?</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {conPrecio.map((r) => {
-              const desde = Math.min(...Object.values(r.prices));
+              const tarifasRuta = Object.values(tarifasDe(r, salidaYear).prices);
+              const desde = tarifasRuta.length > 0 ? Math.min(...tarifasRuta) : 0;
               const activa = r.id === routeId;
               return (
                 <button
@@ -162,7 +185,7 @@ export default function PublicQuoter({
                   type="button"
                   onClick={() => {
                     setRouteId(r.id);
-                    if (modality && !r.prices[modality]) setModality("");
+                    if (modality && !tarifasDe(r, salidaYear).prices[modality]) setModality("");
                   }}
                   className={`rounded-xl border p-4 text-left transition ${
                     activa ? "border-bosque bg-bosque/5 ring-1 ring-bosque" : "border-border hover:border-bosque/50"
@@ -241,7 +264,7 @@ export default function PublicQuoter({
           <p className="mt-5 text-xs text-muted">Alojamiento</p>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             {MODALIDADES.map((m) => {
-              const precio = route?.prices[m.slug] ?? 0;
+              const precio = tarifas.prices[m.slug] ?? 0;
               if (!route || precio <= 0) return null;
               const activa = modality === m.slug;
               return (
@@ -284,6 +307,11 @@ export default function PublicQuoter({
               {totalCop && (
                 <p className="mt-1 text-right text-[11px] text-muted">
                   ≈ {totalCop.toLocaleString("es-CO")} COP (referencia del día)
+                </p>
+              )}
+              {tarifas.isFallback && (
+                <p className="mt-2 text-[11px] text-dorado-oscuro">
+                  {fallbackPriceNote(tarifas.year, salidaYear)}
                 </p>
               )}
             </div>

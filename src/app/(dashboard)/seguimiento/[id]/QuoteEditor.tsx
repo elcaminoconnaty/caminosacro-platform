@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition, useEffect } from "react";
 import { updateQuote } from "./actions";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 import { QUOTE_STATUSES, STATUS_LABELS, DEFAULT_STATUS, statusLabel } from "@/lib/quoteStatus";
+import { quoteYear, ratesForYear } from "@/lib/pricing/year";
 
 type Quote = {
   id: string;
@@ -26,12 +27,15 @@ type Quote = {
   season_supplement_eur?: number | string | null;
   season_supplement_cost_eur?: number | string | null;
   season_kind?: string | null;
+  // Precios por persona de las tarjetas del PDF (migración 0016). null = usar el catálogo.
+  price_blocks?: Record<string, number | string | null> | null;
 };
 
 type PricingRow = {
   route_id: string;
   route_name: string;
   modality_slug: string;
+  year: number;
   price_pilgrim: number;
   price_cs: number;
 };
@@ -46,10 +50,22 @@ const MODALITY_DISPLAY = [
 
 const EXTRA_MODALITIES = ["Doble + Triple", "Personalizada"];
 
+/**
+ * La etiqueta de alojamiento es texto libre y convive en varios formatos: "Pensión doble"
+ * (catálogo y este editor) y "Pensión, habitación doble" (asistente y cotizador web). Se
+ * detectan tipo y habitación por separado, igual que en src/lib/quotes/pdf.ts, para que el
+ * catálogo también cargue al editar una cotización creada por el asistente.
+ */
 function modalityToSlug(label: string | null): string | null {
-  if (!label) return null;
-  const m = MODALITY_DISPLAY.find((x) => x.label === label);
-  return m?.slug ?? null;
+  const m = (label ?? "").toLowerCase();
+  if (!m) return null;
+  const tipo = m.includes("hotel") ? "hotel" : (m.includes("pensión") || m.includes("pension")) ? "pension" : null;
+  if (!tipo) return null;
+  const hasDoble = m.includes("doble");
+  const hasSingle = m.includes("single") || m.includes("individual");
+  if (hasSingle && !hasDoble) return `${tipo}_single`;
+  if (hasDoble && !hasSingle) return `${tipo}_doble`;
+  return null; // etiqueta mixta ("Pensión · 2 dobles + 1 individual"): no hay tarifa única
 }
 
 export default function QuoteEditor({
@@ -81,6 +97,15 @@ export default function QuoteEditor({
   const initialCostBase = quote.cost_base_eur != null ? Number(quote.cost_base_eur) : Number(quote.cost_eur) || 0;
   const [costEur, setCostEur] = useState<string>(initialCostBase ? String(initialCostBase) : "");
   const [autoLink, setAutoLink] = useState(true); // true = recalcular cuando cambian ruta/modalidad/personas
+  // Precios por persona de las tarjetas del PDF. Vacío = esa tarjeta no se dibuja.
+  const [rates, setRates] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const [slug, v] of Object.entries(quote.price_blocks ?? {})) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) out[slug] = n.toFixed(2);
+    }
+    return out;
+  });
 
   // Detección de temporada según fechas actuales — se recalcula al cambiar start/end/people
   const season = useMemo(
@@ -90,17 +115,47 @@ export default function QuoteEditor({
   const seasonSuppCs = season.surcharge_per_person_cs * people;
   const seasonSuppPilgrim = season.surcharge_per_person_pilgrim * people;
 
-  // Buscar precio del catálogo para la combinación actual
+  // La tarifa que aplica es la del AÑO DE SALIDA (ver @/lib/pricing/year).
+  const tarifaYear = quoteYear(startDate);
+  const yearRates = useMemo(() => ratesForYear(pricing, tarifaYear), [pricing, tarifaYear]);
+  const yearHasRates = !!routeName && yearRates.some((p) => p.route_name === routeName && p.price_cs > 0);
+
+  // Buscar precio del catálogo del año para la combinación actual
   const catalogMatch = useMemo(() => {
     const slug = modalityToSlug(modality);
     if (!slug || !routeName) return null;
-    return pricing.find((p) => p.route_name === routeName && p.modality_slug === slug) || null;
-  }, [routeName, modality, pricing]);
+    return yearRates.find((p) => p.route_name === routeName && p.modality_slug === slug) || null;
+  }, [routeName, modality, yearRates]);
+
+  // Mismos slots que el asistente: los que el reparto de habitaciones necesita, para los
+  // dos tipos de alojamiento.
+  const dobles = Math.floor(people / 2);
+  const individuales = people % 2;
+  const rateSlots = useMemo(() => {
+    const slots: Array<{ slug: string; label: string }> = [];
+    for (const tipo of ["pension", "hotel"] as const) {
+      const nombre = tipo === "hotel" ? "Hotel" : "Pensión";
+      if (dobles > 0) slots.push({ slug: `${tipo}_doble`, label: `${nombre} doble` });
+      if (individuales > 0) slots.push({ slug: `${tipo}_single`, label: `${nombre} individual` });
+    }
+    return slots;
+  }, [dobles, individuales]);
+
+  // Precarga las tarjetas del PDF con el catálogo del año: la elegida y su comparativa.
+  const ratesFromCatalog = () => {
+    const next: Record<string, string> = {};
+    for (const { slug } of rateSlots) {
+      const row = yearRates.find((p) => p.route_name === routeName && p.modality_slug === slug);
+      if (row && row.price_cs > 0) next[slug] = row.price_cs.toFixed(2);
+    }
+    return next;
+  };
 
   const recomputeFromCatalog = () => {
     if (!catalogMatch) return;
     setTotalEur((catalogMatch.price_cs * people).toFixed(2));
     setCostEur((catalogMatch.price_pilgrim * people).toFixed(2));
+    setRates(ratesFromCatalog());
   };
 
   // Auto-fill cuando cambian ruta/modalidad/personas y autoLink está activo
@@ -109,6 +164,7 @@ export default function QuoteEditor({
     if (!catalogMatch) return;
     setTotalEur((catalogMatch.price_cs * people).toFixed(2));
     setCostEur((catalogMatch.price_pilgrim * people).toFixed(2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalogMatch, people, autoLink]);
 
   // Solo ruta + suplemento: los opcionales no se editan acá, así que esta cifra es
@@ -132,6 +188,13 @@ export default function QuoteEditor({
     formData.set("season_supplement_eur", seasonSuppCs.toFixed(2));
     formData.set("season_supplement_cost_eur", seasonSuppPilgrim.toFixed(2));
     formData.set("season_kind", season.type);
+    // Precios de las tarjetas del PDF: solo los que tienen valor. Vacío = volver al catálogo.
+    const blocks: Record<string, number> = {};
+    for (const { slug } of rateSlots) {
+      const v = Number(rates[slug] ?? "");
+      if (Number.isFinite(v) && v > 0) blocks[slug] = v;
+    }
+    formData.set("price_blocks", Object.keys(blocks).length > 0 ? JSON.stringify(blocks) : "");
     startTransition(async () => {
       const r = await updateQuote(quote.id, formData);
       if (r?.error) setError(r.error);
@@ -298,14 +361,18 @@ export default function QuoteEditor({
               <div className="space-y-0.5">
                 {catalogMatch ? (
                   <div className="text-bosque">
-                    Catálogo: Pilgrim {catalogMatch.price_pilgrim.toFixed(2)}€ · CS {catalogMatch.price_cs.toFixed(2)}€ por persona
+                    Catálogo {tarifaYear}: Pilgrim {catalogMatch.price_pilgrim.toFixed(2)}€ · CS {catalogMatch.price_cs.toFixed(2)}€ por persona
                   </div>
                 ) : isCustomModality ? (
                   <div className="text-muted italic">Modalidad custom — sin precio en catálogo</div>
                 ) : !routeName || !modality ? (
                   <div className="text-muted">Elegí ruta y alojamiento para ver el catálogo</div>
+                ) : !yearHasRates ? (
+                  <div className="text-amber-700 font-medium">
+                    ⚠ No hay tarifas {tarifaYear} cargadas para esta ruta — ingresá los precios a mano.
+                  </div>
                 ) : (
-                  <div className="text-amber-700">Sin precio en catálogo para esta combinación</div>
+                  <div className="text-amber-700">Sin precio {tarifaYear} en catálogo para esta combinación</div>
                 )}
                 {season.type !== "regular" && (
                   <div className="text-dorado-oscuro font-medium">
@@ -365,6 +432,35 @@ export default function QuoteEditor({
               )}
             </div>
           </div>
+
+          {/* Tarjetas del PDF: un precio por persona por alojamiento. Vacío = esa tarjeta
+              no se dibuja, así una cotización vendida solo en pensión no muestra un hotel
+              que nadie cotizó (migración 0016). */}
+          {rateSlots.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-border/60 space-y-2">
+              <div className="text-xs text-muted">
+                Precios que salen en el PDF (€ por persona, sin suplemento). Dejá en blanco el
+                alojamiento que no querés ofrecer; si los dejás todos vacíos, el PDF vuelve a
+                usar el catálogo.
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {rateSlots.map((slot) => (
+                  <label key={slot.slug} className="block">
+                    <span className="text-xs text-muted">{slot.label}</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={rates[slot.slug] ?? ""}
+                      onChange={(e) => setRates((prev) => ({ ...prev, [slot.slug]: e.target.value }))}
+                      placeholder="—"
+                      className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="md:col-span-3">
