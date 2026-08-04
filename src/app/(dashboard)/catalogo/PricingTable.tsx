@@ -88,10 +88,11 @@ export default function PricingTable({ initialRows, year }: { initialRows: Row[]
       const r = await copyPricingFromPreviousYear(year);
       if (r?.error) setError(r.error);
       else if (r?.ok) {
+        const total = (r.copied ?? 0) + (r.copiedOptionals ?? 0);
         setCopyMsg(
-          r.copied === 0
-            ? `No faltaba ninguna tarifa: ${year} ya tiene todas las de ${r.from}.`
-            : `Se copiaron ${r.copied} tarifas de ${r.from}. Recargá para verlas y ajustalas con los precios reales de ${year}.`,
+          total === 0
+            ? `No faltaba nada: ${year} ya tiene todos los precios de ${r.from}.`
+            : `Se copiaron ${r.copied} tarifas de ruta y ${r.copiedOptionals} precios de opcionales desde ${r.from}. Recargá para verlos y ajustalos con los precios reales de ${year}.`,
         );
       }
     });

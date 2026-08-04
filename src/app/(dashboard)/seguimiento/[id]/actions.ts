@@ -8,6 +8,7 @@ import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { rutaCotizacion, rutaHoteles, rutaRecibo, sinBucket } from "@/lib/storage/paths";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
+import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 
 // Borra un archivo de Storage a partir de su ruta "bucket/archivo".
 async function removeStoragePath(
@@ -112,12 +113,24 @@ export async function deleteQuote(id: string) {
 export async function toggleQuoteOptional(quoteId: string, optionalId: string, on: boolean, peopleHint?: number | null) {
   const supabase = await createCommercialClient();
   if (on) {
-    const { data: opt } = await supabase
-      .from("optional_services")
-      .select("name,unit,price_cs,price_pilgrim")
-      .eq("id", optionalId)
-      .maybeSingle();
+    // El precio sale del año de SALIDA de la cotización (migración 0019). Si ese año no
+    // está cargado se usa el anterior — la tarjeta ya lo avisó en ámbar. El precio queda
+    // como snapshot en la línea, así que cambiarle la fecha después no la re-tarifa sola.
+    const [{ data: opt }, { data: quote }] = await Promise.all([
+      supabase
+        .from("optional_services")
+        .select("name,unit,optional_prices(year,price_pilgrim,price_cs)")
+        .eq("id", optionalId)
+        .maybeSingle(),
+      supabase.from("quotes").select("start_date").eq("id", quoteId).maybeSingle(),
+    ]);
     if (!opt) return { error: "Opcional no encontrado" };
+
+    const filas = ((opt.optional_prices || []) as Array<{ year: number; price_pilgrim: number | string | null; price_cs: number | string | null }>)
+      .map((p) => ({ optional_id: optionalId, year: Number(p.year), price_pilgrim: Number(p.price_pilgrim) || 0, price_cs: Number(p.price_cs) || 0 }));
+    const precio = optionalPricesForYear(filas, quoteYear(quote?.start_date)).get(optionalId);
+    if (!precio) return { error: "Ese opcional no tiene precio cargado en ningún año. Cargalo en el catálogo." };
+
     // Cantidad por defecto: si es por persona, usa people; si es por noche/vehículo/unidad, 1
     const isPerPerson = (opt.unit || "").toLowerCase().includes("persona");
     const qty = isPerPerson ? Math.max(1, peopleHint ?? 1) : 1;
@@ -127,8 +140,8 @@ export async function toggleQuoteOptional(quoteId: string, optionalId: string, o
       type: "optional",
       description,
       quantity: qty,
-      unit_price: Number(opt.price_cs) || 0,
-      cost_unit: Number(opt.price_pilgrim) || 0,
+      unit_price: precio.price_cs,
+      cost_unit: precio.price_pilgrim,
       reference_id: optionalId,
     });
     if (error) return { error: mensajeError(error) };

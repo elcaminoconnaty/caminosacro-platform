@@ -24,7 +24,7 @@ const CAT_LABEL: Record<string, string> = {
   gift: "Gastronomía",
 };
 
-export default function OptionalsTable({ initialRows }: { initialRows: Opt[] }) {
+export default function OptionalsTable({ initialRows, year }: { initialRows: Opt[]; year: number }) {
   const [rows, setRows] = useState<Opt[]>(initialRows);
   const [pending, startTransition] = useTransition();
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -41,7 +41,7 @@ export default function OptionalsTable({ initialRows }: { initialRows: Opt[] }) 
     setSavingId(row.id);
     setError(null);
     startTransition(async () => {
-      const r = await updateOptionalService(row.id, field, value);
+      const r = await updateOptionalService(row.id, field, value, year);
       setSavingId(null);
       if (r?.error) {
         setError(r.error);

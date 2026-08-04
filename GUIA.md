@@ -91,9 +91,15 @@ Pilgrim sube tarifas cada año, así que `comercial.pricing` tiene columna `year
   PDF (`quotes.price_note`).
 - `GET /api/wp/pricing` acepta `?year=` y responde `year` + `is_fallback`; sin el parámetro
   usa el año en curso, igual que antes.
-- **Ojo**: los servicios opcionales (`optional_services`) y los suplementos de temporada
-  (`settings.season_supplements`) **no** tienen dimensión de año todavía: son únicos para
-  todos los años.
+- **Servicios opcionales**: también van por año, en `comercial.optional_prices` (migración
+  0019). El servicio en sí (nombre, categoría, unidad) sigue siendo único en
+  `optional_services` — lo que cambia por año es solo la plata. En `/catalogo` se editan con
+  el mismo selector de año, y el botón "Copiar tarifas" copia rutas **y** opcionales.
+  Diferencia con las rutas: al marcar un opcional en una cotización de un año sin precios,
+  el CRM **sí** usa el del año anterior y lo avisa en ámbar ("precio 2026"), porque ahí no
+  hay dónde teclear el precio a mano y bloquear dejaría sin extras a las cotizaciones nuevas.
+- **Ojo**: los suplementos de temporada (`settings.season_supplements`) **no** tienen
+  dimensión de año todavía: son únicos para todos los años.
 
 ### B. Agregar un servicio opcional nuevo
 Hoy se agrega vía SQL Editor en Supabase Dashboard:

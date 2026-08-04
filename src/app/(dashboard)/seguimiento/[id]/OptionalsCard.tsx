@@ -10,6 +10,10 @@ export type OptionalCatalog = {
   unit: string;
   price_cs: number;
   price_pilgrim: number;
+  /** Año del que salió este precio (puede no ser el de la salida — ver isFallback). */
+  priceYear: number;
+  /** true = el año de salida no tiene precios cargados y se está usando uno anterior. */
+  isFallback: boolean;
 };
 
 export type OptionalLine = {
@@ -43,6 +47,7 @@ export default function OptionalsCard({
   totalEur,
   seasonSupplementEur,
   people,
+  quoteYear,
 }: {
   quoteId: string;
   catalog: OptionalCatalog[];
@@ -51,6 +56,8 @@ export default function OptionalsCard({
   totalEur: number;
   seasonSupplementEur: number;
   people: number | null;
+  /** Año de salida de la cotización: es el que manda para elegir el precio del opcional. */
+  quoteYear: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +84,9 @@ export default function OptionalsCard({
     });
   }
 
+  // Años distintos al de salida de los que se está tomando precio (aviso en ámbar).
+  const aniosDeReferencia = [...new Set(catalog.filter((o) => o.isFallback).map((o) => o.priceYear))].sort();
+
   // Agrupar catálogo por categoría
   const byCat = new Map<string, OptionalCatalog[]>();
   for (const o of catalog) {
@@ -92,6 +102,13 @@ export default function OptionalsCard({
           <p className="text-xs text-muted mt-0.5">
             Marcá los que van con la cotización. Se suman al total y al costo Pilgrim automáticamente.
           </p>
+          {aniosDeReferencia.length > 0 && (
+            <p className="text-xs text-amber-700 font-medium mt-1">
+              ⚠ No hay precios {quoteYear} cargados para estos opcionales: se muestran los de{" "}
+              {aniosDeReferencia.join(" / ")}. Cargalos en{" "}
+              <a href={`/catalogo?year=${quoteYear}`} className="underline">el catálogo {quoteYear}</a>.
+            </p>
+          )}
         </div>
         <div className="text-right text-xs">
           <div className="text-muted">Base ruta: <span className="font-medium text-fg">{eur(Number(baseEur) || 0)}</span></div>
@@ -133,6 +150,9 @@ export default function OptionalsCard({
                       <div className="flex-1 min-w-0">
                         <span className="font-medium">{it.name}</span>
                         <span className="text-xs text-muted ml-2">{it.unit}</span>
+                        {it.isFallback && !checked && (
+                          <span className="text-[10px] text-amber-700 ml-2">precio {it.priceYear}</span>
+                        )}
                       </div>
                       {checked && line && (
                         <input

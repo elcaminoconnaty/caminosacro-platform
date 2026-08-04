@@ -82,3 +82,42 @@ export function ratesForYearWithFallback<T extends { year?: number | null }>(
 export function fallbackPriceNote(usedYear: number, requestedYear: number): string {
   return `Precio de referencia ${usedYear}. Para salidas en ${requestedYear} queda sujeto a confirmación.`;
 }
+
+/** Precio de un opcional resuelto para un año (tabla comercial.optional_prices). */
+export type OptionalPrice = {
+  optional_id: string;
+  year: number;
+  price_pilgrim: number;
+  price_cs: number;
+};
+
+/**
+ * Resuelve el precio de cada opcional para un año, cayendo al año cargado más reciente si
+ * ese año todavía no está cargado. A diferencia de las rutas, acá el fallback también
+ * aplica en el CRM (decisión de Nico): marcar un seguro o una noche extra no tiene dónde
+ * teclear el precio a mano, así que bloquearlo dejaría sin extras a las cotizaciones del
+ * año nuevo. El año realmente usado viaja en `priceYear` para poder avisarlo en ámbar.
+ */
+export function optionalPricesForYear(
+  rows: OptionalPrice[],
+  year: number,
+): Map<string, { price_pilgrim: number; price_cs: number; priceYear: number; isFallback: boolean }> {
+  const porOpcional = new Map<string, OptionalPrice[]>();
+  for (const r of rows) {
+    if (!porOpcional.has(r.optional_id)) porOpcional.set(r.optional_id, []);
+    porOpcional.get(r.optional_id)!.push(r);
+  }
+  const out = new Map<string, { price_pilgrim: number; price_cs: number; priceYear: number; isFallback: boolean }>();
+  for (const [optionalId, propias] of porOpcional) {
+    const elegidas = ratesForYearWithFallback(propias, year);
+    const fila = elegidas.rows[0];
+    if (!fila) continue;
+    out.set(optionalId, {
+      price_pilgrim: Number(fila.price_pilgrim) || 0,
+      price_cs: Number(fila.price_cs) || 0,
+      priceYear: elegidas.year,
+      isFallback: elegidas.isFallback,
+    });
+  }
+  return out;
+}

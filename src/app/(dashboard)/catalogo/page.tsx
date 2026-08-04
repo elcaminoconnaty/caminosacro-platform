@@ -38,9 +38,11 @@ export default async function CatalogoPage({
       .select("id,route_id,modality,price_pilgrim,price_cs,routes(name)")
       .eq("season", "regular")
       .eq("year", year),
+    // Los precios de los opcionales viven en optional_prices por año (migración 0019);
+    // el servicio en sí (nombre, categoría, unidad) es único.
     supabase
       .from("optional_services")
-      .select("id,category,name,unit,price_pilgrim,price_cs")
+      .select("id,category,name,unit,optional_prices(year,price_pilgrim,price_cs)")
       .eq("active", true),
     supabase
       .from("welcome_letters")
@@ -84,21 +86,25 @@ export default async function CatalogoPage({
   }
   rows.sort((a, b) => a.route_name.localeCompare(b.route_name) || a.modality.localeCompare(b.modality));
 
+  // Solo los precios del año activo; los que no tengan fila aparecen en 0 y al teclear
+  // el primer valor se crea la fila de ese año (igual que las tarifas de ruta).
   const opts: Opt[] = ((optionals as unknown as Array<{
     id: string;
     category: string;
     name: string;
     unit: string | null;
-    price_pilgrim: string | number | null;
-    price_cs: string | number | null;
-  }>) || []).map((o) => ({
-    id: o.id,
-    category: o.category,
-    name: o.name,
-    unit: o.unit,
-    price_pilgrim: Number(o.price_pilgrim) || 0,
-    price_cs: Number(o.price_cs) || 0,
-  }));
+    optional_prices: Array<{ year: number; price_pilgrim: string | number | null; price_cs: string | number | null }> | null;
+  }>) || []).map((o) => {
+    const delAnio = (o.optional_prices || []).find((p) => Number(p.year) === year);
+    return {
+      id: o.id,
+      category: o.category,
+      name: o.name,
+      unit: o.unit,
+      price_pilgrim: Number(delAnio?.price_pilgrim) || 0,
+      price_cs: Number(delAnio?.price_cs) || 0,
+    };
+  });
 
   const welcomeRes: Resource[] = (((welcome as unknown) as Array<{
     id: string;
@@ -192,8 +198,8 @@ export default async function CatalogoPage({
       </section>
 
       <section>
-        <h2 className="font-display text-xl text-bosque mb-3">Servicios opcionales</h2>
-        <OptionalsTable initialRows={opts} />
+        <h2 className="font-display text-xl text-bosque mb-3">Servicios opcionales · precios {year}</h2>
+        <OptionalsTable key={year} initialRows={opts} year={year} />
       </section>
 
       <section>

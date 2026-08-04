@@ -110,8 +110,9 @@ async function main() {
   // dos formas de multiplicar en los cuatro tamaños de grupo.
   const { data: opcionales } = await db
     .from("optional_services")
-    .select("id,name,unit,price_cs,price_pilgrim")
+    .select("id,name,unit,optional_prices!inner(year,price_cs,price_pilgrim)")
     .eq("active", true)
+    .eq("optional_prices.year", CATALOG_BASE_YEAR)
     .in("slug", ["noche_extra_pension", "cobertura_de_anulacion_basica"]);
 
   for (const caso of CASOS) {
@@ -158,13 +159,14 @@ async function main() {
     // Opcionales: cantidad por persona donde aplique, igual que toggleQuoteOptional.
     for (const o of opcionales ?? []) {
       const porPersona = (o.unit || "").toLowerCase().includes("persona");
+      const precio = (o.optional_prices ?? [])[0];
       await db.from("quote_lines").insert({
         quote_id: quote.id,
         type: "optional",
         description: `${o.name} (${o.unit})`,
         quantity: porPersona ? caso.personas : 1,
-        unit_price: Number(o.price_cs) || 0,
-        cost_unit: Number(o.price_pilgrim) || 0,
+        unit_price: Number(precio?.price_cs) || 0,
+        cost_unit: Number(precio?.price_pilgrim) || 0,
         reference_id: o.id,
       });
     }

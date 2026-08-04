@@ -206,7 +206,7 @@ async function seedOptionalServices() {
     }
     if (!r["Precio Pilgrim"] && !r["Precio Camino Sacro"]) continue;
     const slug = slugify(name);
-    await supabase
+    const { data: servicio } = await supabase
       .from("optional_services")
       .upsert(
         {
@@ -214,11 +214,23 @@ async function seedOptionalServices() {
           category,
           name,
           unit: (r.Unidad || "persona").toString(),
+        },
+        { onConflict: "slug" },
+      )
+      .select("id")
+      .single();
+    // Los precios del xlsx maestro son los de 2026 y viven en optional_prices (0019).
+    if (servicio) {
+      await supabase.from("optional_prices").upsert(
+        {
+          optional_id: servicio.id,
+          year: CATALOG_BASE_YEAR,
           price_pilgrim: r["Precio Pilgrim"] ?? null,
           price_cs: r["Precio Camino Sacro"] ?? null,
         },
-        { onConflict: "slug" },
+        { onConflict: "optional_id,year" },
       );
+    }
     log(`✓ ${name} (${category})`);
   }
 }

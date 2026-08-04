@@ -58,24 +58,34 @@ export async function applyMarkupRule(year: number) {
 }
 
 /**
- * Arranca el catálogo de un año copiando el del año anterior: crea SOLO las filas que
- * faltan, nunca pisa una tarifa ya cargada. Es un punto de partida para editar encima,
- * no una vigencia automática — el CRM nunca usa tarifas de otro año por su cuenta.
+ * Arranca el catálogo de un año copiando el del año anterior — tarifas de ruta y precios
+ * de opcionales: crea SOLO las filas que faltan, nunca pisa un precio ya cargado. Es un
+ * punto de partida para editar encima, no una vigencia automática.
  */
 export async function copyPricingFromPreviousYear(year: number) {
   const supabase = await createCommercialClient();
   const from = year - 1;
 
-  const [{ data: source, error: errSource }, { data: target, error: errTarget }] = await Promise.all([
+  const [
+    { data: source, error: errSource },
+    { data: target, error: errTarget },
+    { data: optSource, error: errOptSource },
+    { data: optTarget, error: errOptTarget },
+  ] = await Promise.all([
     supabase.from("pricing").select("route_id,modality,price_pilgrim,price_cs,notes").eq("year", from).eq("season", "regular"),
     supabase.from("pricing").select("route_id,modality").eq("year", year).eq("season", "regular"),
+    supabase.from("optional_prices").select("optional_id,price_pilgrim,price_cs").eq("year", from),
+    supabase.from("optional_prices").select("optional_id").eq("year", year),
   ]);
-  if (errSource) return { error: mensajeError(errSource) };
-  if (errTarget) return { error: mensajeError(errTarget) };
-  if (!source || source.length === 0) return { error: `No hay tarifas ${from} para copiar.` };
+  for (const e of [errSource, errTarget, errOptSource, errOptTarget]) {
+    if (e) return { error: mensajeError(e) };
+  }
+  if ((source?.length ?? 0) === 0 && (optSource?.length ?? 0) === 0) {
+    return { error: `No hay precios ${from} para copiar.` };
+  }
 
   const existing = new Set((target || []).map((r) => `${r.route_id}:${r.modality}`));
-  const nuevas = source
+  const nuevas = (source || [])
     .filter((r) => !existing.has(`${r.route_id}:${r.modality}`))
     .map((r) => ({
       route_id: r.route_id,
@@ -86,14 +96,24 @@ export async function copyPricingFromPreviousYear(year: number) {
       price_cs: r.price_cs,
       notes: r.notes,
     }));
-  if (nuevas.length === 0) return { ok: true, copied: 0, from };
+  if (nuevas.length > 0) {
+    const { error } = await supabase.from("pricing").insert(nuevas);
+    if (error) return { error: mensajeError(error) };
+  }
 
-  const { error } = await supabase.from("pricing").insert(nuevas);
-  if (error) return { error: mensajeError(error) };
+  const existingOpt = new Set((optTarget || []).map((r) => r.optional_id));
+  const nuevosOpt = (optSource || [])
+    .filter((r) => !existingOpt.has(r.optional_id))
+    .map((r) => ({ optional_id: r.optional_id, year, price_pilgrim: r.price_pilgrim, price_cs: r.price_cs }));
+  if (nuevosOpt.length > 0) {
+    const { error } = await supabase.from("optional_prices").insert(nuevosOpt);
+    if (error) return { error: mensajeError(error) };
+  }
+
   revalidatePath("/catalogo");
   revalidatePath("/cotizaciones/nueva");
   revalidatePath("/seguimiento");
-  return { ok: true, copied: nuevas.length, from };
+  return { ok: true, copied: nuevas.length, copiedOptionals: nuevosOpt.length, from };
 }
 
 export async function getResourceUrl(storagePath: string) {
@@ -110,11 +130,21 @@ export async function updateOptionalService(
   id: string,
   field: "price_pilgrim" | "price_cs" | "name",
   value: string | number | null,
+  year: number,
 ) {
   const supabase = await createCommercialClient();
-  const { error } = await supabase.from("optional_services").update({ [field]: value }).eq("id", id);
-  if (error) return { error: mensajeError(error) };
+  // El nombre vive en el servicio; los precios, en la fila del año (migración 0019).
+  if (field === "name") {
+    const { error } = await supabase.from("optional_services").update({ name: value }).eq("id", id);
+    if (error) return { error: mensajeError(error) };
+  } else {
+    const { error } = await supabase
+      .from("optional_prices")
+      .upsert({ optional_id: id, year, [field]: value }, { onConflict: "optional_id,year" });
+    if (error) return { error: mensajeError(error) };
+  }
   revalidatePath("/catalogo");
+  revalidatePath("/seguimiento");
   return { ok: true };
 }
 

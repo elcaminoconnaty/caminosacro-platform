@@ -6,7 +6,7 @@ import { mensajeError } from "@/lib/errors";
 import { getTRMHoy } from "@/lib/trm";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
-import { quoteYear } from "@/lib/pricing/year";
+import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 
 /**
  * Cliente del schema `comercial`: el de sesión (dashboard) o el admin (cotizador público,
@@ -25,7 +25,7 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     supabase.from("quotes").select("*").eq("id", quoteId).maybeSingle(),
     supabase
       .from("optional_services")
-      .select("id,category,name,unit,price_cs")
+      .select("id,category,name,unit,optional_prices(year,price_pilgrim,price_cs)")
       .eq("active", true),
     supabase
       .from("quote_lines")
@@ -222,11 +222,30 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     });
   }
 
-  const optionals = ((optionalsRaw || []) as Array<{ category: string; name: string; unit: string | null; price_cs: number | string | null }>).map((o) => ({
+  // Lista de opcionales que el PDF ofrece: al precio del año de salida, cayendo al año
+  // cargado más reciente si ese todavía no existe (migración 0019).
+  type OptionalRaw = {
+    id: string;
+    category: string;
+    name: string;
+    unit: string | null;
+    optional_prices: Array<{ year: number; price_pilgrim: number | string | null; price_cs: number | string | null }> | null;
+  };
+  const optionalRows = (optionalsRaw || []) as OptionalRaw[];
+  const optionalPrices = optionalPricesForYear(
+    optionalRows.flatMap((o) => (o.optional_prices || []).map((p) => ({
+      optional_id: o.id,
+      year: Number(p.year),
+      price_pilgrim: Number(p.price_pilgrim) || 0,
+      price_cs: Number(p.price_cs) || 0,
+    }))),
+    quoteYear(quote.start_date),
+  );
+  const optionals = optionalRows.map((o) => ({
     category: o.category,
     name: o.name,
     unit: o.unit || "",
-    price_cs: Number(o.price_cs) || 0,
+    price_cs: optionalPrices.get(o.id)?.price_cs ?? 0,
   })).filter((o) => o.price_cs > 0);
 
   // Extras del itinerario: noches extra en Santiago y tours contratados, derivados de las

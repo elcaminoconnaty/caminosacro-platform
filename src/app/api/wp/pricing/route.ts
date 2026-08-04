@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { autorizado, noAutorizado } from "../auth";
-import { catalogYears, ratesForYearWithFallback } from "@/lib/pricing/year";
+import { catalogYears, optionalPricesForYear, ratesForYearWithFallback } from "@/lib/pricing/year";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
     supabase.from("pricing").select("route_id,modality,year,price_cs").eq("season", "regular"),
     supabase
       .from("optional_services")
-      .select("name,unit,price_cs,category")
+      .select("id,name,unit,category,optional_prices(year,price_pilgrim,price_cs)")
       .eq("active", true)
       .order("category")
       .order("name"),
@@ -109,13 +109,36 @@ export async function GET(request: Request) {
     };
   }
 
-  const opcionales = (optionals || [])
-    .filter((o) => Number(o.price_cs) > 0)
-    .map((o) => ({
-      name: o.name,
-      unit: o.unit || "por persona",
-      price: Number(o.price_cs),
-    }));
+  // Opcionales al precio del año pedido, con la misma caída al año anterior que las rutas.
+  type OptionalRaw = {
+    id: string;
+    name: string;
+    unit: string | null;
+    category: string;
+    optional_prices: Array<{ year: number; price_pilgrim: number | string | null; price_cs: number | string | null }> | null;
+  };
+  const optionalRows = (optionals || []) as OptionalRaw[];
+  const preciosOpcionales = optionalPricesForYear(
+    optionalRows.flatMap((o) => (o.optional_prices || []).map((p) => ({
+      optional_id: o.id,
+      year: Number(p.year),
+      price_pilgrim: Number(p.price_pilgrim) || 0,
+      price_cs: Number(p.price_cs) || 0,
+    }))),
+    yearPedido,
+  );
+  const opcionales = optionalRows
+    .map((o) => {
+      const precio = preciosOpcionales.get(o.id);
+      return {
+        name: o.name,
+        unit: o.unit || "por persona",
+        price: precio?.price_cs ?? 0,
+        // Presente solo si el precio viene de un año anterior al pedido.
+        ...(precio?.isFallback ? { price_year: precio.priceYear } : {}),
+      };
+    })
+    .filter((o) => o.price > 0);
 
   const season = (seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS;
   const rangos = Object.values(season.easter.dates_by_year || {}).map((d) => [d.from, d.to]);
@@ -125,8 +148,8 @@ export async function GET(request: Request) {
     generated_at: new Date().toISOString(),
     catalog: 2, // Versión del payload: 2 = catálogo completo (rutas sin precio incluidas + opcionales).
     year: yearPedido,
-    // true si alguna ruta viaja con tarifas de un año anterior al pedido.
-    is_fallback: fallbackPorRuta.size > 0,
+    // true si alguna ruta u opcional viaja con precios de un año anterior al pedido.
+    is_fallback: fallbackPorRuta.size > 0 || [...preciosOpcionales.values()].some((p) => p.isFallback),
     seasons: {
       alta: {
         etiqueta: season.high_season.name,

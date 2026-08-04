@@ -4,7 +4,7 @@ import { getTRMHoy } from "@/lib/trm";
 import { renderTemplate } from "@/lib/emailTemplate";
 import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { statusColor, statusLabel, isFullyPaid } from "@/lib/quoteStatus";
-import { CATALOG_BASE_YEAR } from "@/lib/pricing/year";
+import { CATALOG_BASE_YEAR, optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import QuoteEditor from "./QuoteEditor";
@@ -139,9 +139,10 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     supabase.from("client_payments").select("*").eq("quote_id", id).order("paid_at", { ascending: false }),
     supabase.from("provider_payments").select("*").eq("quote_id", id).order("paid_at", { ascending: false }),
     supabase.from("email_templates").select("subject,body_md").eq("slug", "cotizacion_enviada").maybeSingle(),
+    // Precios por año (migración 0019); se resuelve abajo con el año de salida.
     supabase
       .from("optional_services")
-      .select("id,category,name,unit,price_cs,price_pilgrim")
+      .select("id,category,name,unit,optional_prices(year,price_pilgrim,price_cs)")
       .eq("active", true),
     supabase
       .from("quote_lines")
@@ -213,6 +214,35 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     price_cs: Number(p.price_cs) || 0,
   }));
 
+  // Precio de cada opcional para el año de salida. Si ese año todavía no está cargado se
+  // usa el anterior y se marca `isFallback`: la tarjeta lo avisa en ámbar. A diferencia de
+  // las tarifas de ruta, acá no hay dónde teclear el precio a mano, así que bloquear
+  // dejaría sin extras a las cotizaciones del año nuevo.
+  const optionalYear = quoteYear(quote.start_date);
+  const optionalPriceRows = ((optsCatalog as unknown as Array<{ id: string; optional_prices: Array<{ year: number; price_pilgrim: number | string | null; price_cs: number | string | null }> | null }>) || [])
+    .flatMap((o) => (o.optional_prices || []).map((p) => ({
+      optional_id: o.id,
+      year: Number(p.year),
+      price_pilgrim: Number(p.price_pilgrim) || 0,
+      price_cs: Number(p.price_cs) || 0,
+    })));
+  const optionalPrices = optionalPricesForYear(optionalPriceRows, optionalYear);
+  const optionalsCatalog: OptionalCatalog[] = ((optsCatalog as unknown as Array<{ id: string; category: string; name: string; unit: string | null }>) || [])
+    .map((o) => {
+      const precio = optionalPrices.get(o.id);
+      return {
+        id: o.id,
+        category: o.category,
+        name: o.name,
+        unit: o.unit ?? "",
+        price_cs: precio?.price_cs ?? 0,
+        price_pilgrim: precio?.price_pilgrim ?? 0,
+        priceYear: precio?.priceYear ?? optionalYear,
+        isFallback: precio?.isFallback ?? false,
+      };
+    })
+    .filter((o) => o.price_cs > 0);
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
@@ -253,11 +283,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
       <OptionalsCard
         quoteId={id}
-        catalog={((optsCatalog as unknown) as OptionalCatalog[] || []).map((o) => ({
-          ...o,
-          price_cs: Number(o.price_cs) || 0,
-          price_pilgrim: Number(o.price_pilgrim) || 0,
-        }))}
+        catalog={optionalsCatalog}
         selected={((quoteLines as unknown) as OptionalLine[] || []).map((l) => ({
           id: l.id,
           reference_id: l.reference_id,
@@ -271,6 +297,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         totalEur={total}
         seasonSupplementEur={Number(quote.season_supplement_eur) || 0}
         people={quote.people}
+        quoteYear={optionalYear}
       />
 
       <DocumentsCard
