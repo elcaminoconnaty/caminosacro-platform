@@ -8,7 +8,10 @@ import { createServerClient } from "@supabase/ssr";
 // expiración en la URL (ver src/app/contrato/[token]).
 // /api/cron son los disparadores programados de n8n: autentican por secreto
 // compartido (x-cron-secret), no por sesión de usuario.
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato", "/api/cron"];
+// /api/agente son los endpoints con los que BayMax cotiza: secreto propio
+// (x-cs-api-key vs AGENTE_API_SECRET). Sin esto el proxy los manda a /login con
+// un 307 y el agente recibe una página de sesión en vez de su JSON.
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato", "/api/cron", "/api/agente"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
