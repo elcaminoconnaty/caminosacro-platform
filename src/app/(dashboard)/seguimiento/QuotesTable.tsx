@@ -30,6 +30,13 @@ export function esCotizacionWeb(source: string | null): boolean {
   return source === "wordpress" || source === "web";
 }
 
+// Cotizaciones que armó BayMax por Telegram. Se comportan como internas (mismo
+// tope de personas, sin correo automático al cliente), pero van marcadas: Nico
+// tiene que poder ver de un vistazo qué creó el agente y qué creó él a mano.
+export function esCotizacionBayMax(source: string | null): boolean {
+  return source === "baymax";
+}
+
 type SortKey = "code" | "client_name" | "route_name" | "start_date" | "total_eur" | "saldo" | "status";
 type SortDir = "asc" | "desc";
 
@@ -222,6 +229,9 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
                     <Link href={`/seguimiento/${q.id}`} className="text-bosque font-medium hover:underline">{q.code}</Link>
                     {esCotizacionWeb(q.source) && (
                       <span className="ml-1.5 align-middle text-[10px] px-1.5 py-0.5 rounded bg-dorado-oscuro/15 text-dorado-oscuro font-semibold uppercase tracking-wide">Web</span>
+                    )}
+                    {esCotizacionBayMax(q.source) && (
+                      <span className="ml-1.5 align-middle text-[10px] px-1.5 py-0.5 rounded bg-bosque-medio/15 text-bosque-medio font-semibold uppercase tracking-wide">BayMax</span>
                     )}
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap">{q.client_name || <span className="text-muted">—</span>}</td>

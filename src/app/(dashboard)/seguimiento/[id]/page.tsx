@@ -257,6 +257,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
               {(quote.source === "wordpress" || quote.source === "web") && (
                 <span className="ml-2 align-middle text-[11px] px-2 py-0.5 rounded bg-dorado-oscuro/15 text-dorado-oscuro font-sans font-semibold uppercase tracking-wide">Web</span>
               )}
+              {quote.source === "baymax" && (
+                <span className="ml-2 align-middle text-[11px] px-2 py-0.5 rounded bg-bosque-medio/15 text-bosque-medio font-sans font-semibold uppercase tracking-wide">BayMax</span>
+              )}
             </h1>
             <p className="text-muted text-sm mt-1">
               {quote.client_name || "Sin cliente"}

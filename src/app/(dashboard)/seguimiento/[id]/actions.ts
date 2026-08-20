@@ -6,9 +6,9 @@ import { mensajeError } from "@/lib/errors";
 import { isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { rutaCotizacion, rutaHoteles, rutaRecibo, sinBucket } from "@/lib/storage/paths";
-import { enviarCorreoWebhook } from "@/lib/email/webhook";
-import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
-import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
+import { alternarOpcional } from "@/lib/quotes/optionals";
+import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
+import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
 
 // Borra un archivo de Storage a partir de su ruta "bucket/archivo".
 async function removeStoragePath(
@@ -112,48 +112,8 @@ export async function deleteQuote(id: string) {
 
 export async function toggleQuoteOptional(quoteId: string, optionalId: string, on: boolean, peopleHint?: number | null) {
   const supabase = await createCommercialClient();
-  if (on) {
-    // El precio sale del año de SALIDA de la cotización (migración 0019). Si ese año no
-    // está cargado se usa el anterior — la tarjeta ya lo avisó en ámbar. El precio queda
-    // como snapshot en la línea, así que cambiarle la fecha después no la re-tarifa sola.
-    const [{ data: opt }, { data: quote }] = await Promise.all([
-      supabase
-        .from("optional_services")
-        .select("name,unit,optional_prices(year,price_pilgrim,price_cs)")
-        .eq("id", optionalId)
-        .maybeSingle(),
-      supabase.from("quotes").select("start_date").eq("id", quoteId).maybeSingle(),
-    ]);
-    if (!opt) return { error: "Opcional no encontrado" };
-
-    const filas = ((opt.optional_prices || []) as Array<{ year: number; price_pilgrim: number | string | null; price_cs: number | string | null }>)
-      .map((p) => ({ optional_id: optionalId, year: Number(p.year), price_pilgrim: Number(p.price_pilgrim) || 0, price_cs: Number(p.price_cs) || 0 }));
-    const precio = optionalPricesForYear(filas, quoteYear(quote?.start_date)).get(optionalId);
-    if (!precio) return { error: "Ese opcional no tiene precio cargado en ningún año. Cargalo en el catálogo." };
-
-    // Cantidad por defecto: si es por persona, usa people; si es por noche/vehículo/unidad, 1
-    const isPerPerson = (opt.unit || "").toLowerCase().includes("persona");
-    const qty = isPerPerson ? Math.max(1, peopleHint ?? 1) : 1;
-    const description = `${opt.name} (${opt.unit})`;
-    const { error } = await supabase.from("quote_lines").insert({
-      quote_id: quoteId,
-      type: "optional",
-      description,
-      quantity: qty,
-      unit_price: precio.price_cs,
-      cost_unit: precio.price_pilgrim,
-      reference_id: optionalId,
-    });
-    if (error) return { error: mensajeError(error) };
-  } else {
-    const { error } = await supabase
-      .from("quote_lines")
-      .delete()
-      .eq("quote_id", quoteId)
-      .eq("reference_id", optionalId);
-    if (error) return { error: mensajeError(error) };
-  }
-  await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
+  const r = await alternarOpcional(supabase, quoteId, optionalId, on, peopleHint);
+  if (r.error) return { error: r.error };
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -412,7 +372,6 @@ export async function generateQuotePdf(quoteId: string) {
 
 // TTL del enlace del PDF que viaja al correo: Brevo lo descarga al enviar, pero
 // se firma a 7 días (igual que el contrato) por si hay reintentos o demoras.
-const EMAIL_PDF_TTL = 60 * 60 * 24 * 7;
 
 /**
  * Envía la cotización al cliente desde reservas@caminosacro.com con el PDF
@@ -426,84 +385,10 @@ export async function enviarCorreoCotizacion(
   quoteId: string,
   mensaje: { subject: string; body: string },
 ): Promise<{ ok?: true; email?: string; error?: string }> {
-  const subject = mensaje.subject.trim();
-  const body = mensaje.body.trim();
-  if (!subject) return { error: "El asunto no puede estar vacío." };
-  if (!body) return { error: "El cuerpo del correo no puede estar vacío." };
-
   const supabase = await createCommercialClient();
-  const { data: quote, error: qErr } = await supabase
-    .from("quotes")
-    .select("id,code,client_name,client_email,client_phone,route_name,start_date,people,modality,total_eur,pdf_path")
-    .eq("id", quoteId)
-    .maybeSingle();
-  if (qErr) return { error: mensajeError(qErr) };
-  if (!quote) return { error: "No encontré la cotización." };
-
-  const email = String(quote.client_email || "").trim();
-  if (!email) return { error: "La cotización no tiene correo del cliente. Agrégalo y vuelve a intentar." };
-
-  // Sin PDF no hay adjunto: lo generamos antes de enviar.
-  let pdfPath = quote.pdf_path as string | null;
-  if (!pdfPath) {
-    const gen = await renderAndStoreQuotePdf(supabase, quoteId);
-    if (gen.error) return { error: `No se pudo generar el PDF: ${gen.error}` };
-    const { data: fresh } = await supabase.from("quotes").select("pdf_path").eq("id", quoteId).maybeSingle();
-    pdfPath = (fresh?.pdf_path as string | null) ?? null;
-  }
-  if (!pdfPath) return { error: "La cotización no tiene PDF y no se pudo generar." };
-
-  const [bucket, ...rest] = pdfPath.split("/");
-  const { data: signed, error: urlErr } = await supabase.storage
-    .from(bucket)
-    .createSignedUrl(rest.join("/"), EMAIL_PDF_TTL);
-  if (urlErr || !signed?.signedUrl) {
-    return { error: `No se pudo preparar el PDF adjunto: ${mensajeError(urlErr)}` };
-  }
-
-  const nombre = String(quote.client_name || "").trim();
-  const envio = await enviarCorreoWebhook({
-    code: quote.code,
-    nombre,
-    email,
-    telefono: quote.client_phone ?? null,
-    ruta: quote.route_name ?? null,
-    fecha_inicio: quote.start_date ?? null,
-    personas: Number(quote.people) || 1,
-    alojamiento: quote.modality ?? null,
-    total_eur: quote.total_eur != null ? Number(quote.total_eur) : null,
-    pdf_url: signed.signedUrl,
-    subject,
-    body,
-    attachment_name: `Cotizacion-${quote.code}.pdf`,
-    // Sin aviso interno: lo mandó alguien del equipo desde el CRM, así que ya lo
-    // sabe y el aviso solo duplicaba el correo en reservas@. El asunto/cuerpo se
-    // dejan puestos porque, si algún día se vuelve a encender, el aviso por
-    // defecto del workflow ("Nuevo lead del cotizador web") aquí sería falso.
-    aviso: false,
-    aviso_subject: `${nombre || "Cliente"} - Cotización enviada - ${quote.code}${quote.route_name ? ` - ${quote.route_name}` : ""}`,
-    aviso_body: [
-      `Se envió una cotización al cliente desde el CRM.`,
-      ``,
-      `Cotización: ${quote.code}`,
-      `Cliente: ${nombre || "-"}`,
-      `Correo: ${email}`,
-      `WhatsApp: ${quote.client_phone || "-"}`,
-      ``,
-      `Ruta: ${quote.route_name || "-"}`,
-      `Salida: ${quote.start_date || "-"}`,
-      `Personas: ${quote.people ?? "-"}`,
-      `Alojamiento: ${quote.modality || "-"}`,
-      `Total: ${quote.total_eur != null ? `${quote.total_eur} EUR` : "-"}`,
-      ``,
-      `Respondiendo a este mensaje le escribes directo al cliente.`,
-    ].join("\n"),
-  });
-  if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
-
-  await supabase.from("quotes").update({ email_sent_at: new Date().toISOString() }).eq("id", quoteId);
-  revalidatePath(`/seguimiento/${quoteId}`);
-  return { ok: true, email };
+  const r = await enviarCorreoCliente(supabase, quoteId, mensaje);
+  if (r.ok) revalidatePath(`/seguimiento/${quoteId}`);
+  return r;
 }
 
 // ---------------- CORREO A PILGRIM ----------------
@@ -520,86 +405,11 @@ export async function enviarCorreoPilgrim(
   quoteId: string,
   mensaje: { subject: string; body: string; pruebaEmail?: string | null },
 ): Promise<{ ok?: true; email?: string; adjuntos?: number; error?: string }> {
-  const subject = mensaje.subject.trim();
-  const body = mensaje.body.trim();
-  if (!subject) return { error: "El asunto no puede estar vacío." };
-  if (!body) return { error: "El cuerpo del correo no puede estar vacío." };
-
   const supabase = await createCommercialClient();
-  const { data: quote } = await supabase
-    .from("quotes")
-    .select("id,code,client_name,client_phone,route_name,start_date,people,modality,cost_eur")
-    .eq("id", quoteId)
-    .maybeSingle();
-  if (!quote) return { error: "No encontré la cotización." };
-
-  const esPrueba = !!mensaje.pruebaEmail?.trim();
-  const ajustes = await getPilgrimSettings(supabase);
-  const destino = (mensaje.pruebaEmail?.trim() || ajustes.email).trim();
-  if (!destino) {
-    return { error: "Falta el correo de Pilgrim. Configúralo en Configuración → Proveedor Pilgrim." };
-  }
-
-  // Los adjuntos se recalculan en el servidor: el cuerpo es editable, la lista de
-  // pasaportes no debe serlo.
-  const armado = await armarCorreoPilgrim(supabase, quoteId);
-  if (!armado.ok) return { error: armado.error };
-
-  const attachments: { url: string; name: string }[] = [];
-  for (const a of armado.correo.adjuntos) {
-    const [bucket, ...rest] = a.path.split("/");
-    const { data: signed } = await supabase.storage
-      .from(bucket)
-      .createSignedUrl(rest.join("/"), EMAIL_PDF_TTL);
-    if (signed?.signedUrl) attachments.push({ url: signed.signedUrl, name: a.nombre });
-  }
-
-  const prefijo = esPrueba ? "[PRUEBA] " : "";
-  const envio = await enviarCorreoWebhook({
-    code: quote.code,
-    nombre: ajustes.contacto || ajustes.nombre || "Pilgrim",
-    email: destino,
-    telefono: null,
-    ruta: quote.route_name ?? null,
-    fecha_inicio: quote.start_date ?? null,
-    personas: Number(quote.people) || 1,
-    alojamiento: quote.modality ?? null,
-    total_eur: quote.cost_eur != null ? Number(quote.cost_eur) : null,
-    // Compatibilidad: mientras el workflow no lea `attachments`, al menos va el
-    // primer pasaporte por la vía de siempre.
-    pdf_url: attachments[0]?.url ?? null,
-    attachment_name: attachments[0]?.name,
-    attachments,
-    subject: `${prefijo}${subject}`,
-    body: esPrueba
-      ? `(Correo de PRUEBA. El destinatario real sería ${ajustes.email || "—"}.)\n\n${body}`
-      : body,
-    // Sin aviso interno: lo dispara alguien del equipo desde el CRM.
-    aviso: false,
-    aviso_subject: `${prefijo}Reserva enviada a Pilgrim - ${quote.code}${quote.route_name ? ` - ${quote.route_name}` : ""}`,
-    aviso_body: [
-      esPrueba ? `PRUEBA: se envió a ${destino} en vez de a Pilgrim.` : `Se le envió la reserva a Pilgrim pidiendo el link de pago.`,
-      ``,
-      `Cotización: ${quote.code}`,
-      `Cliente: ${quote.client_name || "-"}`,
-      `Ruta: ${quote.route_name || "-"}`,
-      `Salida: ${quote.start_date || "-"}`,
-      `Personas: ${quote.people ?? "-"}`,
-      ``,
-      `Total a pagarle a Pilgrim: ${quote.cost_eur != null ? `${quote.cost_eur} EUR` : "-"}`,
-      `Pasaportes adjuntos: ${attachments.length}`,
-      ...(armado.correo.pendientes.length
-        ? [`Sin pasaporte todavía: ${armado.correo.pendientes.join(", ")}`]
-        : []),
-    ].join("\n"),
-  });
-  if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
-
-  if (!esPrueba) {
-    await supabase.from("quotes").update({ pilgrim_email_sent_at: new Date().toISOString() }).eq("id", quoteId);
-    revalidatePath(`/seguimiento/${quoteId}`);
-  }
-  return { ok: true, email: destino, adjuntos: attachments.length };
+  const r = await enviarCorreoAPilgrim(supabase, quoteId, mensaje);
+  // En prueba no se marca el expediente, así que tampoco hay nada que revalidar.
+  if (r.ok && !mensaje.pruebaEmail?.trim()) revalidatePath(`/seguimiento/${quoteId}`);
+  return r;
 }
 
 // ---------------- LISTADO DE HOTELES ----------------
