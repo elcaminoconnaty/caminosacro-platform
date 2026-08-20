@@ -6,7 +6,7 @@ import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { mensajeError } from "@/lib/errors";
-import { fallbackPriceNote, quoteYear, ratesForYearWithFallback } from "@/lib/pricing/year";
+import { quoteYear, ratesForYear } from "@/lib/pricing/year";
 
 const PDF_URL_TTL = 60 * 60 * 24 * 7; // 7 días, igual que el cotizador público interno.
 
@@ -69,8 +69,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   const modDoble = `${datos.tipo}_doble`;
   const modSingle = `${datos.tipo}_single`;
   const [{ data: precios }, { data: seasonSetting }] = await Promise.all([
-    // Todos los años: se elige abajo el del viaje, con caída al anterior si aún no está
-    // cargado (el público necesita un número; el aviso de confirmación lo cubre).
+    // Todos los años: abajo se exige el del viaje, sin caer al anterior.
     supabase
       .from("pricing")
       .select("modality,year,price_cs,price_pilgrim")
@@ -80,15 +79,25 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
   ]);
 
+  // Coincidencia EXACTA de año, sin caer al anterior: cotizar una salida de 2027 con la
+  // tarifa de 2026 es cobrar de menos y prometerle al visitante un precio que no existe.
+  // Si el año no está cargado, la web pinta su aviso y le manda el lead a Nico.
   const salidaYear = quoteYear(datos.start_date);
-  const tarifas = ratesForYearWithFallback((precios || []) as Array<{ modality: string; year: number | null; price_cs: number | string | null; price_pilgrim: number | string | null }>, salidaYear);
-  const priceNote = tarifas.isFallback ? fallbackPriceNote(tarifas.year, salidaYear) : null;
+  const todas = (precios || []) as Array<{ modality: string; year: number | null; price_cs: number | string | null; price_pilgrim: number | string | null }>;
+  const rows = ratesForYear(todas, salidaYear);
 
-  const fila = (m: string) => tarifas.rows.find((p) => p.modality === m);
+  const fila = (m: string) => rows.find((p) => p.modality === m);
   const tarifaDoble = Number(fila(modDoble)?.price_cs) || 0;
   const tarifaSingle = Number(fila(modSingle)?.price_cs) || 0;
   if (tarifaDoble <= 0 || tarifaSingle <= 0) {
-    return { ok: false, status: 404, error: "ruta_sin_precio" };
+    // "Todavía no hay tarifa de ESE año" y "esta ruta nunca ha tenido tarifa en este tipo
+    // de alojamiento" son cosas distintas, y la web muestra un aviso distinto para cada
+    // una. Hacen falta las dos tarifas (doble e individual): con media no se puede
+    // repartir un grupo impar.
+    const enOtroAno = todas.some((p) => (Number(p.price_cs) || 0) > 0);
+    return enOtroAno
+      ? { ok: false, status: 409, error: "sin_tarifas_ano" }
+      : { ok: false, status: 404, error: "ruta_sin_precio" };
   }
 
   // 2. Reparto de habitaciones (misma regla que cs_cot_habitaciones() en el sitio):
@@ -185,7 +194,8 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
         tarifa_doble: tarifaDoble,
         tarifa_single: tarifaSingle,
       },
-      price_note: priceNote,
+      // Sin nota de año: estas cotizaciones son siempre con la tarifa del año de salida.
+      price_note: null,
     })
     .select("id,code")
     .single();

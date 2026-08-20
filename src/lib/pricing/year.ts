@@ -5,13 +5,19 @@
  * año en que se cotiza. Pilgrim sube precios cada año, así que cotizar una salida 2027 con
  * la tarifa 2026 es cobrar de menos.
  *
- * Dos políticas distintas a propósito:
- * - **CRM** (`ratesForYear`): coincidencia exacta. Si no hay tarifas del año, no autocarga
- *   nada y avisa — que Nico teclee el precio real. Es lo que evita que se cuele una tarifa
- *   vieja en un viaje futuro.
- * - **Cotizador público** (`ratesForYearWithFallback`): cae al año cargado más reciente y
- *   marca `isFallback` para que la pantalla y el PDF muestren "sujeto a confirmación". El
- *   público necesita un número; el CRM necesita exactitud.
+ * Quién usa cuál:
+ * - **Coincidencia exacta** (`ratesForYear`): el CRM y el cotizador de caminosacro.com
+ *   (`quotes/webQuote.ts`). Si no hay tarifas del año, no se autocarga nada. En el CRM,
+ *   que Nico teclee el precio real; en la web, el visitante ve un aviso de que ese año
+ *   todavía no tiene precios oficiales y el lead le llega a Nico. Es lo que evita que se
+ *   cuele una tarifa vieja en un viaje futuro.
+ * - **Con caída al año anterior** (`ratesForYearWithFallback`): los opcionales
+ *   (`optionalPricesForYear`, que no tienen dónde teclearse a mano) y el catálogo que
+ *   `/api/wp/pricing` le muestra a la web, marcado con `isFallback`/`prices_year`. Ahí no
+ *   se cotiza nada: solo se pintan cifras de referencia.
+ *
+ * OJO: `/cotizar` (el cotizador público interno) sigue con el fallback y su aviso en
+ * pantalla; es una decisión aparte de la del cotizador de la web.
  */
 
 /** Primer año del catálogo: todas las tarifas anteriores a la migración 0017 son de 2026. */
