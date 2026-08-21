@@ -9,6 +9,7 @@ type Quote = {
   code: string;
   client_name: string | null;
   client_phone: string | null;
+  client_email: string | null;
   route_name: string | null;
   start_date: string | null;
   end_date: string | null;
@@ -31,7 +32,7 @@ export default async function SeguimientoPage() {
     supabase
       .from("quotes")
       .select(
-        "id,code,client_name,client_phone,route_name,start_date,end_date,people,modality,total_eur,cost_eur,status,valid_until,notes,source",
+        "id,code,client_name,client_phone,client_email,route_name,start_date,end_date,people,modality,total_eur,cost_eur,status,valid_until,notes,source",
       )
       .order("code", { ascending: false })
       .limit(500),
@@ -68,6 +69,7 @@ export default async function SeguimientoPage() {
       code: q.code,
       client_name: q.client_name,
       client_phone: q.client_phone,
+      client_email: q.client_email,
       route_name: q.route_name,
       start_date: q.start_date,
       people: q.people,

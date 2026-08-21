@@ -6,12 +6,14 @@ import { Trash2, ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react";
 import { eur, fechaCorta } from "@/lib/format";
 import { QUOTE_STATUSES, STATUS_COLORS, STATUS_LABELS, statusLabel } from "@/lib/quoteStatus";
 import { updateQuoteStatus, deleteQuote } from "./[id]/actions";
+import { coincideCotizacion } from "@/lib/quotes/buscar";
 
 export type QuoteRow = {
   id: string;
   code: string;
   client_name: string | null;
   client_phone: string | null;
+  client_email: string | null;
   route_name: string | null;
   start_date: string | null;
   people: number | null;
@@ -79,13 +81,13 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
   );
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    // La misma regla que usa BayMax por Telegram (@/lib/quotes/buscar): busca también por
+    // correo, ignora tildes y compara los teléfonos por sus dígitos. Si algo aparece acá
+    // tiene que aparecer allá, y al revés.
+    const q = search.trim();
     const allStatusesOn = activeStatuses.size === QUOTE_STATUSES.length;
     const out = rows.filter((r) => {
-      if (q) {
-        const hay = `${r.client_name ?? ""} ${r.code} ${r.route_name ?? ""} ${r.client_phone ?? ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
+      if (q && !coincideCotizacion(r, q)) return false;
       if (!allStatusesOn && !activeStatuses.has(r.status ?? "")) return false;
       if (routeFilter && r.route_name !== routeFilter) return false;
       if (from && (!r.start_date || r.start_date < from)) return false;
@@ -158,7 +160,7 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por cliente, código, ruta o teléfono…"
+              placeholder="Buscar por cliente, correo, teléfono, código o ruta…"
               className="w-full pl-9 pr-3 py-2 rounded-md border border-border bg-white text-sm"
             />
           </div>
