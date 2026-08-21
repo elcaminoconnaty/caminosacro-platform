@@ -198,7 +198,12 @@ export default function QuoteEditor({
     startTransition(async () => {
       const r = await updateQuote(quote.id, formData);
       if (r?.error) setError(r.error);
-      else setEditing(false);
+      else {
+        // Guardar regenera el PDF; si eso falla se avisa sin cerrar el formulario, porque
+        // el documento que ve el cliente quedó con los datos viejos.
+        if ("aviso" in r && r.aviso) setError(r.aviso);
+        else setEditing(false);
+      }
     });
   }
 

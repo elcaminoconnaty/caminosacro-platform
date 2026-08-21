@@ -6,7 +6,7 @@ import { mensajeError } from "@/lib/errors";
 import { isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { rutaCotizacion, rutaHoteles, rutaRecibo, sinBucket } from "@/lib/storage/paths";
-import { alternarOpcional } from "@/lib/quotes/optionals";
+import { alternarOpcional, cambiarCantidadOpcional } from "@/lib/quotes/optionals";
 import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
 import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
 
@@ -72,9 +72,14 @@ export async function updateQuote(id: string, formData: FormData) {
   if (error) return { error: mensajeError(error) };
   // Recalcula total_eur y cost_eur: base + suplemento + opcionales de cada lado.
   await supabase.rpc("recompute_quote_total", { p_quote_id: id });
+  // Y el PDF, porque el documento lleva fechas, personas, precios y notas: sin esto el
+  // PDF que ya se le mandó al cliente seguía diciendo lo viejo hasta que alguien entrara
+  // a Documentos a regenerarlo a mano.
+  const pdf = await renderAndStoreQuotePdf(supabase, id);
+  const pdfAviso = "error" in pdf && pdf.error ? "Se guardó, pero el PDF no se pudo regenerar." : null;
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
-  return { ok: true };
+  return pdfAviso ? { ok: true as const, aviso: pdfAviso } : { ok: true as const };
 }
 
 // Cambio rápido de estado desde el listado (sin entrar a editar).
@@ -121,13 +126,8 @@ export async function toggleQuoteOptional(quoteId: string, optionalId: string, o
 
 export async function updateQuoteLineQuantity(quoteId: string, lineId: string, quantity: number) {
   const supabase = await createCommercialClient();
-  const { error } = await supabase
-    .from("quote_lines")
-    .update({ quantity: Math.max(1, quantity) })
-    .eq("id", lineId)
-    .eq("quote_id", quoteId);
-  if (error) return { error: mensajeError(error) };
-  await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
+  const r = await cambiarCantidadOpcional(supabase, quoteId, lineId, quantity);
+  if (r.error) return { error: r.error };
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };

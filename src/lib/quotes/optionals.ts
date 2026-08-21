@@ -62,3 +62,27 @@ export async function alternarOpcional(
   await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
   return { ok: true };
 }
+
+/**
+ * Cambia cuántas unidades van de una línea opcional (3 noches extra, 2 traslados…).
+ *
+ * Acotado a `type='optional'` para no pisar una bici con el id equivocado, igual que su
+ * espejo `cambiarCantidadBici`. Extraído de la server action para que el endpoint del
+ * agente cambie la cantidad con la misma regla, incluido el recálculo del total.
+ */
+export async function cambiarCantidadOpcional(
+  supabase: ComercialClient,
+  quoteId: string,
+  lineId: string,
+  cantidad: number,
+): Promise<{ ok?: true; error?: string }> {
+  const { error } = await supabase
+    .from("quote_lines")
+    .update({ quantity: Math.max(1, Math.round(cantidad) || 1) })
+    .eq("id", lineId)
+    .eq("quote_id", quoteId)
+    .eq("type", "optional");
+  if (error) return { error: mensajeError(error) };
+  await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
+  return { ok: true };
+}

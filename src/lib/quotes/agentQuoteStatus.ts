@@ -2,6 +2,9 @@ import "server-only";
 
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { armarCorreoPilgrim } from "@/lib/quotes/pilgrimEmail";
+import { firmarPdf } from "@/lib/quotes/pdfUrl";
+import { quoteYear } from "@/lib/pricing/year";
+import { FIANZA_POR_BICI_EUR } from "@/lib/bikes/catalog";
 import type { ComercialClient } from "@/lib/quotes/pdf";
 
 /**
@@ -27,15 +30,20 @@ export async function resolverCotizacion(supabase: ComercialClient, idOCodigo: s
 export async function estadoCotizacion(supabase: ComercialClient, quoteId: string) {
   const { data: quote } = await supabase
     .from("quotes")
-    .select("id,code,client_name,client_email,client_phone,route_name,start_date,end_date,people,modality,status,base_eur,season_supplement_eur,total_eur,cost_eur,pdf_path,email_sent_at,pilgrim_email_sent_at,notes,source")
+    .select("id,code,client_name,client_email,client_phone,route_id,route_name,start_date,end_date,valid_until,people,modality,status,base_eur,season_supplement_eur,total_eur,cost_eur,pdf_path,email_sent_at,pilgrim_email_sent_at,notes,source,parent_quote_id")
     .eq("id", quoteId)
     .maybeSingle();
   if (!quote) return null;
 
-  const [{ data: lines }, { data: travelers }, { data: contracts }] = await Promise.all([
-    supabase.from("quote_lines").select("description,quantity,unit_price,total,type,reference_id").eq("quote_id", quoteId),
+  // `id` de cada línea: es lo que hace falta para cambiarle la cantidad después, igual que
+  // el campito de al lado de cada opcional en la pantalla.
+  const [{ data: lines }, { data: travelers }, { data: contracts }, { data: hijas }] = await Promise.all([
+    supabase.from("quote_lines").select("id,description,quantity,unit_price,total,type,reference_id").eq("quote_id", quoteId),
     supabase.from("quote_travelers").select("position,full_name,document_number").eq("quote_id", quoteId).order("position"),
     supabase.from("contracts").select("traveler_id,status,passport_path").eq("quote_id", quoteId),
+    // El camino en bici deja dos cotizaciones del mismo peregrino: sin este enlace se
+    // confunden y se termina trabajando sobre la vieja.
+    supabase.from("quotes").select("id,code").eq("parent_quote_id", quoteId).order("created_at"),
   ]);
 
   const personas = Number(quote.people) || 0;
@@ -54,6 +62,25 @@ export async function estadoCotizacion(supabase: ComercialClient, quoteId: strin
   const correoCliente = await armarCorreoCotizacion(supabase, quoteId);
   const armadoPilgrim = await armarCorreoPilgrim(supabase, quoteId);
 
+  // ¿Es un camino en bici? Cambia lo que hay que contarle al peregrino (fianza, tallas) y
+  // habilita el paso de la cotización con la bici elegida.
+  let esRutaBici = false;
+  if (quote.route_id || quote.route_name) {
+    const q = supabase.from("routes").select("modality");
+    const { data: r } = quote.route_id
+      ? await q.eq("id", quote.route_id).maybeSingle()
+      : await q.eq("name", quote.route_name).maybeSingle();
+    esRutaBici = String(r?.modality || "").toLowerCase() === "bici";
+  }
+  const lineasBici = (lines || []).filter((l) => l.type === "bike");
+  const unidadesBici = lineasBici.reduce((s, l) => s + (Number(l.quantity) || 0), 0);
+
+  let padre: { id: string; code: string } | null = null;
+  if (quote.parent_quote_id) {
+    const { data } = await supabase.from("quotes").select("id,code").eq("id", quote.parent_quote_id).maybeSingle();
+    padre = (data as { id: string; code: string } | null) ?? null;
+  }
+
   return {
     id: quote.id,
     code: quote.code,
@@ -61,6 +88,8 @@ export async function estadoCotizacion(supabase: ComercialClient, quoteId: strin
     ruta: quote.route_name,
     salida: quote.start_date,
     regreso: quote.end_date,
+    valida_hasta: quote.valid_until,
+    ano_tarifa: quoteYear(quote.start_date),
     personas,
     modalidad: quote.modality,
     estado: quote.status,
@@ -76,6 +105,19 @@ export async function estadoCotizacion(supabase: ComercialClient, quoteId: strin
     viajeros: viajeros.map((t) => ({ posicion: t.position, nombre: t.full_name, documento: t.document_number })),
     pasaportes_adjuntos: conPasaporte,
     pdf: !!quote.pdf_path,
+    pdf_url: await firmarPdf(supabase, quoteId),
+    // El expediente en bici: la fianza NO entra al total, se cobra y se devuelve aparte.
+    bici: esRutaBici
+      ? {
+          ruta_en_bici: true,
+          marcadas: lineasBici.length,
+          unidades: unidadesBici,
+          fianza_por_bici_eur: FIANZA_POR_BICI_EUR,
+          fianza_total_eur: unidadesBici * FIANZA_POR_BICI_EUR,
+        }
+      : { ruta_en_bici: false },
+    viene_de: padre,
+    continua_en: (hijas || []) as Array<{ id: string; code: string }>,
     correo_cliente_enviado_en: quote.email_sent_at,
     correo_pilgrim_enviado_en: quote.pilgrim_email_sent_at,
     borrador_cliente: correoCliente,
