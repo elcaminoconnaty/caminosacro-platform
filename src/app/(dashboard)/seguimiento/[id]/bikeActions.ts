@@ -14,9 +14,14 @@ import {
  * Las acciones de la tarjeta de bicicletas. La lógica vive en `@/lib/quotes/bikeQuote`
  * para que el endpoint del agente haga exactamente lo mismo que estos botones; acá solo
  * queda lo que es de Next: el cliente con sesión, revalidar y redirigir.
+ *
+ * Ojo: un archivo "use server" SOLO puede exportar funciones async. Un `export type { X }`
+ * (reexportar un tipo importado) parece inofensivo, pero el transform de Next lo cuenta como
+ * export de verdad y emite `ensureServerEntryExports([..., X])` sobre un binding que TypeScript
+ * ya borró: el chunk revienta con "X is not defined" al evaluarse y se caen TODAS las acciones
+ * de /seguimiento/[id] —incluido "Generar PDF"—. Si necesitás el tipo, importalo directo de
+ * `@/lib/quotes/bikeQuote`. (Un `export type X = {...}` declarado acá sí se borra entero y no molesta.)
  */
-
-export type { SeleccionBici };
 
 export async function toggleQuoteBike(quoteId: string, bikeId: string, on: boolean, qtyHint?: number | null) {
   const supabase = await createCommercialClient();
