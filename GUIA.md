@@ -113,6 +113,75 @@ values ('mi_nuevo_servicio', 'tour', 'Tour Catedral de Santiago', 'por persona',
 
 Categorías válidas: `seguro`, `noche_extra`, `meal`, `transfer`, `tour`, `gift`.
 
+### B2. El Camino en bici (bicicletas de alquiler)
+
+Una ruta con `modality = 'bici'` habilita el módulo de alquiler. Migración **0021**.
+
+**El flujo es de dos pasos, a propósito:**
+1. Cotizás la ruta como siempre. El alojamiento y la logística salen de la verdad de
+   siempre (`comercial.pricing`) — el alquiler no cambia nada de eso.
+2. El PDF sale con **la flota completa y el precio de cada bici** en servicios opcionales.
+   Nada de eso suma al total: es para que el peregrino compare y elija.
+3. Cuando elige, en Seguimiento marcás su bici en la card **"Alquiler de bicicleta"** y
+   das **"Crear cotización con la bici elegida"**.
+4. Nace una cotización **nueva** con la bici dentro del total. En el resumen de inversión
+   sale nombrada ("Eléctrica · E-Bike — Lapierre Overvolt HT 7.6 · 5 días de alquiler").
+   Las dos quedan enlazadas por `parent_quote_id`: en el encabezado de cada una hay un
+   "← Viene de CS-…" / "Continúa en CS-… →".
+
+**Por qué una cotización nueva y no editar la primera:** la primera es la prueba de qué
+flota le ofreciste y a qué precio. Si se pisa, esa evidencia se pierde.
+
+#### Tarifas
+Viven en `comercial.bike_prices`, que es **(bici × ruta × año)** — no es un opcional normal
+porque la tarifa cubre los *días* de la ruta: la misma MTB vale 265 € en Ponferrada (5 días)
+y otra cosa en Oviedo (8 días).
+
+- Se editan en `/catalogo` → **"Tarifas de alquiler de bicicleta"**, con el mismo selector
+  de año que el resto. Igual que las rutas: **coincidencia exacta de año**, sin caer al
+  anterior. Una celda vacía se ve en ámbar y dice "sin cargar" — no es un precio de 0.
+- Botón **"Aplicar regla automática"**: `precio CS = Pilgrim ÷ 0,85` (comisión de agencia
+  del 15 %). **Ojo: NO es la regla de las rutas** (`max(pilgrim+100, pilgrim÷0,85)`). Ese
+  +100 sobre un alquiler de 265 € sería un 27 % de margen, fuera de mercado.
+- El botón "Copiar tarifas de {año}" arrastra también las bicis.
+- Una bici sin tarifa del año **no sale en el PDF** y no se puede marcar en el CRM. Es a
+  propósito: en un documento que va al cliente no se inventa una cifra.
+
+#### La fianza NO es parte del total
+200 € por bicicleta, obligatoria y reembolsable en máximo 20 días tras la entrega. Sale
+como aviso ámbar aparte, fuera del recuadro del total, en la card y en el PDF. Meterla
+dentro del total sería cobrarle de más al peregrino.
+
+#### La ficha de cada bici
+`comercial.bikes`: gama, modelo, descripción, tallas, ruedas, alforjas, ficha técnica y
+motor. Se siembra desde `src/lib/bikes/data.ts` con:
+```bash
+npx tsx scripts/seed_bicis.ts     # idempotente, nunca pisa un precio ya cargado
+```
+**Lo que se vende es la GAMA, no el modelo**: el proveedor solo garantiza una bicicleta de
+prestaciones equivalentes en la talla disponible. Todos los textos lo dicen.
+
+#### El catálogo comercial en PDF (sin precios)
+Documento de 12 páginas con identidad Camino Sacro para mandarle al peregrino:
+```bash
+npx tsx scripts/generar_catalogo_bicis.ts               # local + sube a Storage
+npx tsx scripts/generar_catalogo_bicis.ts --solo-local  # solo local
+```
+Queda en `scripts/out/` (ignorado por git) y en
+`comercial-catalogs/bicicletas/catalogo-bicicletas-camino-sacro.pdf`.
+Regeneralo cuando cambies una ficha en `comercial.bikes`.
+
+**Solo bicicletas**: la ropa de ciclismo (maillots) y el resto de mercancía del dossier del
+proveedor quedan fuera a propósito. Los únicos extras cargados son el **casco** (40 €) y el
+**seguro a todo riesgo de la bici** (32 €), que son opcionales normales de categoría
+`equipo_bici` porque su precio es plano y no depende de la ruta.
+
+#### Etapas
+Las rutas de bici necesitan sus etapas en `comercial.route_stages` o **el PDF sale con el
+itinerario en blanco** (el conteo de días/noches se deriva de las etapas, no de
+`routes.days`). Cargada la del Francés desde Ponferrada (migración 0022); **faltan Oporto y
+Oviedo** — hay que pedirle el desglose al proveedor.
+
 ### C. Agregar una ruta nueva con sus etapas
 Editá `app/scripts/add_routes.ts`, agregá un nuevo objeto al array `ROUTES` siguiendo el patrón existente. Después corré:
 ```bash
@@ -384,6 +453,10 @@ Servicio actual en `asia-southeast1` (Singapur). Edge sirve global desde Virgini
 | Enviarle la reserva a Pilgrim | `/seguimiento/[id]` → card "Correo a Pilgrim" |
 | Cambiar el correo de Pilgrim | `/configuracion` → "Proveedor Pilgrim" |
 | Subir PDF manual (override) | `/seguimiento/[id]` → "Subir manual" |
+| Cotizar el Camino en bici | `/seguimiento/[id]` → card "Alquiler de bicicleta" |
+| Emitir la cotización con la bici elegida | `/seguimiento/[id]` → "Crear cotización con la bici elegida" |
+| Cambiar tarifa de alquiler de bici | `/catalogo` → "Tarifas de alquiler de bicicleta" |
+| Regenerar el catálogo de bicis en PDF | `npx tsx scripts/generar_catalogo_bicis.ts` |
 | Cambiar precio en catálogo | `/catalogo` → click en celda |
 | Ver etapas de una ruta | `/catalogo` → sección "Itinerarios y etapas" → click en ruta |
 | Ver costo en tokens IA | `/tokens` |

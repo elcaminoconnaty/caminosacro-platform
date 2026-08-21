@@ -71,16 +71,22 @@ export async function copyPricingFromPreviousYear(year: number) {
     { data: target, error: errTarget },
     { data: optSource, error: errOptSource },
     { data: optTarget, error: errOptTarget },
+    { data: bikeSource, error: errBikeSource },
+    { data: bikeTarget, error: errBikeTarget },
   ] = await Promise.all([
     supabase.from("pricing").select("route_id,modality,price_pilgrim,price_cs,notes").eq("year", from).eq("season", "regular"),
     supabase.from("pricing").select("route_id,modality").eq("year", year).eq("season", "regular"),
     supabase.from("optional_prices").select("optional_id,price_pilgrim,price_cs").eq("year", from),
     supabase.from("optional_prices").select("optional_id").eq("year", year),
+    // El alquiler de bici es (bici × ruta × año): se arrastra `days` porque la tarifa
+    // cubre esos días y sin ese dato la fila copiada no se puede contrastar con Pilgrim.
+    supabase.from("bike_prices").select("bike_id,route_id,days,price_pilgrim,price_cs,notes").eq("year", from),
+    supabase.from("bike_prices").select("bike_id,route_id").eq("year", year),
   ]);
-  for (const e of [errSource, errTarget, errOptSource, errOptTarget]) {
+  for (const e of [errSource, errTarget, errOptSource, errOptTarget, errBikeSource, errBikeTarget]) {
     if (e) return { error: mensajeError(e) };
   }
-  if ((source?.length ?? 0) === 0 && (optSource?.length ?? 0) === 0) {
+  if ((source?.length ?? 0) === 0 && (optSource?.length ?? 0) === 0 && (bikeSource?.length ?? 0) === 0) {
     return { error: `No hay precios ${from} para copiar.` };
   }
 
@@ -110,10 +116,27 @@ export async function copyPricingFromPreviousYear(year: number) {
     if (error) return { error: mensajeError(error) };
   }
 
+  const existingBike = new Set((bikeTarget || []).map((r) => `${r.bike_id}:${r.route_id}`));
+  const nuevasBici = (bikeSource || [])
+    .filter((r) => !existingBike.has(`${r.bike_id}:${r.route_id}`))
+    .map((r) => ({
+      bike_id: r.bike_id,
+      route_id: r.route_id,
+      year,
+      days: r.days,
+      price_pilgrim: r.price_pilgrim,
+      price_cs: r.price_cs,
+      notes: r.notes,
+    }));
+  if (nuevasBici.length > 0) {
+    const { error } = await supabase.from("bike_prices").insert(nuevasBici);
+    if (error) return { error: mensajeError(error) };
+  }
+
   revalidatePath("/catalogo");
   revalidatePath("/cotizaciones/nueva");
   revalidatePath("/seguimiento");
-  return { ok: true, copied: nuevas.length, copiedOptionals: nuevosOpt.length, from };
+  return { ok: true, copied: nuevas.length, copiedOptionals: nuevosOpt.length, copiedBikes: nuevasBici.length, from };
 }
 
 export async function getResourceUrl(storagePath: string) {
@@ -146,6 +169,72 @@ export async function updateOptionalService(
   revalidatePath("/catalogo");
   revalidatePath("/seguimiento");
   return { ok: true };
+}
+
+// =============================================================
+// Tarifas de alquiler de bicicleta (comercial.bike_prices, migración 0021)
+// =============================================================
+
+/**
+ * Guarda una celda de la grilla bici × ruta del año.
+ *
+ * Upsert sobre la unique (bike_id, route_id, year): la fila casi siempre existe ya (el
+ * seed las crea vacías), pero si Nico agrega una ruta de bici nueva la primera tecleada
+ * la crea. `days` no va en el payload a propósito: en un conflicto PostgREST solo pisa
+ * las columnas enviadas, así que los días de alquiler cargados sobreviven.
+ *
+ * `value` en null es un caso legítimo, no un error: des-cargar una tarifa la devuelve a
+ * "sin cargar" (celda en ámbar), que es distinto de un precio de 0.
+ */
+export async function updateBikePrice(
+  bikeId: string,
+  routeId: string,
+  year: number,
+  field: "price_pilgrim" | "price_cs",
+  value: number | null,
+) {
+  const supabase = await createCommercialClient();
+  const { error } = await supabase
+    .from("bike_prices")
+    .upsert({ bike_id: bikeId, route_id: routeId, year, [field]: value }, { onConflict: "bike_id,route_id,year" });
+  if (error) return { error: mensajeError(error) };
+  revalidatePath("/catalogo");
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+/**
+ * Regla de precio del alquiler de bici: `price_cs = round(price_pilgrim / 0.85)`, o sea la
+ * comisión de agencia del 15 % sobre el precio de venta.
+ *
+ * OJO: NO es la regla de las rutas (`applyMarkupRule`, que usa max(pilgrim+100, pilgrim/0.85)).
+ * Ese +100 es un piso pensado para un paquete de varios días de alojamiento; sobre un
+ * alquiler de 265 € sería un margen del 27 %, fuera de mercado frente a Pilgrim.
+ *
+ * Solo toca filas con Pilgrim cargado: una tarifa sin cargar tiene que seguir viéndose en
+ * ámbar hasta que Pilgrim la mande, no convertirse en un 0 con margen inventado.
+ */
+export async function applyBikeRule(year: number) {
+  const supabase = await createCommercialClient();
+  const { data, error } = await supabase
+    .from("bike_prices")
+    .select("id,price_pilgrim")
+    .eq("year", year)
+    .not("price_pilgrim", "is", null);
+  if (error) return { error: mensajeError(error) };
+
+  let updated = 0;
+  for (const row of data || []) {
+    const p = Number(row.price_pilgrim);
+    if (!p) continue;
+    const cs = Math.round(p / 0.85);
+    const { error: upErr } = await supabase.from("bike_prices").update({ price_cs: cs }).eq("id", row.id);
+    if (upErr) return { error: mensajeError(upErr) };
+    updated++;
+  }
+  revalidatePath("/catalogo");
+  revalidatePath("/seguimiento");
+  return { ok: true, updated };
 }
 
 // =============================================================

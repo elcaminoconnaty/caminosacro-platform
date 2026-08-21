@@ -1,6 +1,12 @@
 import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
 import fs from "node:fs";
 import path from "node:path";
+import { FIANZA_POR_BICI_EUR } from "@/lib/bikes/catalog";
+// Las condiciones del alquiler se importan del archivo de seed a propósito, no se copian:
+// son texto que va firmado al cliente y tiene que decir LO MISMO acá, en el catálogo público
+// y en el dossier de Pilgrim del que salieron. `data.ts` es datos puros —cero imports, ni
+// supabase ni node—, así que traerlo no arrastra nada raro al bundle del PDF.
+import { CONDICIONES_ALQUILER } from "@/lib/bikes/data";
 
 // Inter TTFs locales. Soporta Unicode amplio (flechas, símbolos) que las fuentes built-in
 // de PDF (Adobe Standard Encoding) no incluyen.
@@ -172,6 +178,28 @@ const s = StyleSheet.create({
   optHeadRow: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: C.borde, paddingVertical: 4 },
   optHead: { fontFamily: SANS_BOLD, fontSize: 7.5, color: C.sec, letterSpacing: 0.5 },
 
+  // Alquiler de bicicletas (solo rutas en bici). Comparte la retícula de la tabla de
+  // opcionales para que se lea como una sección más del mismo bloque, pero cada fila lleva
+  // dos líneas por columna (gama/modelo, tallas/alforjas, precio/días).
+  bikeIntro: { fontFamily: SANS, fontSize: 8.5, color: C.sec, lineHeight: 1.45, marginBottom: 8 },
+  bikeRow: { flexDirection: "row", borderBottomWidth: 0.25, borderBottomColor: C.borde, paddingVertical: 5, alignItems: "flex-start" },
+  bikeCat: { fontFamily: SANS_BOLD, fontSize: 8.5, color: C.txt },
+  bikeModel: { fontFamily: SANS, fontSize: 7.5, color: C.sec, marginTop: 1.5, lineHeight: 1.35 },
+  bikeSpec: { fontFamily: SANS, fontSize: 7.5, color: C.sec, lineHeight: 1.35 },
+  bikePrice: { fontFamily: SANS_BOLD, fontSize: 9.5, color: C.verde, textAlign: "right" },
+  bikeDays: { fontFamily: SANS, fontSize: 7, color: C.sec, textAlign: "right", marginTop: 1.5 },
+  bikeChosen: { fontFamily: SANS_BOLD, fontSize: 7, color: C.verdeM, marginTop: 3 },
+  bikeNoteBox: { backgroundColor: C.gris, borderRadius: 5, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },
+  bikeNoteTitle: { fontFamily: SANS_BOLD, fontSize: 8, color: C.txt, letterSpacing: 0.5, marginBottom: 6 },
+  bikeNoteItem: { flexDirection: "row", marginBottom: 4 },
+  bikeNoteBullet: { width: 9, fontFamily: SANS, fontSize: 7.5, color: C.oroH },
+  bikeNoteText: { flex: 1, fontFamily: SANS, fontSize: 7.5, color: C.sec, lineHeight: 1.45 },
+
+  // Fianza: va FUERA del recuadro del resumen, porque no es parte del total.
+  fianzaBox: { backgroundColor: C.amberL, borderRadius: 5, padding: 10, marginBottom: 14 },
+  fianzaTitle: { fontFamily: SANS_BOLD, fontSize: 9, color: C.amberT, marginBottom: 3 },
+  fianzaText: { fontFamily: SANS, fontSize: 8.5, color: C.amberT, lineHeight: 1.4 },
+
   // Resumen
   resumenBox: { backgroundColor: C.gris, borderRadius: 6, padding: 16, marginBottom: 14 },
   resumenTable: { marginBottom: 8 },
@@ -275,6 +303,44 @@ export type QuotePDFProps = {
   }>;
   /** Líneas de opcionales contratadas en esta cotización (van al resumen, sumadas al total) */
   selectedOptionals?: Array<{ description: string; quantity: number; unit_price: number; total: number }>;
+  /**
+   * Flota de alquiler a ofrecer en la página de opcionales (rutas en bici).
+   * Solo llegan acá las bicis CON tarifa del año de salida: la que no tiene precio cargado
+   * no se muestra, porque en un documento que va al cliente no se inventa una cifra.
+   * Nada de esto suma al total; lo que se contrata viaja en `selectedBikes`.
+   */
+  bikeFleet?: Array<{
+    bikeId: string;
+    /** Gama: es lo que de verdad se contrata (el proveedor garantiza gama, no modelo). */
+    categoryLabel: string;
+    /** Modelo concreto, a título de referencia. */
+    name: string;
+    tagline: string | null;
+    sizes: string[];
+    sizesNote: string | null;
+    luggage: string | null;
+    /** Precio de venta Camino Sacro, por bicicleta y por toda la ruta. */
+    priceCs: number;
+    /** Días de alquiler que cubre esa tarifa. */
+    days: number | null;
+  }>;
+  /**
+   * Bicicletas ya contratadas en esta cotización (líneas `type='bike'`). Van al resumen de
+   * inversión, sumadas al total igual que los opcionales, y disparan la nota de la fianza y
+   * la política de cancelación propia del alquiler.
+   * `categoryLabel`/`name` pueden venir en null si la bici salió del catálogo: ahí manda
+   * `description`, que es el texto congelado en la línea al cotizar.
+   */
+  selectedBikes?: Array<{
+    description: string;
+    categoryLabel: string | null;
+    name: string | null;
+    days: number | null;
+    quantity: number;
+    unit_price: number;
+    total: number;
+    bikeId?: string | null;
+  }>;
   /** Base = ruta + alojamiento (sin opcionales). Si no se pasa, se asume = total_eur */
   baseEur?: number;
   /** Suplemento de temporada aplicado (alta o Semana Santa). Aparece como línea propia en el resumen. */
@@ -464,7 +530,7 @@ const CAT_TITLE: Record<string, string> = {
 const CAT_ORDER = ["seguro", "noche_extra", "meal", "transfer", "tour", "gift"];
 
 // =============== COMPONENT ===============
-export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceNote, priceBlocks, selectedOptionals, baseEur, seasonSupplement, roomBreakdown, itineraryExtras }: QuotePDFProps) {
+export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceNote, priceBlocks, selectedOptionals, bikeFleet, selectedBikes, baseEur, seasonSupplement, roomBreakdown, itineraryExtras }: QuotePDFProps) {
   const total = Number(quote.total_eur) || 0;
   const base = Number(baseEur) || total;
   const people = quote.people || 1;
@@ -472,6 +538,19 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
   const modInfo = parseModality(quote.modality);
   const optionalsLines = selectedOptionals || [];
   const optionalsSum = optionalsLines.reduce((s, l) => s + (Number(l.total) || 0), 0);
+
+  // Bicis: la flota que se ofrece y las que ya se contrataron.
+  const fleet = bikeFleet || [];
+  const bikeLines = selectedBikes || [];
+  const bikesSum = bikeLines.reduce((s, l) => s + (Number(l.total) || 0), 0);
+  // Unidades de bici = fianzas. La fianza es POR BICICLETA, no por línea ni por persona.
+  const bikeUnits = bikeLines.reduce((s, l) => s + (Number(l.quantity) || 0), 0);
+  const fianzaTotal = bikeUnits * FIANZA_POR_BICI_EUR;
+  const chosenBikeIds = new Set(bikeLines.map((l) => l.bikeId).filter(Boolean) as string[]);
+  // Cualquier rastro de bici (flota ofrecida o contratada) enciende las condiciones del
+  // alquiler en la última página: quien todavía está eligiendo también necesita conocerlas
+  // antes de decidir, porque la cancelación del alquiler no la cubre el seguro de anulación.
+  const conBici = fleet.length > 0 || bikeLines.length > 0;
 
   const origin = route?.origin || "";
   const destination = route?.destination || "Santiago de Compostela";
@@ -679,6 +758,74 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
           </View>
         </View>
 
+        {/* Alquiler de bicicletas ANTES de la tabla de opcionales genérica: en una ruta en bici
+            es la única decisión que el peregrino tiene que tomar sí o sí, y la que más mueve el
+            total. Detrás de seis categorías de seguros, tours y traslados se perdería. Además
+            así la nota de cierre de los opcionales ("indícanos cuáles deseas al confirmar")
+            queda al final cubriendo también a las bicis. */}
+        {fleet.length > 0 && (
+          <>
+            <Text style={s.h2}>Alquiler de bicicletas</Text>
+            <Text style={s.bikeIntro}>
+              {bikeLines.length > 0
+                ? "El precio es por bicicleta y cubre toda la ruta, con el equipamiento completo: portabultos, alforjas impermeables, kit de herramientas, bomba, cámara de repuesto y candado. La gama que ya contrataste aparece marcada y sumada en el resumen de inversión; el resto de la flota queda como referencia por si prefieres cambiarla antes de confirmar."
+                : "El precio es por bicicleta y cubre toda la ruta, con el equipamiento completo: portabultos, alforjas impermeables, kit de herramientas, bomba, cámara de repuesto y candado. No está incluido en el total de esta cotización: indícanos la gama que prefieres al confirmar el viaje y te enviamos la cotización definitiva."}
+            </Text>
+            <View style={s.optTable}>
+              <View style={s.optHeadRow}>
+                <Text style={[s.optHead, { flex: 1 }]}>GAMA Y MODELO</Text>
+                <Text style={[s.optHead, { width: 130 }]}>TALLAS · EQUIPAJE</Text>
+                <Text style={[s.optHead, { width: 70, textAlign: "right" }]}>PRECIO</Text>
+              </View>
+              {fleet.map((b) => {
+                const elegida = chosenBikeIds.has(b.bikeId);
+                return (
+                  <View key={b.bikeId} style={s.bikeRow} wrap={false}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={s.bikeCat}>{b.categoryLabel}</Text>
+                      <Text style={s.bikeModel}>{b.tagline ? `${b.name} · ${b.tagline}` : b.name}</Text>
+                      {elegida ? <Text style={s.bikeChosen}>✓ GAMA CONTRATADA EN ESTA COTIZACIÓN</Text> : null}
+                    </View>
+                    <View style={{ width: 130, paddingRight: 8 }}>
+                      <Text style={s.bikeSpec}>
+                        {b.sizes.length > 0 ? `Tallas ${b.sizes.join(" · ")}` : "Tallas según disponibilidad"}
+                        {b.sizesNote ? ` (${b.sizesNote})` : ""}
+                      </Text>
+                      {b.luggage ? <Text style={s.bikeSpec}>{b.luggage}</Text> : null}
+                    </View>
+                    <View style={{ width: 70 }}>
+                      <Text style={s.bikePrice}>{fmtEur(b.priceCs)} €</Text>
+                      <Text style={s.bikeDays}>{b.days && b.days > 0 ? `${b.days} días de alquiler` : "por bicicleta"}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Estas cinco condiciones no son decorativas: la fianza es plata que el peregrino
+                tiene que anticipar, y talla/casco/pedales cambian lo que recibe. Los textos
+                salen de CONDICIONES_ALQUILER (dossier de Pilgrim), no se reescriben acá. */}
+            {/* `wrap={false}`: sin esto la caja se parte al final de la página y el resto cae
+                en la siguiente sin el título y con el fondo gris cortado, flotando encima de
+                "Servicios opcionales". Prefiero un hueco al pie antes que una caja rota. */}
+            <View style={s.bikeNoteBox} wrap={false}>
+              <Text style={s.bikeNoteTitle}>CONDICIONES DEL ALQUILER</Text>
+              {[
+                CONDICIONES_ALQUILER.fianza,
+                CONDICIONES_ALQUILER.casco,
+                CONDICIONES_ALQUILER.talla,
+                CONDICIONES_ALQUILER.modelo,
+                CONDICIONES_ALQUILER.pedales,
+              ].map((t, i) => (
+                <View key={i} style={s.bikeNoteItem}>
+                  <Text style={s.bikeNoteBullet}>•</Text>
+                  <Text style={s.bikeNoteText}>{t}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
         {(optionals && optionals.length > 0) && (
           <>
             <Text style={s.h2}>Servicios opcionales</Text>
@@ -775,6 +922,24 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
                 <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>{fmtEur(seasonSupplement.total)} €</Text>
               </View>
             )}
+            {/* Bicis antes que los opcionales: es el servicio grande de una ruta en bici, no un
+                extra menor. El subtítulo dice "Bicicleta seleccionada" y no "Servicio opcional"
+                para que quede claro que ESA es la que se contrató y ya está dentro del total. */}
+            {bikeLines.map((l, i) => (
+              <View key={`bike-${i}`} style={s.resumenLine}>
+                <View style={s.resumenLineConcept}>
+                  <Text style={s.resumenLineConceptName}>
+                    {l.categoryLabel ? `${l.categoryLabel} — ${l.name || ""}`.replace(/ — $/, "") : l.description}
+                  </Text>
+                  <Text style={s.resumenLineConceptSub}>
+                    Bicicleta seleccionada{l.days && l.days > 0 ? ` · ${l.days} días de alquiler` : ""} · equipamiento incluido
+                  </Text>
+                </View>
+                <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(Number(l.unit_price) || 0)} €</Text>
+                <Text style={[s.resumenLineCell, s.resumenPpl]}>×{Number(l.quantity) || 1}</Text>
+                <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>{fmtEur(Number(l.total) || 0)} €</Text>
+              </View>
+            ))}
             {optionalsLines.map((l, i) => (
               <View key={i} style={s.resumenLine}>
                 <View style={s.resumenLineConcept}>
@@ -794,12 +959,32 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
               <Text style={s.resumenTotalCurr}> €</Text>
             </View>
           </View>
-          {optionalsLines.length === 0 ? (
+          {/* La nota enumera lo que se agregó al total. Con bicis y opcionales a la vez se
+              listan los dos conceptos ("Total incluye 2 bicicletas por X € y 3 servicios
+              opcionales por Y €") en vez de mentir contando solo los opcionales. */}
+          {bikeLines.length === 0 && optionalsLines.length === 0 ? (
             <Text style={s.resumenNote}>Los servicios opcionales no están incluidos. Indícanos cuáles deseas al confirmar.</Text>
           ) : (
-            <Text style={s.resumenNote}>Total incluye {optionalsLines.length} {optionalsLines.length === 1 ? "servicio opcional" : "servicios opcionales"} por {fmtEur(optionalsSum)} €.</Text>
+            <Text style={s.resumenNote}>
+              Total incluye {[
+                bikeUnits > 0 ? `${bikeUnits} ${bikeUnits === 1 ? "bicicleta" : "bicicletas"} de alquiler por ${fmtEur(bikesSum)} €` : null,
+                optionalsLines.length > 0 ? `${optionalsLines.length} ${optionalsLines.length === 1 ? "servicio opcional" : "servicios opcionales"} por ${fmtEur(optionalsSum)} €` : null,
+              ].filter(Boolean).join(" y ")}.
+            </Text>
           )}
         </View>
+
+        {/* La fianza va FUERA del recuadro del total y con fondo ámbar: es plata que el
+            peregrino tiene que anticipar pero que NO es parte del precio del viaje. Meterla
+            dentro del total sería cobrarle de más; no avisarla sería una sorpresa en la salida. */}
+        {bikeUnits > 0 && (
+          <View style={s.fianzaBox} wrap={false}>
+            <Text style={s.fianzaTitle}>
+              Fianza del alquiler: {bikeUnits} × {fmtEur(FIANZA_POR_BICI_EUR)} € = {fmtEur(fianzaTotal)} € — adicional al total y reembolsable
+            </Text>
+            <Text style={s.fianzaText}>{CONDICIONES_ALQUILER.fianza}</Text>
+          </View>
+        )}
 
         {/* Condiciones */}
         <Text style={s.condTitle}>Condiciones generales</Text>
@@ -830,6 +1015,16 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
         <Text style={s.condText}>· 50% entre 10 y 6 días previos</Text>
         <Text style={s.condText}>· Sin devolución dentro de los 5 días anteriores al inicio</Text>
         <Text style={s.condText}>· Sin devolución por no presentación o abandono durante el viaje</Text>
+
+        {/* El alquiler de bici cancela con SUS plazos y el seguro de anulación no lo cubre.
+            Va pegado a la política de cancelación del viaje para que se lea la diferencia, y
+            solo cuando hay bici de por medio (ofrecida o contratada). */}
+        {conBici && (
+          <>
+            <Text style={s.condSubtitle}>Cancelación del alquiler de bicicleta</Text>
+            <Text style={s.condText}>{CONDICIONES_ALQUILER.cancelacion}</Text>
+          </>
+        )}
 
         <Text style={s.condTitle}>Plazos de pago según antelación de reserva</Text>
         <Text style={s.condSubtitle}>Más de 30 días antes del inicio:</Text>

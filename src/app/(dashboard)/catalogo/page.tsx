@@ -2,6 +2,8 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import PricingTable, { type Row } from "./PricingTable";
 import OptionalsTable, { type Opt } from "./OptionalsTable";
+import BikesTable, { type BikeRouteCol } from "./BikesTable";
+import { BIKE_COLUMNS, normalizeBike, normalizeBikePrice } from "@/lib/bikes/catalog";
 import ResourcesList, { type Resource } from "./ResourcesList";
 import RouteStagesEditor, { type RouteWithStagesEditable } from "./RouteStagesEditor";
 import CatalogToolbar from "./CatalogToolbar";
@@ -32,6 +34,8 @@ export default async function CatalogoPage({
     { data: welcome },
     { data: routesData },
     { data: stagesData },
+    { data: bikesData, error: errBikes },
+    { data: bikePricesData, error: errBikePrices },
   ] = await Promise.all([
     supabase
       .from("pricing")
@@ -48,14 +52,20 @@ export default async function CatalogoPage({
       .from("welcome_letters")
       .select("id,name,storage_path,routes(name)")
       .eq("active", true),
+    // `modality` viene acá para no repetir la consulta de rutas: la grilla de bicis solo
+    // necesita las de modalidad `bici`, que son las que tienen tarifa de alquiler.
     supabase
       .from("routes")
-      .select("id,name,family,origin,destination,days,km")
+      .select("id,name,family,origin,destination,days,km,modality")
       .eq("active", true),
     supabase
       .from("route_stages")
       .select("id,route_id,day,from_place,to_place,km,accommodation")
       .order("day"),
+    // Flota y tarifas de alquiler (migración 0021). La tarifa es (bici × ruta × año), así
+    // que se pide solo el año activo, igual que las tarifas de ruta.
+    supabase.from("bikes").select(BIKE_COLUMNS).eq("active", true).order("position"),
+    supabase.from("bike_prices").select("bike_id,route_id,year,days,price_pilgrim,price_cs").eq("year", year),
   ]);
 
   const rows: Row[] = ((pricing as unknown as Array<{
@@ -149,7 +159,22 @@ export default async function CatalogoPage({
     stages: stagesByRoute.get(r.id) || [],
   }));
 
-  const error = errPricing || errOpt;
+  const bikes = ((bikesData as unknown as Array<Record<string, unknown>>) || []).map(normalizeBike);
+  const bikePrices = ((bikePricesData as unknown as Array<Record<string, unknown>>) || []).map(normalizeBikePrice);
+
+  // Columnas de la grilla de bicis: una por ruta en bici. Los días de alquiler salen de la
+  // tarifa (todas las filas de una ruta comparten el mismo `days`) porque es la tarifa, no
+  // la ruta, la que dice cuántos días de bici se están cobrando.
+  const bikeRoutes: BikeRouteCol[] = (((routesData as unknown) as Array<{ id: string; name: string; modality: string | null }>) || [])
+    .filter((r) => r.modality === "bici")
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      days: bikePrices.find((p) => p.route_id === r.id && p.days != null)?.days ?? null,
+    }));
+
+  const error = errPricing || errOpt || errBikes || errBikePrices;
 
   const families = [...new Set([...KNOWN_FAMILIES, ...routesWithStages.map((r) => r.family).filter((f): f is string => !!f)])].sort();
   const routesList = routesWithStages
@@ -200,6 +225,15 @@ export default async function CatalogoPage({
       <section>
         <h2 className="font-display text-xl text-bosque mb-3">Servicios opcionales · precios {year}</h2>
         <OptionalsTable key={year} initialRows={opts} year={year} />
+      </section>
+
+      <section>
+        <h2 className="font-display text-xl text-bosque mb-1">Tarifas de alquiler de bicicleta</h2>
+        <p className="text-xs text-muted mb-3">
+          La tarifa va por ruta porque cubre sus días de alquiler: la misma bici cuesta distinto en el Francés desde
+          Ponferrada (5 días) que en el Primitivo desde Oviedo (8).
+        </p>
+        <BikesTable key={year} bikes={bikes} prices={bikePrices} routes={bikeRoutes} year={year} />
       </section>
 
       <section>

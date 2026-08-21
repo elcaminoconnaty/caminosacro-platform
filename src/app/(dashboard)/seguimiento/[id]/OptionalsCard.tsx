@@ -31,13 +31,17 @@ const eur = (n: number) =>
 
 const CAT_TITLE: Record<string, string> = {
   seguro: "Seguros",
+  equipo_bici: "Equipamiento de bicicleta",
   noche_extra: "Alojamiento extra en Santiago",
   meal: "Comidas",
   transfer: "Traslados privados desde Santiago",
   tour: "Tours y experiencias",
   gift: "Recuerdos y experiencias gastronómicas",
 };
-const CAT_ORDER = ["seguro", "noche_extra", "meal", "transfer", "tour", "gift"];
+// `equipo_bici` va pegado a los seguros: en el Camino en bici el casco y el seguro de la
+// bicicleta se ofrecen en la misma conversación. Sin la categoría acá, los opcionales que
+// sembró la migración 0021 quedan invisibles (el render recorre CAT_ORDER, no el catálogo).
+const CAT_ORDER = ["seguro", "equipo_bici", "noche_extra", "meal", "transfer", "tour", "gift"];
 
 export default function OptionalsCard({
   quoteId,

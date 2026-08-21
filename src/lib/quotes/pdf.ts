@@ -7,6 +7,7 @@ import { getTRMHoy } from "@/lib/trm";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
 import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
+import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice, type BikeRow } from "@/lib/bikes/catalog";
 
 /**
  * Cliente del schema `comercial`: el de sesión (dashboard) o el admin (cotizador público,
@@ -21,7 +22,11 @@ export { buildPdfFilename } from "@/lib/storage/paths";
 
 export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId: string) {
 
-  const [{ data: quote }, { data: optionalsRaw }, { data: selectedLines }, { data: seasonSetting }, trmRow] = await Promise.all([
+  // Las líneas se traen de una sola vez para opcionales Y bicis (migración 0021). Antes se
+  // filtraba `.eq("type","optional")`, así que una bici contratada existía en la BD, sumaba
+  // al total... y no aparecía por ningún lado en el PDF. Se separan por `type` más abajo:
+  // el resumen las pinta distinto y `itineraryExtras` solo mira las opcionales.
+  const [{ data: quote }, { data: optionalsRaw }, { data: quoteLines }, { data: seasonSetting }, trmRow] = await Promise.all([
     supabase.from("quotes").select("*").eq("id", quoteId).maybeSingle(),
     supabase
       .from("optional_services")
@@ -29,13 +34,28 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
       .eq("active", true),
     supabase
       .from("quote_lines")
-      .select("description,quantity,unit_price,total,reference_id")
+      .select("type,description,quantity,unit_price,total,reference_id")
       .eq("quote_id", quoteId)
-      .eq("type", "optional"),
+      .in("type", ["optional", "bike"]),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
     getTRMHoy(supabase).catch(() => null),
   ]);
   if (!quote) return { error: "Cotización no encontrada" };
+
+  type QuoteLine = {
+    type: string;
+    description: string;
+    quantity: number | string;
+    unit_price: number | string;
+    total: number | string;
+    reference_id: string | null;
+  };
+  const allLines = (quoteLines || []) as QuoteLine[];
+  // `selectedLines` sigue significando exactamente lo de antes (solo opcionales): de acá salen
+  // el resumen de opcionales y los extras del itinerario. Si las bicis se colaran acá, una bici
+  // aparecería como "Servicio opcional" en el resumen.
+  const selectedLines = allLines.filter((l) => l.type === "optional");
+  const bikeLines = allLines.filter((l) => l.type === "bike");
 
   const seasonConfig: SeasonSupplements = ((seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS);
 
@@ -279,6 +299,71 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     ? { extraNights, extraNightTipo, tours }
     : null;
 
+  // ===== Flota de bicicletas (migración 0021) =====
+  // Se carga en las rutas en bici y, por si acaso, en cualquier cotización que ya tenga una
+  // bici contratada (si a alguien le cambian la modalidad de la ruta después de cotizar, la
+  // línea sigue existiendo y el resumen tiene que poder nombrarla).
+  const bikeYear = quoteYear(quote.start_date);
+  let bikeRows: BikeRow[] = [];
+  let bikeFleet: Array<{
+    bikeId: string;
+    categoryLabel: string;
+    name: string;
+    tagline: string | null;
+    sizes: string[];
+    sizesNote: string | null;
+    luggage: string | null;
+    priceCs: number;
+    days: number | null;
+    electric: boolean;
+  }> = [];
+  if (routeId && (route?.modality === "bici" || bikeLines.length > 0)) {
+    const [{ data: bikesRaw }, { data: bikePricesRaw }] = await Promise.all([
+      supabase.from("bikes").select(BIKE_COLUMNS).eq("active", true).order("position"),
+      supabase
+        .from("bike_prices")
+        .select("bike_id,route_id,year,days,price_pilgrim,price_cs")
+        .eq("route_id", routeId)
+        .eq("year", bikeYear),
+    ]);
+    bikeRows = ((bikesRaw || []) as Array<Record<string, unknown>>).map(normalizeBike);
+    const bikePrices = ((bikePricesRaw || []) as Array<Record<string, unknown>>).map(normalizeBikePrice);
+    // `soloConPrecio`: una bici sin tarifa del año de salida NO sale en el PDF. Mejor una
+    // flota corta que un precio inventado en un documento que va al cliente (misma regla
+    // que `comercial.pricing`: coincidencia exacta de año, sin caer al anterior).
+    bikeFleet = bikesForRouteYear(bikeRows, bikePrices, routeId, bikeYear, { soloConPrecio: true }).map((b) => ({
+      bikeId: b.id,
+      categoryLabel: b.category_label,
+      name: b.name,
+      tagline: b.tagline,
+      sizes: b.sizes,
+      sizesNote: b.sizes_note,
+      luggage: b.luggage,
+      priceCs: Number(b.price_cs) || 0,
+      days: b.days,
+      electric: b.electric,
+    }));
+  }
+
+  // Bicis contratadas: la línea guardada manda en la plata (es lo que se le cobró), y la ficha
+  // del catálogo solo aporta gama/modelo/días para nombrarla bien. Si la bici se desactivó o
+  // se borró del catálogo, la descripción guardada en la línea sigue siendo suficiente.
+  const bikeById = new Map(bikeRows.map((b) => [b.id, b]));
+  const bikeDaysById = new Map(bikeFleet.map((b) => [b.bikeId, b.days]));
+  const selectedBikes = bikeLines.map((l) => {
+    const b = l.reference_id ? bikeById.get(l.reference_id) : undefined;
+    return {
+      description: l.description,
+      categoryLabel: b?.category_label ?? null,
+      name: b?.name ?? null,
+      days: (l.reference_id ? bikeDaysById.get(l.reference_id) : null) ?? null,
+      quantity: Number(l.quantity) || 1,
+      unit_price: Number(l.unit_price) || 0,
+      total: Number(l.total) || 0,
+      bikeId: l.reference_id,
+    };
+  });
+
   // Cargar imagen de cover
   const fsMod = await import("node:fs");
   const pathMod = await import("node:path");
@@ -329,6 +414,8 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
       unit_price: Number(l.unit_price) || 0,
       total: Number(l.total) || 0,
     })),
+    bikeFleet,
+    selectedBikes,
     roomBreakdown,
     itineraryExtras,
     baseEur: Number(quote.base_eur) || Number(quote.total_eur) || 0,

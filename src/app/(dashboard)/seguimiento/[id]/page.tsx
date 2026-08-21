@@ -13,6 +13,8 @@ import ProviderPaymentsCard from "./ProviderPaymentsCard";
 import DocumentsCard from "./DocumentsCard";
 import EmailPreviewCard from "./EmailPreviewCard";
 import OptionalsCard, { type OptionalCatalog, type OptionalLine } from "./OptionalsCard";
+import BikesCard, { type BikeLine } from "./BikesCard";
+import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice } from "@/lib/bikes/catalog";
 import HotelsCard, { type InitialHotel } from "./HotelsCard";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
@@ -127,10 +129,14 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     { data: hotelsData },
     { data: contractRows },
     { data: travelers },
+    { data: bikeRows },
+    { data: bikePriceRows },
+    { data: childQuotes },
     trmRow,
   ] = await Promise.all([
     supabase.from("quotes").select("*").eq("id", id).maybeSingle(),
-    supabase.from("routes").select("id,name,days,nights,origin,destination").order("name"),
+    // `modality` viene de acá: es lo que decide si esta cotización es de camino en bici.
+    supabase.from("routes").select("id,name,days,nights,origin,destination,modality").order("name"),
     supabase
       .from("pricing")
       // Todos los años: el editor filtra por el año de salida de la cotización.
@@ -144,11 +150,13 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .from("optional_services")
       .select("id,category,name,unit,optional_prices(year,price_pilgrim,price_cs)")
       .eq("active", true),
+    // Opcionales y bicis en una sola consulta; se reparten abajo. Cada tarjeta recibe SOLO
+    // las suyas: mezclarlas haría que desmarcar en una borrara líneas de la otra.
     supabase
       .from("quote_lines")
       .select("id,reference_id,description,quantity,unit_price,total,cost_unit,type")
       .eq("quote_id", id)
-      .eq("type", "optional"),
+      .in("type", ["optional", "bike"]),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
     supabase
       .from("quote_hotels")
@@ -162,6 +170,12 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .select("id,quote_id,position,full_name,email,phone,document_type,document_number,is_holder")
       .eq("quote_id", id)
       .order("position"),
+    // La flota es de 7 modelos y sus tarifas son un puñado de filas: se traen enteras y
+    // `bikesForRouteYear` filtra por ruta y año, que solo se conocen con la cotización ya leída.
+    supabase.from("bikes").select(BIKE_COLUMNS).eq("active", true).order("position"),
+    supabase.from("bike_prices").select("bike_id,route_id,year,days,price_pilgrim,price_cs"),
+    // Si de esta cotización nació otra con la bici elegida, hay que poder saltar a ella.
+    supabase.from("quotes").select("id,code").eq("parent_quote_id", id).order("created_at"),
     getTRMHoy().catch(() => null),
   ]);
   const seasonConfig = ((seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS);
@@ -243,6 +257,42 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     })
     .filter((o) => o.price_cs > 0);
 
+  // Reparto de las líneas: la tarjeta de opcionales nunca ve una bici y viceversa.
+  const todasLasLineas = ((quoteLines as unknown) as Array<OptionalLine & { type: string }> | null) || [];
+  const normalizarLinea = (l: OptionalLine) => ({
+    id: l.id,
+    reference_id: l.reference_id,
+    description: l.description,
+    quantity: Number(l.quantity) || 1,
+    unit_price: Number(l.unit_price) || 0,
+    total: Number(l.total) || 0,
+    cost_unit: Number(l.cost_unit) || 0,
+  });
+  const optionalLines = todasLasLineas.filter((l) => l.type === "optional").map(normalizarLinea);
+  const bikeLines: BikeLine[] = todasLasLineas.filter((l) => l.type === "bike").map(normalizarLinea);
+
+  // La ruta de la cotización: por `route_id` y, en las viejas que no lo tienen, por nombre
+  // (es como la resuelve el resto de la página).
+  const routeRow = (routes || []).find((r) => (quote.route_id ? r.id === quote.route_id : r.name === quote.route_name));
+  const esRutaBici = String(routeRow?.modality || "").toLowerCase() === "bici";
+  const bikes = esRutaBici
+    ? bikesForRouteYear(
+        ((bikeRows as unknown as Record<string, unknown>[]) || []).map(normalizeBike),
+        ((bikePriceRows as unknown as Record<string, unknown>[]) || []).map(normalizeBikePrice),
+        routeRow?.id ?? null,
+        optionalYear,
+      )
+    : [];
+
+  // De qué cotización nació esta. Se consulta aparte porque el id del padre solo se conoce
+  // después de leer la cotización.
+  let parentQuote: { id: string; code: string } | null = null;
+  if (quote.parent_quote_id) {
+    const { data } = await supabase.from("quotes").select("id,code").eq("id", quote.parent_quote_id).maybeSingle();
+    parentQuote = (data as { id: string; code: string } | null) ?? null;
+  }
+  const hijas = ((childQuotes as unknown) as Array<{ id: string; code: string }> | null) || [];
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
@@ -265,6 +315,22 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
               {quote.client_name || "Sin cliente"}
               {quote.route_name ? ` · ${quote.route_name}` : ""}
             </p>
+            {/* El camino en bici deja dos cotizaciones del mismo peregrino (la de la flota y la
+                de la bici elegida). Sin estos enlaces se confunden y se trabaja sobre la vieja. */}
+            {(parentQuote || hijas.length > 0) && (
+              <p className="text-xs mt-2 flex items-center gap-3 flex-wrap">
+                {parentQuote && (
+                  <Link href={`/seguimiento/${parentQuote.id}`} className="text-bosque-medio hover:underline">
+                    ← Viene de {parentQuote.code}
+                  </Link>
+                )}
+                {hijas.map((h) => (
+                  <Link key={h.id} href={`/seguimiento/${h.id}`} className="text-bosque-medio hover:underline">
+                    Continúa en {h.code} →
+                  </Link>
+                ))}
+              </p>
+            )}
           </div>
           <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${statusColor(quote.status)}`}>{statusLabel(quote.status)}</span>
         </div>
@@ -287,21 +353,24 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       <OptionalsCard
         quoteId={id}
         catalog={optionalsCatalog}
-        selected={((quoteLines as unknown) as OptionalLine[] || []).map((l) => ({
-          id: l.id,
-          reference_id: l.reference_id,
-          description: l.description,
-          quantity: Number(l.quantity) || 1,
-          unit_price: Number(l.unit_price) || 0,
-          total: Number(l.total) || 0,
-          cost_unit: Number(l.cost_unit) || 0,
-        }))}
+        selected={optionalLines}
         baseEur={Number(quote.base_eur) || total}
         totalEur={total}
         seasonSupplementEur={Number(quote.season_supplement_eur) || 0}
         people={quote.people}
         quoteYear={optionalYear}
       />
+
+      {esRutaBici && (
+        <BikesCard
+          quoteId={id}
+          bikes={bikes}
+          selected={bikeLines}
+          totalEur={total}
+          people={quote.people}
+          quoteYear={optionalYear}
+        />
+      )}
 
       <DocumentsCard
         quoteId={id}

@@ -17,11 +17,23 @@ const eur = (n: number) =>
 
 const CAT_LABEL: Record<string, string> = {
   seguro: "Seguros",
+  // Casco y seguro de la bici (migración 0021): precio plano, no depende de la
+  // ruta, por eso son opcionales normales y no viven en bike_prices.
+  equipo_bici: "Equipamiento de bicicleta",
   noche_extra: "Alojamiento extra",
   meal: "Comidas",
   transfer: "Traslados",
   tour: "Tours",
   gift: "Gastronomía",
+};
+
+// Orden de los bloques en la tabla. Una categoría desconocida cae al final, en orden
+// alfabético, en vez de perderse: un opcional nuevo tiene que verse aunque nadie
+// haya pasado por acá a darle su lugar.
+const CAT_ORDER = Object.keys(CAT_LABEL);
+const catRank = (cat: string) => {
+  const i = CAT_ORDER.indexOf(cat);
+  return i === -1 ? CAT_ORDER.length : i;
 };
 
 export default function OptionalsTable({ initialRows, year }: { initialRows: Opt[]; year: number }) {
@@ -74,9 +86,11 @@ export default function OptionalsTable({ initialRows, year }: { initialRows: Opt
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {[...byCat.entries()].map(([cat, items]) => (
-              <Section key={cat} cat={cat} items={items} savingId={savingId} initialRows={initialRows} handleChange={handleChange} handleBlur={handleBlur} />
-            ))}
+            {[...byCat.entries()]
+              .sort(([a], [b]) => catRank(a) - catRank(b) || a.localeCompare(b))
+              .map(([cat, items]) => (
+                <Section key={cat} cat={cat} items={items} savingId={savingId} initialRows={initialRows} handleChange={handleChange} handleBlur={handleBlur} />
+              ))}
             {rows.length === 0 && (
               <tr><td colSpan={5} className="px-4 py-12 text-center text-muted">Sin opcionales cargados.</td></tr>
             )}

@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Claude Code local session files
 .claude/
+
+# PDFs generados por scripts (el catálogo de bicis se regenera cuando haga falta)
+/scripts/out/
