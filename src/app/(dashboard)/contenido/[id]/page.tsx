@@ -3,6 +3,7 @@ import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { leerSlides } from "@/lib/contenido/tipos";
 import { esFormatoId, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
 import { PLANTILLAS_LISTA, valoresPorDefecto } from "@/lib/contenido/plantillas/registry";
+import { listarBanco, listarSubidas } from "@/lib/contenido/fotos";
 import Editor from "./Editor";
 
 // El editor guarda contra la base todo el tiempo: nunca puede pintar una versión cacheada.
@@ -11,12 +12,13 @@ export const dynamic = "force-dynamic";
 export default async function PiezaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
+  // Un solo viaje para todo lo que necesita la pantalla, como en seguimiento/[id].
   const supabase = await createPublicSchemaClient();
-  const { data: pieza } = await supabase
-    .from("contenido_piezas")
-    .select("id,titulo,formato,slides")
-    .eq("id", id)
-    .maybeSingle();
+  const [{ data: pieza }, banco, subidas] = await Promise.all([
+    supabase.from("contenido_piezas").select("id,titulo,formato,slides").eq("id", id).maybeSingle(),
+    listarBanco(),
+    listarSubidas(),
+  ]);
 
   if (!pieza) notFound();
 
@@ -39,6 +41,8 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
       slidesIniciales={slides}
       definiciones={definiciones}
       valoresPorDefectoPorPlantilla={porDefecto}
+      banco={banco}
+      subidas={subidas}
     />
   );
 }

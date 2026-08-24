@@ -133,7 +133,7 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
       *Ojo: no hay datos de desnivel (`route_stages` = day, from_place, to_place, km,
       accommodation, notes). Nada de "perfil de elevación": barras de km, que es lo que hay.*
 
-- [ ] **Etapa 5 — Fotos, de las cuatro fuentes**
+- [x] **Etapa 5 — Fotos, de las cuatro fuentes**
       Archivos: `src/app/(dashboard)/contenido/[id]/SelectorFoto.tsx`, `src/lib/contenido/fotos.ts`.
       Decisión clave: la subida va **navegador → Supabase Storage** con `createPublicClient()` de
       `src/lib/supabase/client.ts`, no por Server Action (el `bodySizeLimit` es 15 MB y una carpeta
@@ -266,3 +266,20 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
 - **Lo que NO pude verificar:** la interacción del editor a golpe de clic, porque exige
   iniciar sesión por magic link. El cableado (rutas, acciones, tipos, build) sí está
   comprobado. Queda para la prueba manual de punta a punta.
+
+### Etapa 5 — 2026-08-24  (se adelantó a la Etapa 4)
+- **Reordené a propósito:** fotos y exportar van ANTES que las siete plantillas que
+  faltan. Con dos plantillas y sin fotos ni exportación el módulo no sirve para nada;
+  con fotos y exportación ya es una herramienta usable, aunque tenga pocas plantillas.
+  La Etapa 4 (resto del catálogo y gráficos) queda de siguiente.
+- Cuatro fuentes de foto: **Banco** (las 177 de `public.fotos`, marcando las ya
+  publicadas), **Mis fotos** (`contenido_fotos`), **Subir** (archivos sueltos o una
+  carpeta entera con `webkitdirectory`) y **Sin foto** (fondo verde de marca).
+- **La subida va navegador → Storage directo**, con `createPublicClient()`, no por Server
+  Action: el `bodySizeLimit` es de 15 MB y una carpeta de fotos de cámara lo revienta sin
+  decir por qué. La Server Action solo registra la fila después.
+- Sin carga masiva previa, como pediste: la foto se sube en el momento de armar el post.
+- Control de la trampa pasado: después de todo esto `public.fotos` **sigue en 177** y los
+  buckets `contenido-fotos` / `contenido-piezas` existen. El estudio no le tocó la cola
+  al bot.
+- La foto no se guarda con debounce sino de una: no se escribe letra a letra.

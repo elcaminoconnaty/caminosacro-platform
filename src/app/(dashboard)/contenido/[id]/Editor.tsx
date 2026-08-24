@@ -5,11 +5,13 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { FORMATOS_LISTA, type FormatoId } from "@/lib/contenido/formatos";
 import { hashSlide } from "@/lib/contenido/hashSlide";
-import type { DefinicionPlantilla, Slide } from "@/lib/contenido/tipos";
+import type { DefinicionPlantilla, Slide, FotoSlide } from "@/lib/contenido/tipos";
+import type { FotoDelBanco, FotoSubida } from "@/lib/contenido/fotos";
 import { guardarSlides, cambiarFormato } from "./actions";
 import Lienzo from "./Lienzo";
 import PanelCampos from "./PanelCampos";
 import TiraSlides from "./TiraSlides";
+import SelectorFoto from "./SelectorFoto";
 
 export type EditorProps = {
   piezaId: string;
@@ -19,6 +21,8 @@ export type EditorProps = {
   /** El registry serializado: el servidor no puede mandar componentes al cliente. */
   definiciones: DefinicionPlantilla[];
   valoresPorDefectoPorPlantilla: Record<string, Record<string, string>>;
+  banco: FotoDelBanco[];
+  subidas: FotoSubida[];
 };
 
 const DEBOUNCE_MS = 600;
@@ -30,6 +34,8 @@ export default function Editor({
   slidesIniciales,
   definiciones,
   valoresPorDefectoPorPlantilla,
+  banco,
+  subidas,
 }: EditorProps) {
   const [slides, setSlides] = useState<Slide[]>(slidesIniciales);
   const [formato, setFormato] = useState<FormatoId>(formatoInicial);
@@ -96,6 +102,12 @@ export default function Editor({
     if (aGuardar) guardar(aGuardar, i);
     else setVersion(hashSlide(slides[i] ?? null, formato));
     setActivo(i);
+  };
+
+  const cambiarFoto = (foto: FotoSlide | null) => {
+    const nuevos = slides.map((s, i) => (i === activo ? { ...s, foto } : s));
+    // La foto no se escribe letra a letra: se guarda de una, sin esperar el debounce.
+    aplicarYGuardar(nuevos, activo);
   };
 
   const cambiarCampo = (campoId: string, valor: string) => {
@@ -234,10 +246,15 @@ export default function Editor({
                 onCambio={cambiarCampo}
               />
               {defActiva.usaFoto && (
-                <p className="mt-4 pt-3 border-t border-border text-[11px] text-muted leading-snug">
-                  El selector de fotos llega en la siguiente etapa. Por ahora esta plantilla
-                  se dibuja con el fondo verde de marca.
-                </p>
+                <div className="mt-4 pt-4 border-t border-border">
+                  <span className="block text-xs text-fg mb-2">Foto</span>
+                  <SelectorFoto
+                    banco={banco}
+                    subidasIniciales={subidas}
+                    seleccionada={slideActivo?.foto ?? null}
+                    onElegir={cambiarFoto}
+                  />
+                </div>
               )}
             </>
           ) : (
