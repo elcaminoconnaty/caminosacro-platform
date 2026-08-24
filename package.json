@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "puente": "tsx scripts/worker_contenido.ts",
+    "puente:instalar": "bash scripts/instalar_puente.sh"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.241",

@@ -576,5 +576,33 @@ que nada lo dijera).
 
 ### Desde fuera de la casa
 
-Hace falta un túnel — no está montado todavía. La opción cómoda es Cloudflare Tunnel con
-una dirección fija tipo `estudio.caminosacro.com`, que exige tener el dominio en Cloudflare.
+**Ya funciona: se usa el enlace de siempre**, el de Railway. No hace falta túnel ni estar
+en la misma red. Copy e ideas también, gracias al puente.
+
+## El puente: cómo funcionan copy e ideas sin clave de API
+
+La suscripción de Claude Code vive en el llavero del computador de Nico. Un servidor no
+puede usarla. Así que la plataforma no habla con Claude: **deja el encargo en una cola** y
+un programita que corre en ese computador lo resuelve y escribe la respuesta.
+
+```
+Quien sea, desde cualquier navegador  →  aprieta "Sugerir copy"
+Plataforma (Railway)                  →  deja el encargo en contenido_trabajos
+Puente (computador de Nico)           →  lo resuelve con la suscripción y responde
+Plataforma                            →  la respuesta aparece sola en pantalla
+```
+
+Lo importante: **el computador solo hace llamadas salientes**. Sin puertos abiertos, sin
+IP fija, sin túnel. Funciona con el portátil en la wifi de un café.
+
+- **Está instalado y arranca solo** al encender el computador (launchd).
+- Ver el log: `tail -f ~/Library/Logs/caminosacro-puente.log`
+- Arrancarlo a mano: `npm run puente` · Reinstalarlo: `npm run puente:instalar`
+- Quitarlo: `launchctl bootout gui/$(id -u)/com.caminosacro.puente`
+- La pantalla dice si el computador está escuchando. Si está apagado, el encargo **queda
+  en cola** y se resuelve solo cuando se encienda; nada sale por la API.
+- Medido de punta a punta: **13 segundos** desde que se aprieta el botón.
+
+El puente es deliberadamente tonto: el prompt ya viene armado desde la plataforma, así que
+toda la lógica de voz y de negocio se despliega con la app y `scripts/worker_contenido.ts`
+puede quedarse quieto meses.

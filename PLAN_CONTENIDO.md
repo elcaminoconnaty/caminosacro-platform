@@ -431,3 +431,52 @@ entrar desde el celular estaba roto y nada lo decía. Ahora lleva comodines de s
 - Misma ruta: `"Santaigo de Compostela"` → `"Santiago de Compostela"`, también impreso.
 - `token_pricing`: los bots de blog estaban a **15/75** USD por millón; Opus 4.7 cuesta
   **5/25**. El informe de costo del blog venía inflado ~3x.
+
+### Revisión 2026-08-24 (3ª) — el puente: copy e ideas desde cualquier navegador
+
+**El problema.** La suscripción de Claude Code vive en el llavero del computador de Nico.
+Un servidor no puede usarla, y no es algo que se pueda programar alrededor. Pero el módulo
+tiene que funcionar desde el enlace de siempre (Railway), para él y para su esposa, desde
+donde estén y sin atarse a una IP.
+
+**La solución: una cola, no un túnel.**
+```
+Quien sea, desde cualquier navegador  →  "Sugerir copy"
+Plataforma (Railway)                  →  encola en public.contenido_trabajos
+Puente (computador de Nico)           →  lo resuelve con la suscripción y responde
+Plataforma                            →  la respuesta aparece sola
+```
+Lo que esto compra: **el computador SOLO HACE LLAMADAS SALIENTES**. Sin puertos abiertos,
+sin IP fija, sin túnel, sin router. Funciona con el portátil en la wifi de un café. Y se
+descartó el túnel a propósito: exigiría hostname estable, credenciales e inbound, y dejaría
+la máquina de casa expuesta a internet para no ganar nada a cambio.
+
+**Decisión tomada (Nico, explícita):** si el computador está apagado, el encargo **espera en
+cola** y la pantalla lo dice. Nada sale por la API, ni como respaldo.
+
+**Separación worker / plataforma.** El puente es deliberadamente TONTO: recibe
+`{system, user, schema}` ya armados y solo los despacha. No sabe de rutas, ni de precios,
+ni de la voz. Así toda la lógica de negocio se despliega con la app y
+`scripts/worker_contenido.ts` puede quedarse quieto meses. Para lograrlo hubo que partir
+`copy.ts` e `ideas.ts` en dos: `construirEncargo*()` (arma el prompt, vive en la app) e
+`interpretar*()` (valida y revisa la voz al volver).
+
+**Robustez de la cola.**
+- `contenido_tomar_trabajo()` usa `for update skip locked`: dos computadores nunca se
+  pelean el mismo encargo.
+- `contenido_rescatar_trabajos()` devuelve a la cola lo que lleve más de 5 minutos
+  "tomado" —un portátil que se cerró a mitad— y lo marca error definitivo a los 3 intentos.
+- Latido cada 30 s en `contenido_worker`; la plataforma considera "encendido" por debajo de
+  90 s. Con eso la pantalla puede decir la verdad ANTES de que alguien encargue nada.
+- La pantalla sondea cada 2,5–3 s y distingue tres estados: *escribiendo en tu computador*,
+  *en cola con N por delante*, y *esperando a que enciendan el computador*. Nada de spinner
+  mudo.
+
+**Arranca solo.** `npm run puente:instalar` lo registra en launchd (`RunAtLoad` +
+`KeepAlive`): arranca al encender el computador y se reinicia si se cae. **Instalado y
+verificado corriendo.** Log en `~/Library/Logs/caminosacro-puente.log`.
+Detalle que rompe esto si se olvida: launchd arranca con un PATH mínimo y no encuentra
+`node`; el plist lo inyecta explícitamente.
+
+**Probado de punta a punta:** encargo encolado a mano → el puente lo tomó, lo resolvió con
+la suscripción y escribió la respuesta. **13 segundos** en total. Latido visible y correcto.

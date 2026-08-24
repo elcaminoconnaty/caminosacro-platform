@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { createCommercialClient } from "@/lib/supabase/server";
-import { pedirEstructurado } from "./claude";
+import { aJsonSchema, type Encargo } from "./encargo";
 import { SYSTEM_PROMPT, PILARES, RUTAS } from "./estrategia";
 import { PLANTILLAS_LISTA } from "./plantillas/registry";
 
@@ -24,7 +24,7 @@ import { PLANTILLAS_LISTA } from "./plantillas/registry";
  */
 const UMBRAL_SENAL = 5;
 
-const Ideas = z.object({
+export const RespuestaIdeas = z.object({
   ideas: z
     .array(
       z.object({
@@ -171,11 +171,14 @@ async function temaDeLaSemana(): Promise<string> {
   return data.map((d) => `- ${d.fecha} · ${d.categoria ?? ""}: ${d.titulo} (keyword: ${d.keyword ?? "—"})`).join("\n");
 }
 
-export type IdeaGenerada = z.infer<typeof Ideas>["ideas"][number] & {
+export type IdeaGenerada = z.infer<typeof RespuestaIdeas>["ideas"][number] & {
   evidencia: { items: Evidencia[]; nota: string };
 };
 
-export async function sugerirQuePublicar(): Promise<IdeaGenerada[]> {
+/** Contexto con el que se armó el encargo: hay que guardarlo para adjuntarlo a las ideas. */
+export type ContextoIdeas = { items: Evidencia[]; nota: string };
+
+export async function construirEncargoIdeas(): Promise<{ encargo: Encargo; contexto: ContextoIdeas }> {
   const [pilares, aprendizaje, demanda, sinPublicar, calendario] = await Promise.all([
     rendimientoPorPilar(),
     aprendizajeVigente(),
@@ -223,12 +226,6 @@ ${RUTAS.filter((r) => r.desde).map((r) => `- ${r.nombre}: desde ${r.desde}€ �
 
 FORMATOS: 4x5 (carrusel de feed, el que más rinde), 1x1, 9x16 (historia), reel (portada).`;
 
-  const r = await pedirEstructurado(Ideas, {
-    system: SYSTEM_PROMPT,
-    user,
-    canal: "ideas",
-  });
-
   const items = [...pilares.evidencias, ...demanda.evidencias];
   const debiles = items.filter((e) => e.senal_debil).length;
   const nota =
@@ -236,5 +233,18 @@ FORMATOS: 4x5 (carrusel de feed, el que más rinde), 1x1, 9x16 (historia), reel 
       ? `${debiles} de ${items.length} señales tienen muestra pequeña (n < ${UMBRAL_SENAL}). Tómalas como indicio, no como conclusión.`
       : `Todas las señales superan n = ${UMBRAL_SENAL}.`;
 
-  return r.ideas.map((i) => ({ ...i, evidencia: { items, nota } }));
+  return {
+    encargo: { system: SYSTEM_PROMPT, user, schema: aJsonSchema(RespuestaIdeas) },
+    contexto: { items, nota },
+  };
+}
+
+/** Valida lo que devolvió el worker y le pega la evidencia con la que se pidió. */
+export function interpretarIdeas(crudo: unknown, contexto: ContextoIdeas) {
+  const r = RespuestaIdeas.safeParse(crudo);
+  if (!r.success) return { error: "Claude respondió con una lista que no encaja. Vuelve a intentarlo." };
+  return {
+    ok: true as const,
+    ideas: r.data.ideas.map((i) => ({ ...i, evidencia: contexto })) as IdeaGenerada[],
+  };
 }

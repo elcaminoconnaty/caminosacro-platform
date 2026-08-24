@@ -3,13 +3,18 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Sparkles, CircleCheck, TriangleAlert } from "lucide-react";
 import type { Hallazgo } from "@/lib/contenido/vozLint";
-import { pedirCopy, guardarCopyPieza, revisarCopy } from "./copyActions";
+import { encargarCopy, recogerCopy, guardarCopyPieza, revisarCopy } from "./copyActions";
 
 export type BarraCopyProps = {
   piezaId: string;
   captionInicial: string;
   hashtagsIniciales: string;
+  /** Si el computador de Nico está encendido y escuchando la cola. */
+  workerEncendido: boolean;
 };
+
+/** Cada cuánto se pregunta si el encargo ya está listo. */
+const ESPERA_MS = 2500;
 
 /**
  * El caption y sus hashtags, con el revisor de voz siempre encendido.
@@ -18,13 +23,18 @@ export type BarraCopyProps = {
  * markdown, listas, frases cliché, más de un emoji, hashtags fuera de la lista curada.
  * Corre sobre lo que escriba el usuario Y sobre lo que devuelva Claude, sin excepción.
  */
-export default function BarraCopy({ piezaId, captionInicial, hashtagsIniciales }: BarraCopyProps) {
+export default function BarraCopy({ piezaId, captionInicial, hashtagsIniciales, workerEncendido }: BarraCopyProps) {
   const [caption, setCaption] = useState(captionInicial);
   const [hashtags, setHashtags] = useState(hashtagsIniciales);
   const [hallazgos, setHallazgos] = useState<Hallazgo[]>([]);
   const [aviso, setAviso] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
+  const [esperando, setEsperando] = useState<{ posicion: number } | null>(null);
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sondeo = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Se limpia el sondeo si el usuario se va de la página a mitad de un encargo.
+  useEffect(() => () => { if (sondeo.current) clearTimeout(sondeo.current); }, []);
 
   // Guardado y revisión con la misma espera que el resto del editor.
   useEffect(() => {
@@ -41,6 +51,35 @@ export default function BarraCopy({ piezaId, captionInicial, hashtagsIniciales }
     };
   }, [caption, hashtags, piezaId]);
 
+  /**
+   * Pregunta cada pocos segundos si el encargo ya está. No es un spinner mudo: mientras
+   * espera dice si el computador está escuchando o si el encargo quedó en cola esperando
+   * a que lo enciendan, que es la diferencia que le importa a quien está mirando.
+   */
+  function sondear(trabajoId: number) {
+    if (sondeo.current) clearTimeout(sondeo.current);
+    sondeo.current = setTimeout(() => {
+      void (async () => {
+        const r = await recogerCopy(piezaId, trabajoId);
+        if ("esperando" in r && r.esperando) {
+          setEsperando({ posicion: r.posicion ?? 0 });
+          sondear(trabajoId);
+          return;
+        }
+        setEsperando(null);
+        if ("error" in r && r.error) {
+          setAviso(r.error);
+          return;
+        }
+        if ("ok" in r && r.ok) {
+          setCaption(r.caption ?? "");
+          setHashtags(r.hashtags ?? "");
+          setHallazgos(r.hallazgos ?? []);
+        }
+      })();
+    }, ESPERA_MS);
+  }
+
   const errores = hallazgos.filter((h) => h.gravedad === "error");
 
   return (
@@ -49,26 +88,24 @@ export default function BarraCopy({ piezaId, captionInicial, hashtagsIniciales }
         <span className="text-sm text-fg">Copy del post</span>
         <button
           type="button"
-          disabled={pendiente}
+          disabled={pendiente || esperando !== null}
           onClick={() =>
             iniciar(async () => {
               setAviso(null);
-              const r = await pedirCopy(piezaId);
+              const r = await encargarCopy(piezaId);
               if ("error" in r && r.error) {
                 setAviso(r.error);
                 return;
               }
-              if ("ok" in r && r.ok) {
-                setCaption(r.caption ?? "");
-                setHashtags(r.hashtags ?? "");
-                setHallazgos(r.hallazgos ?? []);
-              }
+              if (!("trabajoId" in r) || r.trabajoId == null) return;
+              setEsperando({ posicion: 0 });
+              sondear(r.trabajoId);
             })
           }
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-bosque text-white text-xs hover:bg-bosque-medio transition disabled:opacity-50"
         >
           <Sparkles size={12} />
-          {pendiente ? "Escribiendo…" : "Sugerir copy"}
+          {esperando ? "Encargado…" : pendiente ? "Encargando…" : "Sugerir copy"}
         </button>
       </div>
 
@@ -91,6 +128,16 @@ export default function BarraCopy({ piezaId, captionInicial, hashtagsIniciales }
         <span>{caption.length} caracteres</span>
         <span>· {(hashtags.match(/#/g) ?? []).length} hashtags</span>
       </div>
+
+      {esperando && (
+        <p className="text-[11px] text-muted leading-snug">
+          {workerEncendido
+            ? esperando.posicion > 0
+              ? `En cola, con ${esperando.posicion} encargo(s) por delante. Suele tardar unos segundos.`
+              : "Escribiendo en tu computador. Suele tardar unos segundos."
+            : "Encargado. Está esperando a que el computador de Nico esté encendido; en cuanto lo esté, el copy aparece solo aquí."}
+        </p>
+      )}
 
       {aviso && <p className="text-[11px] text-dorado-oscuro leading-snug">{aviso}</p>}
 

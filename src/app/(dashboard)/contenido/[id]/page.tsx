@@ -5,6 +5,7 @@ import { esFormatoId, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
 import { PLANTILLAS_LISTA, valoresPorDefecto } from "@/lib/contenido/plantillas/registry";
 import { listarBanco, listarSubidas } from "@/lib/contenido/fotos";
 import { listarRutas } from "@/lib/contenido/datos";
+import { estadoDelWorker } from "@/lib/contenido/cola";
 import Editor from "./Editor";
 import BarraCopy from "./BarraCopy";
 
@@ -16,11 +17,12 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
 
   // Un solo viaje para todo lo que necesita la pantalla, como en seguimiento/[id].
   const supabase = await createPublicSchemaClient();
-  const [{ data: pieza }, banco, subidas, rutas] = await Promise.all([
+  const [{ data: pieza }, banco, subidas, rutas, worker] = await Promise.all([
     supabase.from("contenido_piezas").select("id,titulo,formato,slides,caption,hashtags").eq("id", id).maybeSingle(),
     listarBanco(),
     listarSubidas(),
     listarRutas(),
+    estadoDelWorker(),
   ]);
 
   if (!pieza) notFound();
@@ -54,6 +56,7 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
           piezaId={pieza.id}
           captionInicial={pieza.caption ?? ""}
           hashtagsIniciales={pieza.hashtags ?? ""}
+          workerEncendido={worker.encendido}
         />
       </div>
     </div>

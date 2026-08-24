@@ -5,6 +5,7 @@ import PiezasGrid, { type FilaPieza } from "./PiezasGrid";
 import NuevaPieza from "./NuevaPieza";
 import IdeasPanel, { type FilaIdea } from "./IdeasPanel";
 import ResumenMetricas from "./ResumenMetricas";
+import { estadoDelWorker } from "@/lib/contenido/cola";
 
 // La bandeja se mira después de guardar en el editor: nunca puede venir cacheada.
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function ContenidoPage() {
   // Un solo viaje para toda la pantalla, como en seguimiento/[id].
   const supabase = await createPublicSchemaClient();
-  const [{ data, error }, { data: ideasData }] = await Promise.all([
+  const [{ data, error }, { data: ideasData }, worker] = await Promise.all([
     supabase
       .from("contenido_piezas")
       .select("id,titulo,formato,estado,slides,updated_at")
@@ -25,6 +26,7 @@ export default async function ContenidoPage() {
       .eq("estado", "nueva")
       .order("created_at", { ascending: false })
       .limit(12),
+    estadoDelWorker(),
   ]);
 
   const filas: FilaPieza[] = (data ?? []).map((p) => ({
@@ -61,7 +63,11 @@ export default async function ContenidoPage() {
           <ResumenMetricas />
           <PiezasGrid filas={filas} />
         </div>
-        <IdeasPanel ideas={(ideasData ?? []) as FilaIdea[]} />
+        <IdeasPanel
+          ideas={(ideasData ?? []) as FilaIdea[]}
+          workerEncendido={worker.encendido}
+          workerHace={worker.hace_seg}
+        />
       </div>
     </div>
   );

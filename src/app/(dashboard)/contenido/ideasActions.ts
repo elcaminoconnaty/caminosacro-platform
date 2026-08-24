@@ -4,35 +4,61 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
-import { sugerirQuePublicar } from "@/lib/contenido/ideas";
-import { ClaudeNoDisponible } from "@/lib/contenido/claude";
+import { construirEncargoIdeas, interpretarIdeas, type ContextoIdeas } from "@/lib/contenido/ideas";
+import { encolar, consultarTrabajo, marcarConsumido, estadoDelWorker } from "@/lib/contenido/cola";
 import { esFormatoId, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
 import { plantilla, valoresPorDefecto } from "@/lib/contenido/plantillas/registry";
 import type { Slide } from "@/lib/contenido/tipos";
 
-export async function generarIdeas() {
+/**
+ * Encarga las ideas. Igual que el copy: no habla con Claude, deja el pedido en la cola.
+ * El contexto con el que se armó (las evidencias y su n) viaja dentro del encargo para
+ * poder pegárselo a las ideas cuando vuelvan.
+ */
+export async function encargarIdeas() {
   try {
-    const ideas = await sugerirQuePublicar();
-    const supabase = await createPublicSchemaClient();
-    const { error } = await supabase.from("contenido_ideas").insert(
-      ideas.map((i) => ({
-        titular: i.titular,
-        pilar: i.pilar,
-        formato: i.formato,
-        plantilla_sugerida: i.plantilla_sugerida,
-        angulo: i.angulo,
-        razon: i.razon,
-        evidencia: i.evidencia,
-        ruta_nombre: i.ruta_nombre,
-      })),
-    );
-    if (error) return { error: mensajeError(error) };
-    revalidatePath("/contenido");
-    return { ok: true as const, cuantas: ideas.length };
+    const { encargo, contexto } = await construirEncargoIdeas();
+    const r = await encolar("ideas", { ...encargo, contexto } as never);
+    if ("error" in r && r.error) return { error: r.error };
+    const worker = await estadoDelWorker();
+    return { ok: true as const, trabajoId: r.trabajoId, workerEncendido: worker.encendido, contexto };
   } catch (e) {
-    if (e instanceof ClaudeNoDisponible) return { error: e.message };
-    return { error: e instanceof Error ? e.message : "No se pudieron generar ideas." };
+    return { error: e instanceof Error ? e.message : "No se pudo preparar el encargo de ideas." };
   }
+}
+
+/** Pregunta si el encargo ya está. Si lo está, guarda las ideas en la bandeja. */
+export async function recogerIdeas(trabajoId: number, contexto: ContextoIdeas) {
+  const t = await consultarTrabajo(trabajoId);
+
+  if (t.estado === "pendiente" || t.estado === "tomado") {
+    return { esperando: true as const, posicion: t.posicion };
+  }
+  if (t.estado === "error") return { error: t.error };
+  if (t.estado !== "listo") return { error: "Ese encargo ya no existe." };
+
+  const r = interpretarIdeas(t.resultado, contexto);
+  if (!("ok" in r) || !r.ideas) return { error: "error" in r ? r.error : "Respuesta inesperada." };
+  const ideas = r.ideas;
+
+  const supabase = await createPublicSchemaClient();
+  const { error } = await supabase.from("contenido_ideas").insert(
+    ideas.map((i) => ({
+      titular: i.titular,
+      pilar: i.pilar,
+      formato: i.formato,
+      plantilla_sugerida: i.plantilla_sugerida,
+      angulo: i.angulo,
+      razon: i.razon,
+      evidencia: i.evidencia,
+      ruta_nombre: i.ruta_nombre,
+    })),
+  );
+  if (error) return { error: mensajeError(error) };
+
+  await marcarConsumido(trabajoId);
+  revalidatePath("/contenido");
+  return { ok: true as const, cuantas: ideas.length };
 }
 
 /**
@@ -65,7 +91,6 @@ export async function aceptarIdea(id: number) {
     },
   ];
 
-  // El slide que la idea sugiere, si esa plantilla existe y no es ya la portada.
   const sugerida = idea.plantilla_sugerida ? plantilla(idea.plantilla_sugerida) : null;
   if (sugerida && sugerida.definicion.id !== "portada-ruta" && sugerida.definicion.rol !== "cierre") {
     slides.push({
@@ -91,10 +116,7 @@ export async function aceptarIdea(id: number) {
 
   if (error) return { error: mensajeError(error) };
 
-  await supabase
-    .from("contenido_ideas")
-    .update({ estado: "usada", pieza_id: pieza.id })
-    .eq("id", id);
+  await supabase.from("contenido_ideas").update({ estado: "usada", pieza_id: pieza.id }).eq("id", id);
 
   revalidatePath("/contenido");
   redirect(`/contenido/${pieza.id}`);

@@ -1,9 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Check, X, TriangleAlert } from "lucide-react";
-import { generarIdeas, aceptarIdea, descartarIdea } from "./ideasActions";
+import { Sparkles, Check, X, TriangleAlert, Laptop } from "lucide-react";
+import { encargarIdeas, recogerIdeas, aceptarIdea, descartarIdea } from "./ideasActions";
+import type { ContextoIdeas } from "@/lib/contenido/ideas";
+
+/** Cada cuánto se pregunta si el encargo ya está listo. */
+const ESPERA_MS = 3000;
 
 export type FilaIdea = {
   id: number;
@@ -16,10 +20,38 @@ export type FilaIdea = {
   evidencia: { nota?: string } | null;
 };
 
-export default function IdeasPanel({ ideas }: { ideas: FilaIdea[] }) {
+export default function IdeasPanel({
+  ideas,
+  workerEncendido,
+  workerHace,
+}: {
+  ideas: FilaIdea[];
+  workerEncendido: boolean;
+  workerHace: number | null;
+}) {
   const router = useRouter();
   const [pendiente, iniciar] = useTransition();
   const [aviso, setAviso] = useState<string | null>(null);
+  const [esperando, setEsperando] = useState(false);
+  const sondeo = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (sondeo.current) clearTimeout(sondeo.current); }, []);
+
+  function sondear(trabajoId: number, contexto: ContextoIdeas) {
+    if (sondeo.current) clearTimeout(sondeo.current);
+    sondeo.current = setTimeout(() => {
+      void (async () => {
+        const r = await recogerIdeas(trabajoId, contexto);
+        if ("esperando" in r && r.esperando) {
+          sondear(trabajoId, contexto);
+          return;
+        }
+        setEsperando(false);
+        if ("error" in r && r.error) setAviso(r.error);
+        else router.refresh();
+      })();
+    }, ESPERA_MS);
+  }
 
   return (
     <section className="bg-bg-card border border-border rounded-xl overflow-hidden">
@@ -32,21 +64,43 @@ export default function IdeasPanel({ ideas }: { ideas: FilaIdea[] }) {
         </div>
         <button
           type="button"
-          disabled={pendiente}
+          disabled={pendiente || esperando}
           onClick={() =>
             iniciar(async () => {
               setAviso(null);
-              const r = await generarIdeas();
-              if ("error" in r && r.error) setAviso(r.error);
-              else router.refresh();
+              const r = await encargarIdeas();
+              if ("error" in r && r.error) {
+                setAviso(r.error);
+                return;
+              }
+              if (!("trabajoId" in r) || r.trabajoId == null || !r.contexto) return;
+              setEsperando(true);
+              sondear(r.trabajoId, r.contexto);
             })
           }
           className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-bosque text-white text-xs hover:bg-bosque-medio transition disabled:opacity-50"
         >
           <Sparkles size={13} />
-          {pendiente ? "Pensando…" : "Sugerir ideas"}
+          {esperando ? "Encargado…" : pendiente ? "Encargando…" : "Sugerir ideas"}
         </button>
       </div>
+
+      <p className="px-5 py-2 border-b border-border flex items-center gap-1.5 text-[11px] text-muted">
+        <Laptop size={12} className={workerEncendido ? "text-bosque-medio" : "text-muted"} />
+        {workerEncendido
+          ? "El computador está conectado: las sugerencias salen en segundos."
+          : workerHace != null && workerHace < 86400
+            ? `El computador no está escuchando (último latido hace ${Math.round(workerHace / 60)} min). Puedes encargar igual: queda en cola.`
+            : "El computador no está escuchando. Puedes encargar igual: queda en cola y se resuelve al encenderlo."}
+      </p>
+
+      {esperando && (
+        <p className="px-5 py-2 text-[11px] text-muted border-b border-border leading-snug">
+          {workerEncendido
+            ? "Pensando en tu computador. Suele tardar unos segundos."
+            : "Encargado. Esperando a que el computador esté encendido; las ideas aparecerán solas aquí."}
+        </p>
+      )}
 
       {aviso && (
         <p className="px-5 py-3 text-[11px] text-dorado-oscuro border-b border-border leading-snug">{aviso}</p>
