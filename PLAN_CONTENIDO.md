@@ -376,3 +376,58 @@ En `comercial.settings.token_pricing`, los bots `blog` y `blog_naty` están carg
 `claude-opus-4-7` a **15/75 USD por millón**. El precio real de Opus 4.7 es **5/25**. El
 reporte de costos del blog está inflado unas 3 veces. No lo corregí porque cambia cifras
 históricas que quizá estén siguiendo.
+
+### Revisión 2026-08-24 (2ª) — suscripción en vez de API, y el catálogo como fuente única
+
+**1. Copy e ideas van por la SUSCRIPCIÓN, no por la API.**
+Se quitó `@anthropic-ai/sdk` y entró `@anthropic-ai/claude-agent-sdk`, que se apoya en el
+CLI de Claude Code ya instalado y logueado. Cero claves, cero cobro por token.
+- **La contrapartida hay que tenerla presente:** esa sesión vive en el computador. En
+  Railway no hay CLI ni sesión, así que "Sugerir copy" y "Sugerir ideas" **no funcionan
+  allá** y avisan con un mensaje claro (`ClaudeNoDisponible`). Todo lo demás —diseñar,
+  elegir ruta, fotos, exportar— funciona igual en los dos lados.
+- El agente corre **aislado**: `allowedTools: []`, `permissionMode: 'dontAsk'`,
+  `settingSources: []`. Sin esto cargaría los CLAUDE.md del repo y mezclaría las
+  instrucciones del proyecto con la voz de la marca. Y sin `dontAsk`, un permiso pedido
+  dentro de una Server Action se quedaría esperando una respuesta que nadie va a dar.
+- `@anthropic-ai/claude-agent-sdk` va en `serverExternalPackages`: lanza un binario nativo
+  como subproceso y empaquetarlo rompe la resolución.
+- **Trampa que costó media hora:** zod v4 mete `$schema` (draft 2020-12) en el JSON Schema
+  y el CLI lo rechaza con *"no schema with key or ref…"*. Hay que quitárselo. Queda escrito
+  en el código.
+- Probado de verdad contra la sesión local: respuesta estructurada correcta en **5,5 s**.
+- `comercial.settings.token_pricing.contenido` queda a **precio 0**: los tokens se siguen
+  registrando (sirven para ver volumen) pero mostrar dólares que nadie cobra sería mentir
+  en el informe de `/tokens`.
+
+**2. El catálogo de la plataforma es la ÚNICA fuente de verdad.**
+Antes los datos de ruta se copiaban dentro del slide y ahí se quedaban. Ahora
+`refrescarDesdeCatalogo()` los relee justo antes de dibujar y antes de pedir el copy: si
+cambias un precio en Catálogo, la pieza lo refleja sola. Lo guardado en el slide queda solo
+de respaldo por si la ruta desaparece del catálogo, para que una pieza vieja no se rompa.
+Vive en la capa de servidor (endpoint y acciones), **no dentro del render**, para que el
+smoke siga corriendo sin base de datos.
+
+**3. `vozLint` reforzado: el voseo se colaba.**
+El primer copy generado de verdad decía *"vivís"*, *"escribile"* y *"arrancá"* — voseo
+argentino, que la estrategia prohíbe expresamente — y el revisor lo dejaba pasar con sus
+siete formas iniciales. Ahora lleva ~50, y sobre todo cubre el patrón que más se cuela: el
+**imperativo voseante** (`arrancá`, `vení`, `mirá`) y el **imperativo con pronombre pegado**
+(`escribile`, `decile`, `mandale`).
+**Trampa de JavaScript que hay que recordar:** `\b` se calcula sobre `[A-Za-z0-9_]`, así que
+una vocal con tilde ya cuenta como "no palabra" y `\barrancá\b` **nunca casa**. Hay que usar
+`(?<!\p{L})…(?!\p{L})` con la bandera `u`. Verificado que caza las tres formas y que no da
+falsos positivos con "arranca", "mira", "deja" ni "Escríbele".
+
+**4. Acceso desde otros dispositivos.**
+`allowedDevOrigins` apuntaba a `192.168.1.101` y la IP real de la máquina ya era `.122`:
+entrar desde el celular estaba roto y nada lo decía. Ahora lleva comodines de subred
+(`192.168.1.*`, `192.168.0.*`, `10.0.0.*`), porque el router reparte la IP por DHCP y cambia.
+
+**5. Datos malos del catálogo, corregidos.**
+- `route_stages`: Sarria → Portomarín de "Frances desde Sarria 6 etapas (Melide)" pasó de
+  **221 km a 22** (coma corrida). Con 22 la ruta suma 112 km contra los 113 declarados, y
+  coincide con la ruta hermana de 5 etapas. Salía impreso en el PDF del cliente.
+- Misma ruta: `"Santaigo de Compostela"` → `"Santiago de Compostela"`, también impreso.
+- `token_pricing`: los bots de blog estaban a **15/75** USD por millón; Opus 4.7 cuesta
+  **5/25**. El informe de costo del blog venía inflado ~3x.

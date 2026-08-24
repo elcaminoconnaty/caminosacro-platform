@@ -121,3 +121,57 @@ export async function datosDeRuta(rutaId: string): Promise<DatosDeRuta | null> {
     etapas_json: JSON.stringify(etapas),
   };
 }
+
+/**
+ * Refresca contra el catálogo los valores de los slides que tienen ruta elegida.
+ *
+ * REGLA DE FUENTE ÚNICA DE VERDAD: la plataforma manda. Si Nico cambia un precio o los km
+ * de una etapa en el catálogo, la pieza lo refleja la próxima vez que se dibuja — no hay
+ * que volver a elegir la ruta ni acordarse de nada.
+ *
+ * Lo que quedó guardado dentro del slide sigue existiendo, pero solo como respaldo: se usa
+ * si la ruta se borró del catálogo, para que una pieza vieja no se rompa. Y no hay riesgo
+ * de que "cambie sola" una pieza ya publicada, porque lo publicado es el JPEG exportado,
+ * no esta plantilla.
+ *
+ * Esto vive en la capa de servidor (endpoint y página), NO dentro del render: así el
+ * render sigue siendo puro y `contenido_smoke` puede recorrer todas las plantillas sin
+ * base de datos.
+ */
+export async function refrescarDesdeCatalogo<T extends { valores: Record<string, string> }>(
+  slides: T[],
+): Promise<T[]> {
+  const ids = [...new Set(slides.map((s) => s.valores.ruta).filter(Boolean))];
+  if (ids.length === 0) return slides;
+
+  const frescos = new Map<string, DatosDeRuta>();
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const d = await datosDeRuta(id);
+        if (d) frescos.set(id, d);
+      } catch {
+        // Si el catálogo no responde, la pieza se dibuja con lo que tenía guardado.
+        // Mejor una pieza con datos de ayer que un preview roto.
+      }
+    }),
+  );
+
+  return slides.map((s) => {
+    const d = s.valores.ruta ? frescos.get(s.valores.ruta) : undefined;
+    if (!d) return s;
+    return {
+      ...s,
+      valores: {
+        ...s.valores,
+        ruta_nombre: d.nombre,
+        datos: d.datos,
+        etapas_json: d.etapas_json,
+        // El precio se sobrescribe solo si el catálogo lo tiene: si una ruta se quedó sin
+        // tarifa cargada para el año vigente, es mejor conservar la última conocida que
+        // borrar el pill de la pieza sin avisar.
+        ...(d.precio ? { precio: d.precio } : {}),
+      },
+    };
+  });
+}

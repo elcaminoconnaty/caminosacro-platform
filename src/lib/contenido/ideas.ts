@@ -227,7 +227,6 @@ FORMATOS: 4x5 (carrusel de feed, el que más rinde), 1x1, 9x16 (historia), reel 
     system: SYSTEM_PROMPT,
     user,
     canal: "ideas",
-    maxTokens: 6000,
   });
 
   const items = [...pilares.evidencias, ...demanda.evidencias];

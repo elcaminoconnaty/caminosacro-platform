@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { sugerirQuePublicar } from "@/lib/contenido/ideas";
-import { FaltaClaveAnthropic } from "@/lib/contenido/claude";
+import { ClaudeNoDisponible } from "@/lib/contenido/claude";
 import { esFormatoId, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
 import { plantilla, valoresPorDefecto } from "@/lib/contenido/plantillas/registry";
 import type { Slide } from "@/lib/contenido/tipos";
@@ -30,7 +30,7 @@ export async function generarIdeas() {
     revalidatePath("/contenido");
     return { ok: true as const, cuantas: ideas.length };
   } catch (e) {
-    if (e instanceof FaltaClaveAnthropic) return { error: e.message };
+    if (e instanceof ClaudeNoDisponible) return { error: e.message };
     return { error: e instanceof Error ? e.message : "No se pudieron generar ideas." };
   }
 }

@@ -66,7 +66,6 @@ Devuelve el caption, los hashtags separados por espacio, y el id del pilar que u
     system: SYSTEM_PROMPT,
     user,
     canal: "copy",
-    maxTokens: 3000,
   });
 
   // El revisor de voz corre SIEMPRE sobre lo que devolvió el modelo. No es desconfianza

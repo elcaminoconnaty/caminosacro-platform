@@ -2,6 +2,7 @@ import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { renderSlide } from "@/lib/contenido/render";
 import { leerSlides } from "@/lib/contenido/tipos";
 import { esFormatoId, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
+import { refrescarDesdeCatalogo } from "@/lib/contenido/datos";
 
 // Satori y resvg corren sobre wasm en Node; nada de esto vive en el edge runtime.
 export const runtime = "nodejs";
@@ -43,7 +44,12 @@ export async function GET(
   const formato = esFormatoId(pieza.formato) ? pieza.formato : FORMATO_POR_DEFECTO;
   const { slides } = leerSlides(pieza.slides);
   const n = Number.parseInt(slideParam, 10);
-  const elSlide = Number.isFinite(n) && n >= 0 && n < slides.length ? slides[n] : null;
+  const guardado = Number.isFinite(n) && n >= 0 && n < slides.length ? slides[n] : null;
+
+  // El catálogo de la plataforma es la ÚNICA fuente de verdad de precios, km y etapas: se
+  // relee justo antes de dibujar, así que cambiar una tarifa en Catálogo se ve en la pieza
+  // sin tocar nada más. Lo guardado en el slide queda solo de respaldo.
+  const [elSlide] = guardado ? await refrescarDesdeCatalogo([guardado]) : [null];
 
   const respuesta = renderSlide(formato, elSlide, { escala });
 

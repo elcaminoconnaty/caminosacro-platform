@@ -6,12 +6,17 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname),
   },
   // @react-pdf/renderer carga binarios y fonts en Node — debe quedar fuera del bundle
-  serverExternalPackages: ["@react-pdf/renderer"],
+  // El SDK de agentes de Claude lanza el binario nativo de Claude Code como subproceso:
+  // empaquetarlo rompería esa resolución.
+  serverExternalPackages: ["@react-pdf/renderer", "@anthropic-ai/claude-agent-sdk"],
   // Solo afecta `next dev`: sin esto, entrar al servidor local desde el celular por la IP
   // de la red WiFi hace que Next bloquee sus propios recursos de /_next, el JavaScript no
   // carga y los formularios se envían como HTML plano (se recarga la página y se pierde
   // lo escrito). Imprescindible para probar la firma en un celular de verdad.
-  allowedDevOrigins: ["192.168.1.101", "localhost", "127.0.0.1"],
+  // El comodín es a propósito: la IP de esta máquina la reparte el router por DHCP y
+  // cambia sola (estuvo clavada en .101 mientras la real ya era .122, y entrar desde el
+  // celular quedaba roto sin que nada lo dijera).
+  allowedDevOrigins: ["192.168.1.*", "192.168.0.*", "10.0.0.*", "localhost", "127.0.0.1"],
   experimental: {
     // El default de Next es 1 MB, y por ahí se cayó la primera firma real: la foto de
     // pasaporte de un celular pesa 3-8 MB y Next devolvía 413 antes de ejecutar la acción.

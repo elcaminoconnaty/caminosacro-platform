@@ -37,8 +37,32 @@ const FRASES_PROHIBIDAS = [
   "hagamoslo realidad",
 ];
 
-// Rioplatense: estrategia.ts pide acento neutro latinoamericano, tuteo siempre.
-const RIOPLATENSE = ["vos ", "tenes", "sos ", "queres", "che ", "barbaro", "re lindo"];
+// Rioplatense: estrategia.ts pide acento neutro latinoamericano y tuteo siempre.
+//
+// La lista es larga a propósito. La primera versión solo tenía siete formas y dejó pasar
+// un copy generado que decía "vivís", "escribile" y "arrancá": el voseo se cuela sobre
+// todo por el IMPERATIVO (escribí, mirá, contá) y por el imperativo con pronombre pegado
+// (escribile, decile, mandale), no por el "vos" suelto que uno espera.
+// Se comparan como palabra completa y sin tildes, así que "arranca" (correcto) no
+// dispara: solo lo hace "arrancá", que al normalizar queda igual — por eso las formas con
+// tilde van aparte, comparadas contra el texto original.
+const RIOPLATENSE_SIN_TILDE = [
+  "vos", "sos", "che", "barbaro",
+  // presente de indicativo
+  "tenes", "queres", "podes", "sabes", "haces", "vivis", "venis", "decis",
+  "escribis", "elegis", "sentis", "conoces", "preferis",
+  // imperativo con pronombre pegado — el patrón que más se cuela
+  "escribile", "decile", "contale", "mandale", "preguntale", "escribinos", "contanos",
+  "animate", "sumate", "preparate", "llevate", "quedate", "acordate", "fijate", "date",
+];
+
+// Formas de imperativo voseante: se buscan CON tilde en el texto original, porque sin
+// tilde son palabras perfectamente correctas ("mira", "cuenta", "deja").
+const IMPERATIVO_VOSEANTE = [
+  "arrancá", "empezá", "aprovechá", "consultá", "reservá", "descubrí", "conocé",
+  "mirá", "escuchá", "dejá", "hacé", "tené", "poné", "sacá", "llevá", "contá",
+  "vení", "andá", "escribí", "elegí", "pedí", "seguí", "sumá", "animá", "planeá",
+];
 
 function normalizar(t: string): string {
   return t
@@ -88,11 +112,25 @@ export function revisarVoz(caption: string, hashtags: string): Hallazgo[] {
   }
 
   // 4. Rioplatense y usted.
-  for (const f of RIOPLATENSE) {
-    if (plano.includes(f)) {
+  const palabras = new Set(plano.match(/[a-z]+/g) ?? []);
+  for (const f of RIOPLATENSE_SIN_TILDE) {
+    if (palabras.has(f)) {
       hallazgos.push({
         regla: "Acento neutro",
-        detalle: `Aparece "${f.trim()}". Se escribe en español neutro, con tuteo.`,
+        detalle: `Aparece "${f}". Es voseo: se escribe en español neutro, tuteando.`,
+        gravedad: "error",
+      });
+    }
+  }
+  const original = caption.toLowerCase();
+  for (const f of IMPERATIVO_VOSEANTE) {
+    // Nada de \b: en JavaScript el límite de palabra se calcula sobre [A-Za-z0-9_], así
+    // que una vocal con tilde ya cuenta como "no palabra" y `\barrancá\b` NUNCA casa.
+    // Con propiedades unicode sí: se exige que no haya letra ni antes ni después.
+    if (new RegExp(`(?<!\\p{L})${f}(?!\\p{L})`, "u").test(original)) {
+      hallazgos.push({
+        regla: "Acento neutro",
+        detalle: `Aparece "${f}". Es imperativo voseante: usa la forma con tú.`,
         gravedad: "error",
       });
     }
