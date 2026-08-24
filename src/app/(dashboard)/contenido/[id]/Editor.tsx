@@ -12,6 +12,7 @@ import Lienzo from "./Lienzo";
 import PanelCampos from "./PanelCampos";
 import TiraSlides from "./TiraSlides";
 import SelectorFoto from "./SelectorFoto";
+import Exportar from "./Exportar";
 
 export type EditorProps = {
   piezaId: string;
@@ -192,6 +193,13 @@ export default function Editor({
               </option>
             ))}
           </select>
+          <Exportar
+            piezaId={piezaId}
+            titulo={titulo}
+            formato={formato}
+            slides={slides}
+            hayPendiente={guardando}
+          />
         </div>
       </div>
 

@@ -142,7 +142,7 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
       Terminado: las 4 fuentes funcionan (banco `fotos-instagram` de 177 · subida suelta · carpeta ·
       sin foto) **y `select count(*) from public.fotos` sigue en 177 después de subir.**
 
-- [ ] **Etapa 6 — Exportar**  ← *aquí termina la Fase 1: el módulo ya cumple el encargo*
+- [x] **Etapa 6 — Exportar**  ← *aquí termina la Fase 1: el módulo ya cumple el encargo*
       Archivos: `src/app/(dashboard)/contenido/[id]/Exportar.tsx`, `src/lib/contenido/export.ts`,
       `src/app/(dashboard)/contenido/{actions.ts,PiezasGrid.tsx}`.
       Decisión clave: el navegador convierte PNG→JPEG en `<canvas>` (2.6 MB → ~250 KB) y sube el
@@ -283,3 +283,19 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
   buckets `contenido-fotos` / `contenido-piezas` existen. El estudio no le tocó la cola
   al bot.
 - La foto no se guarda con debounce sino de una: no se escribe letra a letra.
+
+### Etapa 6 — 2026-08-24
+- El navegador convierte el PNG del endpoint a JPEG con `<canvas>` y lo hace dos cosas a
+  la vez: lo descarga y lo sube a `contenido-piezas`. El servidor solo registra
+  `export_paths` + `exportado_at`.
+- **Peso medido de verdad** (no estimado): portada 4:5 con foto **1493 KB en PNG → 207 KB
+  en JPEG q92**. La 9:16 igual: 1460 KB → 208 KB. Bien por debajo del objetivo de 500 KB.
+- **Dato contraintuitivo:** en un slide de color plano sin foto (`cierre-cta`) el JPEG
+  pesa MÁS que el PNG (84 KB → 94 KB), porque PNG gana en color plano. Da igual: 94 KB no
+  es nada, y **JPEG es lo único que acepta la Graph API de Instagram**, así que exportar
+  todo en JPEG deja la fase 2 resuelta. No vale la pena mezclar formatos por 10 KB.
+- El canvas se pinta con fondo blanco antes de dibujar: el JPEG no tiene transparencia y
+  sin eso los bordes salen negros.
+- Si la subida a Storage falla, la descarga **igual se completa** y se avisa aparte: el
+  usuario ya tiene su archivo, que es lo que vino a buscar.
+- El botón se bloquea mientras hay un guardado en vuelo, para no exportar la versión vieja.
