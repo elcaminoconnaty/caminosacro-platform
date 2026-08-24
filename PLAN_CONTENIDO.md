@@ -31,7 +31,7 @@ de ideas conectado a las métricas de Instagram.
 
 **Verificación, igual en todas las etapas:**
 ```bash
-npx tsx scripts/contenido_smoke.ts   # desde la Etapa 1 en adelante
+npx tsx scripts/contenido_smoke.tsx   # desde la Etapa 1 en adelante
 npx tsc --noEmit
 npm run build
 ```
@@ -91,10 +91,10 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
       `src/app/(dashboard)/contenido/page.tsx`.
       Terminado: `/contenido` carga logueado y la entrada sale en el menú.
 
-- [ ] **Etapa 1 — Identidad renderizable**
+- [x] **Etapa 1 — Identidad renderizable**
       Archivos: `src/lib/contenido/{marca,formatos,tipos,fuentes}.ts`,
       `src/lib/contenido/plantillas/_lockups.tsx`, `src/lib/fonts/Caladea-{Regular,Bold}.ttf`
-      (descargar de Google Fonts, Apache 2.0), `scripts/contenido_smoke.ts`.
+      (descargar de Google Fonts, Apache 2.0), `scripts/contenido_smoke.tsx`.
       Terminado: el smoke escribe 5 PNG (uno por formato) con el lockup de marca completo —concha
       SVG, "Camino Sacro" en Caladea, eyebrow oro uppercase tracking .12em, pie con web y handle—
       y ninguno lanza excepción.
@@ -192,3 +192,26 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
   **no** en un schema nuevo. Un schema nuevo exige agregarlo a mano en Settings → API → Exposed
   schemas (lo dice la cabecera de `supabase/migrations/0001_init_comercial.sql`), y eso no viaja
   en git. Se reusa `createPublicSchemaClient()`; no hace falta cliente nuevo.
+
+### Etapa 1 — 2026-08-24
+- Caladea 400/700 descargada del repo de Google Fonts (`github.com/google/fonts/ofl/caladea`)
+  en **TTF**, no woff2: **Satori acepta ttf/otf/woff y NO acepta woff2.**
+- `fuentes.ts` memoiza los cuatro TTF a nivel de módulo. Si falta un archivo, lanza con
+  mensaje explícito en vez de dejar que Satori caiga en Geist — una pieza fuera de marca
+  que no avisa es peor que un error.
+- **El script se llama `contenido_smoke.tsx`, no `.ts`**: necesita JSX para importar los
+  lockups. Corregido en la bitácora.
+- **Trampa nueva encontrada, para quien siga:** la concha salió mal dos veces y ninguna
+  lanzó error.
+  1. Con un radio único, el abanico se **clipa contra el viewBox** por los lados. Se
+     arregló usando radio elíptico (`RADIO_X` 45 / `RADIO_Y` 74 sobre viewBox 100×100).
+  2. Los surcos se dibujaban en `PALETA.bosque` sobre una concha también bosque:
+     invisibles. Ahora `Concha` recibe `colorSurcos` aparte y **tiene que contrastar**
+     con `color`, o la concha se lee como una mancha.
+  Moraleja: el smoke solo prueba que *no lanza*. **Hay que abrir los PNG y mirarlos.**
+- Tiempos medidos (portada completa sobre bosque, sin foto): 4x5 894 ms el primero
+  —arranque de los wasm— y 39-67 ms los siguientes. Peso 47-102 KB sin foto.
+- `scripts/out/` agregado a `.gitignore`: los PNG no se commitean.
+- Pendiente opcional que NO hice (va en commit aparte cuando se quiera): con Caladea ya
+  en disco, cambiar `SERIF`/`SERIF_BOLD` en `src/lib/quotePdf.tsx` de `Times-Roman` a
+  Caladea. Cambia el PDF que ve el cliente, por eso no lo mezclo con esta etapa.
