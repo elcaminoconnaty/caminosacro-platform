@@ -480,3 +480,117 @@ Detalle que rompe esto si se olvida: launchd arranca con un PATH mínimo y no en
 
 **Probado de punta a punta:** encargo encolado a mano → el puente lo tomó, lo resolvió con
 la suscripción y escribió la respuesta. **13 segundos** en total. Latido visible y correcto.
+
+---
+
+# FASE 3 — Que sea rápido y que se pueda ajustar (2026-08-24)
+
+Ocho cosas que salieron de usar el módulo de verdad. El norte no cambia: **hacer varios
+posts en minutos, sin pensar mucho y sin tener que resolver nada**.
+
+## Diagnóstico del "va lenta" — medido, no supuesto
+
+Con la portada 4:5 y una foto del banco:
+
+| Caso | ms | Peso |
+|---|---|---|
+| Sin foto | 119 | 99 KB |
+| Foto por URL (lo que hace hoy) | 823 (1ª) · 582 (2ª) | **1493 KB** |
+| Foto ya descargada (data URI) | 500 | 1493 KB |
+| Foto en caché, preview a 0.5 | 344 | 588 KB |
+| Foto en caché, preview a 0.35 | 320 | 312 KB |
+
+**Tres causas, en orden de culpa:**
+1. **Satori vuelve a descargar la foto en CADA render** (~250-320 ms cada vez). No la cachea.
+2. **El PNG del preview pesa 588 KB a media resolución.** Eso viaja por la red en cada tecla.
+3. **El preview espera al guardado**: escribir → 600 ms de espera → guardar en la base
+   (ida y vuelta) → renderizar → transferir. **Un segundo y medio o dos por cada cambio.**
+   Ahí está el "se vuelve muy complejo diseñar un post".
+
+También: las transformaciones de imagen de Supabase (`/render/image/`) devuelven **403** —
+son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
+
+## Las ocho tareas
+
+- [ ] **T1 — Rendimiento del preview** *(la que más se nota)*
+      **Objetivo:** que escribir y ver el cambio sea instantáneo.
+      1. **Sacar el guardado del camino del preview.** Endpoint `POST /api/contenido/render`
+         que recibe el slide tal como está en pantalla y devuelve el PNG. Sin base de datos,
+         sin esperar a guardar. El guardado sigue ocurriendo aparte, en segundo plano.
+      2. **Caché de fotos en memoria del proceso**: se descarga una vez y se le pasa a
+         Satori como data URI. Ahorra 250-320 ms por render.
+      3. **Preview a escala 0.35** (312 KB en vez de 588) y espera de 250 ms en vez de 600.
+      4. **Miniaturas de la bandeja**: hoy cada pieza de la lista es un render completo. Usar
+         el JPEG ya exportado si existe, y si no, escala 0.2.
+      **Archivos:** `render.tsx`, `fotoCache.ts` (nuevo), `api/contenido/render/route.ts`
+      (nuevo), `Lienzo.tsx`, `Editor.tsx`, `PiezasGrid.tsx`.
+      **Terminado:** cambiar una letra se ve reflejado en menos de 400 ms.
+
+- [ ] **T2 — Letra más grande**
+      La línea de datos y el cuerpo se leen pequeños en el celular. Subir la escala
+      tipográfica base y revisar las ocho plantillas en los cinco formatos.
+      **Archivos:** `marca.ts` (`ESCALA`), `plantillas/*`.
+      **Terminado:** el smoke redibuja las 34 y se ven a ojo, sin texto cortado.
+
+- [ ] **T3 — Poder ajustar el diseño** *(lo que pidió como "diseñar")*
+      **Alcance decidido: controles acotados, NO un lienzo libre.** Ver la nota de abajo.
+      Cada slide gana un bloque `ajustes`:
+      - `escalaTexto` (0.8 – 1.4): agranda o achica todo el texto del slide.
+      - `altoBloque` (0 – 0.45 del alto): sube o baja la franja verde, o la quita del todo.
+      - `encuadreFoto` (arriba / centro / abajo) y `zoomFoto` (1 – 1.6).
+      - `velo` (0 – 0.85): cuánto tapa el degradado verde a la foto.
+      **Archivos:** `tipos.ts` (esquema `AjustesSlide`), `plantillas/*`, `PanelCampos.tsx`,
+      `Editor.tsx`.
+      **Terminado:** en una historia 9:16 se puede bajar la franja verde hasta ver la foto
+      casi entera, y el texto sigue dentro de la zona segura.
+
+- [ ] **T4 — Fotos en todas las plantillas**
+      Hoy solo `portada-ruta` y `testimonio` aceptan foto. Que la acepten también
+      `tip-numerado`, `dato-grande`, `mito-realidad`, `cierre-cta` y las de gráfico, con la
+      foto de fondo y el velo regulable de T3.
+      **Archivos:** `plantillas/*`, `registry.ts` (`usaFoto`).
+      **Terminado:** cualquier slide del carrusel puede llevar foto.
+
+- [ ] **T5 — Que las sugerencias crezcan con los datos**
+      Nico lo dijo bien: *"sé que al inicio vas a ser torpe"*. Que la pantalla **muestre de
+      qué datos está saliendo cada idea** y cuántos posts medidos hay detrás, y que el peso
+      de las métricas de Instagram suba solo a medida que haya más. Con 15 filas manda el
+      catálogo y las cotizaciones; a partir de ~40 posts medidos, mandan las métricas.
+      **Archivos:** `ideas.ts`, `IdeasPanel.tsx`, `ResumenMetricas.tsx`.
+      **Terminado:** cada idea dice de dónde salió, y el panel dice cuánta data hay.
+
+- [ ] **T6 — Buscador de fotos de verdad**
+      La rejilla actual es de 3 columnas y 256 px de alto: no se ve nada. Hacerlo un
+      buscador: más grande, en modal o panel ancho, con búsqueda por `ruta_tag` y por
+      nombre, miniaturas más grandes y scroll infinito.
+      **Archivos:** `SelectorFoto.tsx`, `fotos.ts`.
+      **Terminado:** se encuentra una foto concreta entre las 177 sin desesperarse.
+
+- [ ] **T7 — Historias que respiren**
+      En 9:16 la franja verde se come casi toda la imagen. Lo resuelve T3 (bajar la franja),
+      pero además hay que **cambiar el valor por defecto por formato**: un tercio del alto
+      está bien en 4:5 y es demasiado en 9:16.
+      **Archivos:** `marca.ts`, `plantillas/*`. **Depende de T3.**
+
+- [ ] **T8 — La idea llega con el carrusel entero escrito**
+      Hoy aceptar una idea crea 3 slides con los textos de ejemplo. Que Claude devuelva los
+      **5 o 6 slides ya redactados** —titular, cuerpo, dato, cierre— y que la pieza se arme
+      completa. Es lo que convierte "una idea" en "un post listo en minutos".
+      **Archivos:** `ideas.ts` (esquema con slides), `ideasActions.ts`, `IdeasPanel.tsx`.
+      **Terminado:** aceptar una idea abre un carrusel de 5-6 slides con texto real, no de
+      relleno.
+
+## Sobre "quiero poder diseñar" — la respuesta honesta
+
+Un lienzo libre de verdad (arrastrar la foto con el ratón, tiradores para redimensionar el
+texto, capas) es **mucho más trabajo** y, sobre todo, **empuja en contra del objetivo**: es
+volverse un Canva pequeño, y Canva es justo lo que se quería dejar de usar. Cada post
+volvería a costar decisiones.
+
+Por eso T3 es la vía media: **cuatro perillas por slide** que cubren lo que Nico pidió de
+verdad —agrandar la letra, mover el encuadre de la foto, bajar la franja verde, poner
+transparencia— sin abrir la puerta a maquetar a mano. Se ajusta en segundos y la pieza no
+se puede "romper" ni salirse de la marca.
+
+Si después de usar T3 se echa de menos mover cosas píxel a píxel, eso sí es una fase 4 y
+conviene decidirlo con el módulo ya rodado.
