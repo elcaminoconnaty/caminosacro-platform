@@ -113,7 +113,7 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
       (c) el smoke renderiza las 2 plantillas en los 5 formatos;
       (d) **`select count(*) from aprendizajes` como `authenticated` devuelve 5, no 0.**
 
-- [ ] **Etapa 3 — Editor de una pieza**
+- [x] **Etapa 3 — Editor de una pieza**
       Archivos: `src/app/(dashboard)/contenido/[id]/{page,actions,Editor,Lienzo,PanelCampos,TiraSlides}.tsx`.
       Decisiones fijas: autoguardado debounced 600 ms con `useTransition`; el preview se refresca
       cambiando `?v=<hash del slide>`; `Cache-Control: immutable` para que navegar entre slides sea
@@ -242,3 +242,27 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
   (portada-ruta con foto del banco + cierre-cta).
 - Tiempos con foto remota: primer render 2.3 s (descarga la foto), luego 320-390 ms. Peso
   1.2-1.7 MB en PNG — que es justo por lo que la Etapa 6 exporta JPEG desde el navegador.
+
+### Etapa 3 — 2026-08-24
+- Editor de tres columnas: tira de slides · lienzo · panel de campos. El panel se **genera**
+  desde `registry[plantilla].campos`, así que agregar una plantilla no toca ninguna pantalla.
+- Autoguardado debounced 600 ms con `useTransition`. Detalles que importan:
+  - `version` es la huella de lo **guardado**, no de lo que se está escribiendo: el preview
+    pinta lo que hay en la base, así que solo se refresca cuando el guardado termina. Es lo
+    honesto — enseñar algo que todavía no está guardado sería mentir.
+  - Al cambiar de slide se fuerza el guardado pendiente para no perderlo.
+  - `beforeunload` avisa si se cierra la pestaña con algo sin guardar.
+- `hashSlide` se reescribió como djb2 a mano (sin `node:crypto`): lo llama el editor, que
+  corre en el navegador. No es criptografía, es un cache-buster.
+- El preview pide `?escala=0.5`: pesa cuatro veces menos y a tamaño de pantalla no se nota.
+  La exportación pedirá el tamaño real por el mismo endpoint.
+- **Trampa de Next 16 que costó un build:** `<form action={serverAction}>` exige que la
+  acción no devuelva nada, y la convención del repo es devolver `{error}`. Solución: el
+  alta va por componente cliente (`NuevaPieza.tsx`) llamando la acción dentro de una
+  transición, que es el mismo patrón del Wizard de cotizaciones.
+- Verificado con el servidor levantado: `/contenido`, `/contenido/[id]` y
+  `/api/contenido/piezas/[id]/[slide]` devuelven **307 → /login** sin sesión, o sea que
+  `src/proxy.ts` las protege sin haber tocado `PUBLIC_PATHS`.
+- **Lo que NO pude verificar:** la interacción del editor a golpe de clic, porque exige
+  iniciar sesión por magic link. El cableado (rutas, acciones, tipos, build) sí está
+  comprobado. Queda para la prueba manual de punta a punta.
