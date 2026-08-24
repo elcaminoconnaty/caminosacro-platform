@@ -544,3 +544,37 @@ git commit -m "mensaje"           # commit
 git push                          # subir a GitHub
 git log --oneline -10             # últimos 10 commits
 ```
+
+---
+
+## Estudio de Contenido — cómo abrirlo desde el celular u otro computador
+
+El módulo vive en `/contenido`, dentro de esta misma plataforma, y usa el catálogo como
+única fuente de verdad: si cambias un precio en **Catálogo**, la pieza lo refleja sola.
+
+### Dónde funciona cada cosa
+
+|  | En Railway (siempre disponible) | En tu computador |
+|---|---|---|
+| Diseñar, elegir ruta, poner fotos, exportar | ✅ | ✅ |
+| **Sugerir copy** y **Sugerir ideas** | ❌ avisa que no puede | ✅ |
+
+La razón: esos dos botones usan **tu suscripción de Claude Code**, no una clave de API que
+se paga aparte. Esa sesión vive en tu computador, y en el servidor no existe.
+
+### Abrirlo desde el celular estando en la misma WiFi
+
+1. En el computador: `cd "Plataforma Comercial/app" && npm run dev`
+2. Mira la línea **Network** que imprime — algo como `http://192.168.1.122:3000`
+3. Escribe esa dirección en el navegador del celular y entra con el magic link de siempre.
+
+El computador tiene que estar prendido y con el servidor corriendo. La IP la reparte el
+router y **cambia sola**, así que fíjate en la que imprime cada vez (por eso
+`allowedDevOrigins` en `next.config.ts` lleva comodines de subred y no una IP fija: estuvo
+clavada en `.101` cuando la real ya era `.122`, y entrar desde el celular quedaba roto sin
+que nada lo dijera).
+
+### Desde fuera de la casa
+
+Hace falta un túnel — no está montado todavía. La opción cómoda es Cloudflare Tunnel con
+una dirección fija tipo `estudio.caminosacro.com`, que exige tener el dominio en Cloudflare.
