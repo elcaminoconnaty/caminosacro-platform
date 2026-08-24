@@ -102,7 +102,7 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
       `src/lib/quotePdf.tsx` de `Times-Roman` a Caladea. Cambia el PDF que ve el cliente, por eso
       va separado y revertible solo.*
 
-- [ ] **Etapa 2 — Motor de render, base de datos y endpoint**
+- [x] **Etapa 2 — Motor de render, base de datos y endpoint**
       Archivos: migraciones `0023_contenido_estudio.sql` y `0024_contenido_lectura_instagram.sql`
       (aplicar por MCP de Supabase, proyecto `yvytzquewjsjsmgiwmaa`),
       `src/lib/contenido/plantillas/{registry.ts,portadaRuta.tsx,cierreCta.tsx}`,
@@ -215,3 +215,30 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
 - Pendiente opcional que NO hice (va en commit aparte cuando se quiera): con Caladea ya
   en disco, cambiar `SERIF`/`SERIF_BOLD` en `src/lib/quotePdf.tsx` de `Times-Roman` a
   Caladea. Cambia el PDF que ve el cliente, por eso no lo mezclo con esta etapa.
+
+### Etapa 2 — 2026-08-24
+- Migraciones `0023` y `0024` **aplicadas en producción** (`yvytzquewjsjsmgiwmaa`).
+  Comprobación crítica pasada: como `authenticated`, `select count(*) from aprendizajes`
+  devuelve **5, no 0** → la trampa de RLS del pipeline de IG queda desactivada. Y
+  `public.fotos` sigue en **177**: el estudio no le tocó la cola al bot.
+- Tablas nuevas: `public.contenido_piezas` y `public.contenido_fotos`. Buckets nuevos
+  `contenido-fotos` y `contenido-piezas`, públicos (Instagram tiene que poder descargar
+  la imagen por URL en la fase 2, y no hay dato sensible).
+- **El render vive en `render.tsx`, no `.ts`** — necesita JSX para la pieza de error.
+- **Pieza de error en vez de 500:** si la plantilla no existe o el slide está corrupto, el
+  endpoint devuelve una imagen que DICE qué pasó. El editor la muestra en el preview y el
+  usuario entiende el problema sin abrir la consola.
+- **Bug de maqueta que costó una vuelta, y que se repetirá en las plantillas de la Etapa 4:**
+  con `justifyContent: space-between` sobre el alto completo, el titular queda flotando en
+  el medio de la foto y el bloque verde sale VACÍO. La solución es que el bloque verde sea
+  a la vez el fondo y el **contenedor** del titular (`position:absolute; bottom:0` con su
+  propio padding). Vale para toda plantilla con bloque inferior.
+- Zona segura verificada a ojo en la portada de reel: cabecera, titular, datos y pie caen
+  dentro de y ∈ [420,1500], que es lo único que sobrevive al recorte 1:1 de la grilla.
+- Herramienta nueva: `npx tsx scripts/contenido_verifica_pieza.tsx <id>` renderiza una
+  pieza real de la base sin servidor ni sesión. Sirve para depurar una pieza concreta.
+- Pieza semilla en la base para la Etapa 3:
+  `8065d1ba-106d-481d-a74c-f4143590a4e6` — "Semilla — Francés desde Sarria", 4x5, 2 slides
+  (portada-ruta con foto del banco + cierre-cta).
+- Tiempos con foto remota: primer render 2.3 s (descarga la foto), luego 320-390 ms. Peso
+  1.2-1.7 MB en PNG — que es justo por lo que la Etapa 6 exporta JPEG desde el navegador.

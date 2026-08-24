@@ -18,6 +18,9 @@ import { fuentesDeMarca } from "../src/lib/contenido/fuentes";
 import { FORMATOS_LISTA, type Formato } from "../src/lib/contenido/formatos";
 import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, MARCA, u } from "../src/lib/contenido/marca";
 import { Cabecera, Pie, Eyebrow, Pill, Filete } from "../src/lib/contenido/plantillas/_lockups";
+import { PLANTILLAS_LISTA, valoresPorDefecto } from "../src/lib/contenido/plantillas/registry";
+import { FORMATOS } from "../src/lib/contenido/formatos";
+import type { Slide } from "../src/lib/contenido/tipos";
 
 const SALIDA = join(process.cwd(), "scripts", "out", "contenido");
 
@@ -84,14 +87,34 @@ function PruebaDeMarca({ f }: { f: Formato }) {
 
 type Caso = { nombre: string; formato: Formato; elemento: React.ReactElement };
 
+// Foto de prueba para las plantillas que llevan imagen. Sale del bucket público
+// `fotos-instagram`, que es el banco real del bot: así el smoke también comprueba que
+// Satori puede descargar una foto remota y encuadrarla.
+const FOTO_PRUEBA =
+  process.env.CONTENIDO_FOTO_PRUEBA ?? null;
+
 function casos(): Caso[] {
-  // En la Etapa 1 el único caso es la prueba de marca. A partir de la Etapa 2 esta
-  // función recorre el registry de plantillas × sus formatos declarados.
-  return FORMATOS_LISTA.map((formato) => ({
-    nombre: "prueba-de-marca",
-    formato,
-    elemento: <PruebaDeMarca f={formato} />,
-  }));
+  const out: Caso[] = [];
+
+  // 1) La prueba de marca, en los cinco formatos: verifica concha, Caladea y eyebrow.
+  for (const formato of FORMATOS_LISTA) {
+    out.push({ nombre: "prueba-de-marca", formato, elemento: <PruebaDeMarca f={formato} /> });
+  }
+
+  // 2) Todo el registry × los formatos que cada plantilla declara soportar.
+  for (const { definicion, Componente } of PLANTILLAS_LISTA) {
+    for (const formatoId of definicion.formatos) {
+      const formato = FORMATOS[formatoId];
+      const slide: Slide = {
+        plantilla: definicion.id,
+        valores: valoresPorDefecto(definicion.id),
+        foto: definicion.usaFoto && FOTO_PRUEBA ? { url: FOTO_PRUEBA, origen: "banco" } : null,
+      };
+      out.push({ nombre: definicion.id, formato, elemento: <Componente f={formato} slide={slide} /> });
+    }
+  }
+
+  return out;
 }
 
 async function main() {

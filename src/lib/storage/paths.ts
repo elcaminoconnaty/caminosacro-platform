@@ -88,3 +88,35 @@ export function sinBucket(storagePath: string): string {
   const [, ...rest] = storagePath.split("/");
   return rest.join("/");
 }
+
+// ---------------------------------------------------------------------------
+// Estudio de Contenido.
+//
+// Estas piezas NO son de un expediente de cotización, así que no siguen el patrón
+// {año}/{código}: se organizan por año y por id de pieza.
+//
+//   contenido-piezas/2026/<pieza_id>/slide-01.jpg
+//   contenido-fotos/2026/08/<marca>-<nombre>.jpg
+//
+// ⚠️ Nunca escribir en el bucket `fotos-instagram` desde el estudio: esa es la cola del
+// bot que publica solo a las 7pm (ver la cabecera de 0023_contenido_estudio.sql).
+// ---------------------------------------------------------------------------
+
+/** JPG exportado de un slide. `orden` es base 0; el archivo se numera desde 1. */
+export function rutaPiezaJpg(piezaId: string, orden: number, anio = new Date().getFullYear()): string {
+  const n = String(orden + 1).padStart(2, "0");
+  return `contenido-piezas/${anio}/${piezaId}/slide-${n}.jpg`;
+}
+
+/** Foto subida desde el editor. Se le antepone una marca de tiempo para no pisar nombres repetidos. */
+export function rutaFotoContenido(nombreArchivo: string, marca = Date.now()): string {
+  const ahora = new Date();
+  const anio = ahora.getFullYear();
+  const mes = String(ahora.getMonth() + 1).padStart(2, "0");
+  const limpio = nombreArchivo
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .slice(-60);
+  return `contenido-fotos/${anio}/${mes}/${marca}-${limpio}`;
+}
