@@ -3,18 +3,29 @@ import { mensajeError } from "@/lib/errors";
 import { leerSlides } from "@/lib/contenido/tipos";
 import PiezasGrid, { type FilaPieza } from "./PiezasGrid";
 import NuevaPieza from "./NuevaPieza";
+import IdeasPanel, { type FilaIdea } from "./IdeasPanel";
+import ResumenMetricas from "./ResumenMetricas";
 
 // La bandeja se mira después de guardar en el editor: nunca puede venir cacheada.
 export const dynamic = "force-dynamic";
 
 export default async function ContenidoPage() {
+  // Un solo viaje para toda la pantalla, como en seguimiento/[id].
   const supabase = await createPublicSchemaClient();
-  const { data, error } = await supabase
-    .from("contenido_piezas")
-    .select("id,titulo,formato,estado,slides,updated_at")
-    .neq("estado", "archivado")
-    .order("updated_at", { ascending: false })
-    .limit(60);
+  const [{ data, error }, { data: ideasData }] = await Promise.all([
+    supabase
+      .from("contenido_piezas")
+      .select("id,titulo,formato,estado,slides,updated_at")
+      .neq("estado", "archivado")
+      .order("updated_at", { ascending: false })
+      .limit(60),
+    supabase
+      .from("contenido_ideas")
+      .select("id,titular,pilar,formato,angulo,razon,ruta_nombre,evidencia")
+      .eq("estado", "nueva")
+      .order("created_at", { ascending: false })
+      .limit(12),
+  ]);
 
   const filas: FilaPieza[] = (data ?? []).map((p) => ({
     id: p.id,
@@ -45,7 +56,13 @@ export default async function ContenidoPage() {
         </p>
       )}
 
-      <PiezasGrid filas={filas} />
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
+        <div className="flex flex-col gap-5">
+          <ResumenMetricas />
+          <PiezasGrid filas={filas} />
+        </div>
+        <IdeasPanel ideas={(ideasData ?? []) as FilaIdea[]} />
+      </div>
     </div>
   );
 }

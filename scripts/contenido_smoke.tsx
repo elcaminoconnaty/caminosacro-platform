@@ -21,6 +21,7 @@ import { Cabecera, Pie, Eyebrow, Pill, Filete } from "../src/lib/contenido/plant
 import { PLANTILLAS_LISTA, valoresPorDefecto } from "../src/lib/contenido/plantillas/registry";
 import { FORMATOS } from "../src/lib/contenido/formatos";
 import type { Slide } from "../src/lib/contenido/tipos";
+import { HASHTAGS, RUTAS, PILARES } from "../src/lib/contenido/estrategia";
 
 const SALIDA = join(process.cwd(), "scripts", "out", "contenido");
 
@@ -130,8 +131,33 @@ function casos(): Caso[] {
   return out;
 }
 
+// La copia de estrategia.ts puede separarse en silencio de la del repo del bot. Este
+// chequeo no lo impide, pero grita cuando alguien edita un solo lado — que es el único
+// modo en que el feed automático y el estudio empiezan a hablar distinto.
+const ESPERADO = { hashtags: 34, rutas: 13, pilares: 7 };
+
+function chequearEstrategia(): string[] {
+  const problemas: string[] = [];
+  if (HASHTAGS.length !== ESPERADO.hashtags)
+    problemas.push(`HASHTAGS: ${HASHTAGS.length}, se esperaban ${ESPERADO.hashtags}`);
+  if (RUTAS.length !== ESPERADO.rutas)
+    problemas.push(`RUTAS: ${RUTAS.length}, se esperaban ${ESPERADO.rutas}`);
+  if (PILARES.length !== ESPERADO.pilares)
+    problemas.push(`PILARES: ${PILARES.length}, se esperaban ${ESPERADO.pilares}`);
+  return problemas;
+}
+
 async function main() {
   mkdirSync(SALIDA, { recursive: true });
+
+  const deriva = chequearEstrategia();
+  if (deriva.length) {
+    console.warn("\n⚠️  estrategia.ts cambió respecto a lo esperado:");
+    for (const d of deriva) console.warn(`     ${d}`);
+    console.warn("     Revisa que el cambio esté también en caminosacro-ig-auto/_shared/estrategia.ts");
+    console.warn("     y actualiza ESPERADO en este script.\n");
+  }
+
   const fonts = fuentesDeMarca();
   const filas: Array<{ caso: string; formato: string; ms: number; kb: number }> = [];
   const fallos: Array<{ caso: string; formato: string; error: string }> = [];

@@ -6,6 +6,7 @@ import { PLANTILLAS_LISTA, valoresPorDefecto } from "@/lib/contenido/plantillas/
 import { listarBanco, listarSubidas } from "@/lib/contenido/fotos";
 import { listarRutas } from "@/lib/contenido/datos";
 import Editor from "./Editor";
+import BarraCopy from "./BarraCopy";
 
 // El editor guarda contra la base todo el tiempo: nunca puede pintar una versión cacheada.
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
   // Un solo viaje para todo lo que necesita la pantalla, como en seguimiento/[id].
   const supabase = await createPublicSchemaClient();
   const [{ data: pieza }, banco, subidas, rutas] = await Promise.all([
-    supabase.from("contenido_piezas").select("id,titulo,formato,slides").eq("id", id).maybeSingle(),
+    supabase.from("contenido_piezas").select("id,titulo,formato,slides,caption,hashtags").eq("id", id).maybeSingle(),
     listarBanco(),
     listarSubidas(),
     listarRutas(),
@@ -36,7 +37,8 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
   );
 
   return (
-    <Editor
+    <div className="flex flex-col gap-5">
+      <Editor
       piezaId={pieza.id}
       titulo={pieza.titulo}
       formatoInicial={formato}
@@ -46,6 +48,14 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
       banco={banco}
       subidas={subidas}
       rutas={rutas}
-    />
+      />
+      <div className="max-w-3xl">
+        <BarraCopy
+          piezaId={pieza.id}
+          captionInicial={pieza.caption ?? ""}
+          hashtagsIniciales={pieza.hashtags ?? ""}
+        />
+      </div>
+    </div>
   );
 }

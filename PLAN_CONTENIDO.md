@@ -151,7 +151,7 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
       Terminado: exportar un carrusel de 4 slides descarga 4 JPG de 1080×1350 <500 KB y quedan en
       el bucket; la lista de piezas muestra miniaturas.
 
-- [ ] **Etapa 7 — Copy e ideas con Claude**
+- [x] **Etapa 7 — Copy e ideas con Claude**
       Archivos: migración `0025_contenido_ideas.sql`, `src/lib/contenido/{estrategia,claude,copy,ideas,vozLint}.ts`,
       `src/app/(dashboard)/contenido/{ideasActions.ts,IdeasPanel.tsx,ResumenMetricas.tsx}`,
       `src/app/(dashboard)/contenido/[id]/BarraCopy.tsx`, `.env.example`, `GUIA.md`.
@@ -332,3 +332,47 @@ tiene **`km = 221`** en `comercial.route_stages`. Debería ser 22.1. No es cosa 
 módulo: esa columna alimenta el itinerario del **PDF de cotización que ve el cliente**.
 No lo corregí porque es dato comercial y no me corresponde cambiarlo por mi cuenta.
 Conviene revisarlo y de paso mirar si hay más comas corridas en esa tabla.
+
+### Etapa 7 — 2026-08-24
+- **Dos cosas cambiaron respecto al plan aprobado, y ambas a mejor:**
+  1. **Modelo `claude-opus-5`**, no el `claude-sonnet-4-6` del bot. El bot publica una vez
+     al día sin nadie mirando; acá el uso es a demanda y con humano en el medio, y lo
+     difícil de acertar es justamente la voz de marca.
+  2. **Se usa el SDK oficial `@anthropic-ai/sdk`**, no `fetch` pelado. Rompe la promesa de
+     "cero dependencias nuevas" del plan, pero es lo correcto para un proyecto TypeScript:
+     da salida estructurada validada con zod (`messages.parse` + `zodOutputFormat`),
+     errores tipados y caché de prompt. Verificado que el helper de zod funciona con la
+     zod v4 que ya tenía el proyecto.
+- **Salida estructurada con zod**, no el truco de tool-use del bot viejo: el modelo
+  devuelve un objeto ya validado, así que no hay JSON dentro de texto que parsear — de
+  ahí salían los fallos cuando el copy traía comillas o saltos de línea.
+- El system prompt va con `cache_control` (es estable entre llamadas y es la parte larga)
+  y con `thinking: adaptive`.
+- Costo registrado en `public.token_usage` con `bot:'contenido'`, **dentro de try/catch que
+  nunca hace fallar la acción del usuario**: perder el registro de costo molesta, perder el
+  copy que acaban de pedir, mucho más. Añadida la entrada `contenido` a
+  `comercial.settings.token_pricing` (`claude-opus-5`, 5/25 USD por millón), así que el
+  gasto aparece en `/tokens` **sin haber tocado esa página**.
+- **`vozLint` probado y funcionando** (esto sí se puede verificar sin clave): sobre un copy
+  malo caza las 9 infracciones —markdown, lista con viñetas, cuatro frases prohibidas, tres
+  emojis, hashtag inventado—; sobre uno rioplatense caza "vos", "querés" y "usted"; y deja
+  pasar limpio un copy que cumple. Corre siempre, también sobre lo que devuelve Claude.
+- El motor de ideas cruza cinco fuentes y **el peso lo llevan las que aguantan la muestra**:
+  aprendizajes destilados, calendario editorial y sobre todo **cotizaciones** (qué rutas
+  pide la gente de verdad, sin depender de Instagram). Toda evidencia lleva su n y por
+  debajo de n=5 se marca "señal débil" en el prompt y en la interfaz.
+- El smoke ahora avisa si `estrategia.ts` se separó de la del otro repo (largos de
+  HASHTAGS, RUTAS y PILARES).
+
+#### Lo que NO pude verificar y hace falta para cerrar
+**`ANTHROPIC_API_KEY` no existe en la app** (vive como secreto de las Edge Functions). Hay
+que agregarla a `.env.local` y a Railway — es la misma clave que ya usa el bot. Sin ella,
+diseñar y exportar funciona igual; solo "Sugerir copy" y "Sugerir ideas" avisan que falta.
+Queda sin comprobar de punta a punta: que salgan ≥3 ideas con razón, y que aparezca la
+fila `contenido` en `/tokens`.
+
+#### ⚠️ Segundo dato desactualizado encontrado (NO lo toqué)
+En `comercial.settings.token_pricing`, los bots `blog` y `blog_naty` están cargados como
+`claude-opus-4-7` a **15/75 USD por millón**. El precio real de Opus 4.7 es **5/25**. El
+reporte de costos del blog está inflado unas 3 veces. No lo corregí porque cambia cifras
+históricas que quizá estén siguiendo.
