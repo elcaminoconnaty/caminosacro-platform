@@ -7,7 +7,9 @@ import { FORMATOS_LISTA, type FormatoId } from "@/lib/contenido/formatos";
 import { hashSlide } from "@/lib/contenido/hashSlide";
 import type { DefinicionPlantilla, Slide, FotoSlide } from "@/lib/contenido/tipos";
 import type { FotoDelBanco, FotoSubida } from "@/lib/contenido/fotos";
+import type { RutaLista } from "@/lib/contenido/datos";
 import { guardarSlides, cambiarFormato } from "./actions";
+import { aplicarRuta } from "./rutaActions";
 import Lienzo from "./Lienzo";
 import PanelCampos from "./PanelCampos";
 import TiraSlides from "./TiraSlides";
@@ -24,6 +26,7 @@ export type EditorProps = {
   valoresPorDefectoPorPlantilla: Record<string, Record<string, string>>;
   banco: FotoDelBanco[];
   subidas: FotoSubida[];
+  rutas: RutaLista[];
 };
 
 const DEBOUNCE_MS = 600;
@@ -37,6 +40,7 @@ export default function Editor({
   valoresPorDefectoPorPlantilla,
   banco,
   subidas,
+  rutas,
 }: EditorProps) {
   const [slides, setSlides] = useState<Slide[]>(slidesIniciales);
   const [formato, setFormato] = useState<FormatoId>(formatoInicial);
@@ -103,6 +107,25 @@ export default function Editor({
     if (aGuardar) guardar(aGuardar, i);
     else setVersion(hashSlide(slides[i] ?? null, formato));
     setActivo(i);
+  };
+
+  /** Elegir una ruta no cambia un campo: trae del catálogo varios de una sola vez. */
+  const elegirRuta = (rutaId: string) => {
+    iniciarGuardado(async () => {
+      const r = await aplicarRuta(rutaId);
+      if ("error" in r && r.error) {
+        setAviso(r.error);
+        return;
+      }
+      setAviso(("aviso" in r && r.aviso) || null);
+      const nuevos = slides.map((s, i) =>
+        i === activo ? { ...s, valores: { ...s.valores, ...r.valores } } : s,
+      );
+      setSlides(nuevos);
+      const guardado = await guardarSlides(piezaId, nuevos);
+      if ("error" in guardado && guardado.error) setAviso(guardado.error);
+      else setVersion(hashSlide(nuevos[activo] ?? null, formato));
+    });
   };
 
   const cambiarFoto = (foto: FotoSlide | null) => {
@@ -251,7 +274,9 @@ export default function Editor({
               <PanelCampos
                 definicion={defActiva}
                 valores={slideActivo?.valores ?? {}}
+                rutas={rutas}
                 onCambio={cambiarCampo}
+                onElegirRuta={elegirRuta}
               />
               {defActiva.usaFoto && (
                 <div className="mt-4 pt-4 border-t border-border">

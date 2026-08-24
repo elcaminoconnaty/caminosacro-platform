@@ -93,6 +93,19 @@ type Caso = { nombre: string; formato: Formato; elemento: React.ReactElement };
 const FOTO_PRUEBA =
   process.env.CONTENIDO_FOTO_PRUEBA ?? null;
 
+// Los campos que en la app rellena el catálogo al elegir una ruta. Acá van a mano para
+// que el smoke siga corriendo sin base de datos ni sesión.
+const MUESTRA_CATALOGO: Record<string, string> = {
+  ruta_nombre: "Camino Francés desde Sarria",
+  etapas_json: JSON.stringify([
+    { dia: 1, desde: "Sarria", hasta: "Portomarín", km: 22.2 },
+    { dia: 2, desde: "Portomarín", hasta: "Palas de Rei", km: 24.8 },
+    { dia: 3, desde: "Palas de Rei", hasta: "Arzúa", km: 28.5 },
+    { dia: 4, desde: "Arzúa", hasta: "O Pedrouzo", km: 19.3 },
+    { dia: 5, desde: "O Pedrouzo", hasta: "Santiago", km: 19.4 },
+  ]),
+};
+
 function casos(): Caso[] {
   const out: Caso[] = [];
 
@@ -107,7 +120,7 @@ function casos(): Caso[] {
       const formato = FORMATOS[formatoId];
       const slide: Slide = {
         plantilla: definicion.id,
-        valores: valoresPorDefecto(definicion.id),
+        valores: { ...valoresPorDefecto(definicion.id), ...MUESTRA_CATALOGO },
         foto: definicion.usaFoto && FOTO_PRUEBA ? { url: FOTO_PRUEBA, origen: "banco" } : null,
       };
       out.push({ nombre: definicion.id, formato, elemento: <Componente f={formato} slide={slide} /> });

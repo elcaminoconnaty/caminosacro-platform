@@ -121,7 +121,7 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
       Terminado: cambiar un texto actualiza la imagen en <1.5 s; F5 conserva lo escrito;
       añadir/duplicar/borrar/reordenar slides funciona.
 
-- [ ] **Etapa 4 — Catálogo completo de plantillas y gráficos**
+- [x] **Etapa 4 — Catálogo completo de plantillas y gráficos**
       Archivos: las 7 plantillas restantes, `src/lib/contenido/graficos/*`, `src/lib/contenido/datos.ts`.
       Gráficos: `<svg>` inline (Satori lo soporta) con `viewBox` + `width`/`height` explícitos y
       **cero `<text>` dentro** —resvg lo rasteriza con su propia base de fuentes y saldría con
@@ -299,3 +299,36 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
 - Si la subida a Storage falla, la descarga **igual se completa** y se avisa aparte: el
   usuario ya tiene su archivo, que es lo que vino a buscar.
 - El botón se bloquea mientras hay un guardado en vuelo, para no exportar la versión vieja.
+
+### Etapa 4 — 2026-08-24
+- Ocho plantillas en el registry: `portada-ruta`, `tip-numerado`, `dato-grande`,
+  `etapas-ruta`, `comparativa-precio`, `mito-realidad`, `testimonio`, `cierre-cta`.
+  El smoke renderiza **34 combinaciones** (plantilla × formato) sin un solo fallo.
+- **Los gráficos NO llevan SVG.** Cargué la skill `dataviz` y su primera consecuencia fue
+  descartar el SVG: unas barras horizontales de una serie se hacen con divs de flexbox, y
+  así el problema del `<text>` con fuente ajena ni se plantea. El SVG queda reservado para
+  formas que los divs no pueden (dona, línea), si algún día hacen falta.
+- **El validador de paleta descartó un color.** `node scripts/validate_palette.js` sobre
+  fondo bosque: **`#3d7a52` (verde claro) da 2.44:1 de contraste y falla el piso de croma
+  — "lee gris"**. No sirve como color de marca en gráficos sobre verde. Las barras van en
+  dorado `#f0c060`, que sí pasa, y el carril es blanco al 10%.
+- Una sola serie ⇒ un solo tono: la magnitud ya la codifica el largo de la barra, y pintar
+  cada barra distinta sería inventar categorías que no existen. Sin rejilla ni ejes: en una
+  pieza social son ruido. Rótulo directo en todas las barras porque es una imagen fija —
+  no hay hover posible— y son pocas.
+- `comparativa-precio` **no es un gráfico a propósito**: dos precios son dos cifras, y la
+  forma correcta son dos tarjetas contrastadas, la misma maqueta de la página 2 del PDF.
+- **Los datos del catálogo se COPIAN dentro del slide**, no se leen al dibujar. Dos razones:
+  el render queda puro (el smoke corre sin base de datos) y una pieza publicada no cambia
+  sola si mañana sube un precio. Para refrescar, se vuelve a elegir la ruta.
+- Verificado contra la base: "Francés desde Sarria" autollena **112 km · 7 días · 5 etapas
+  · desde 505 €**, todo real. Las etapas sin km (la fila "Llegada a Sarria") se filtran.
+- Con más de 7-9 etapas los rótulos se apelmazan: se muestran las primeras y se dice
+  cuántas faltan, en vez de encoger todo hasta que no se lea.
+
+#### ⚠️ Dato malo encontrado en el catálogo comercial (NO lo toqué)
+En la ruta **"Frances desde Sarria 6 etapas (Melide)"**, la etapa Sarria → Portomarín
+tiene **`km = 221`** en `comercial.route_stages`. Debería ser 22.1. No es cosa de este
+módulo: esa columna alimenta el itinerario del **PDF de cotización que ve el cliente**.
+No lo corregí porque es dato comercial y no me corresponde cambiarlo por mi cuenta.
+Conviene revisarlo y de paso mirar si hay más comas corridas en esa tabla.

@@ -12,6 +12,12 @@ import type { DefinicionPlantilla, Slide } from "../tipos";
 
 import { definicion as defPortadaRuta, PortadaRuta } from "./portadaRuta";
 import { definicion as defCierreCta, CierreCta } from "./cierreCta";
+import { definicion as defDatoGrande, DatoGrande } from "./datoGrande";
+import { definicion as defTipNumerado, TipNumerado } from "./tipNumerado";
+import { definicion as defMitoRealidad, MitoRealidad } from "./mitoRealidad";
+import { definicion as defTestimonio, Testimonio } from "./testimonio";
+import { definicion as defEtapasRuta, EtapasRuta } from "./etapasRuta";
+import { definicion as defComparativaPrecio, ComparativaPrecio } from "./comparativaPrecio";
 
 export type ComponentePlantilla = (props: { f: Formato; slide: Slide }) => React.ReactElement;
 
@@ -22,6 +28,12 @@ export type EntradaRegistry = {
 
 export const PLANTILLAS: Record<string, EntradaRegistry> = {
   [defPortadaRuta.id]: { definicion: defPortadaRuta, Componente: PortadaRuta },
+  [defTipNumerado.id]: { definicion: defTipNumerado, Componente: TipNumerado },
+  [defDatoGrande.id]: { definicion: defDatoGrande, Componente: DatoGrande },
+  [defEtapasRuta.id]: { definicion: defEtapasRuta, Componente: EtapasRuta },
+  [defComparativaPrecio.id]: { definicion: defComparativaPrecio, Componente: ComparativaPrecio },
+  [defMitoRealidad.id]: { definicion: defMitoRealidad, Componente: MitoRealidad },
+  [defTestimonio.id]: { definicion: defTestimonio, Componente: Testimonio },
   [defCierreCta.id]: { definicion: defCierreCta, Componente: CierreCta },
 };
 

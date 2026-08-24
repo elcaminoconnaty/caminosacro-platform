@@ -1,11 +1,15 @@
 "use client";
 
 import type { DefinicionPlantilla } from "@/lib/contenido/tipos";
+import type { RutaLista } from "@/lib/contenido/datos";
 
 export type PanelCamposProps = {
   definicion: DefinicionPlantilla;
   valores: Record<string, string>;
+  rutas: RutaLista[];
   onCambio: (campoId: string, valor: string) => void;
+  /** Elegir una ruta no cambia un campo: trae del catálogo un puñado de ellos. */
+  onElegirRuta: (rutaId: string) => void;
 };
 
 /**
@@ -13,12 +17,12 @@ export type PanelCamposProps = {
  * `registry[plantilla].campos`. Por eso agregar una plantilla nueva es agregar un
  * archivo, sin tocar ni una pantalla.
  */
-export default function PanelCampos({ definicion, valores, onCambio }: PanelCamposProps) {
+export default function PanelCampos({ definicion, valores, rutas, onCambio, onElegirRuta }: PanelCamposProps) {
   return (
     <div className="flex flex-col gap-4">
       {definicion.campos.map((campo) => {
         const valor = valores[campo.id] ?? "";
-        const excedido = campo.maxLargo != null && valor.length > campo.maxLargo;
+        const excedido = campo.tipo !== "ruta" && campo.maxLargo != null && valor.length > campo.maxLargo;
 
         return (
           <label key={campo.id} className="flex flex-col gap-1.5">
@@ -27,14 +31,28 @@ export default function PanelCampos({ definicion, valores, onCambio }: PanelCamp
                 {campo.etiqueta}
                 {campo.requerido && <span className="text-dorado-oscuro"> *</span>}
               </span>
-              {campo.maxLargo != null && (
+              {campo.maxLargo != null && campo.tipo !== "ruta" && (
                 <span className={excedido ? "text-[10px] text-dorado-oscuro" : "text-[10px] text-muted"}>
                   {valor.length}/{campo.maxLargo}
                 </span>
               )}
             </span>
 
-            {campo.tipo === "textarea" ? (
+            {campo.tipo === "ruta" ? (
+              <select
+                value={valor}
+                onChange={(e) => onElegirRuta(e.target.value)}
+                className="px-3 py-2 rounded-md border border-border bg-bg-card text-sm focus:outline-none focus:border-bosque"
+              >
+                <option value="">Elige una ruta…</option>
+                {rutas.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.nombre}
+                    {r.km ? ` · ${Math.round(r.km)} km` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : campo.tipo === "textarea" ? (
               <textarea
                 value={valor}
                 rows={3}
