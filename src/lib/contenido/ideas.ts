@@ -5,7 +5,7 @@ import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { aJsonSchema, type Encargo } from "./encargo";
 import { SYSTEM_PROMPT, PILARES, RUTAS } from "./estrategia";
-import { PLANTILLAS_LISTA } from "./plantillas/registry";
+import { PLANTILLAS_LISTA, plantilla as buscarPlantilla } from "./plantillas/registry";
 
 /**
  * "¿Qué publico?" respondido con datos, no con intuición.
@@ -24,6 +24,12 @@ import { PLANTILLAS_LISTA } from "./plantillas/registry";
  */
 const UMBRAL_SENAL = 5;
 
+/** Un slide propuesto por Claude: misma forma que contenido_piezas.slides, sin la foto. */
+const SlidePropuesto = z.object({
+  plantilla: z.string(),
+  valores: z.record(z.string(), z.string()),
+});
+
 export const RespuestaIdeas = z.object({
   ideas: z
     .array(
@@ -35,6 +41,8 @@ export const RespuestaIdeas = z.object({
         angulo: z.string(),
         razon: z.string(),
         ruta_nombre: z.string().nullable(),
+        slides: z.array(SlidePropuesto).min(3).max(6),
+        fuente_dato: z.enum(["metricas", "catalogo", "cotizaciones", "calendario"]),
       }),
     )
     .min(3)
@@ -191,6 +199,15 @@ export async function construirEncargoIdeas(): Promise<{ encargo: Encargo; conte
     (p) => `- ${p.definicion.id} (${p.definicion.nombre}): ${p.definicion.descripcion}`,
   ).join("\n");
 
+  // Catálogo con los campos EXACTOS de cada plantilla y su largo máximo: es la única
+  // forma de que Claude proponga `slides` que el registry vaya a aceptar tal cual.
+  const catalogoSlides = PLANTILLAS_LISTA.map((p) => {
+    const campos = p.definicion.campos
+      .map((c) => `${c.id} (máx ${c.maxLargo ?? "sin límite"} car.)`)
+      .join(", ");
+    return `- ${p.definicion.id} [rol: ${p.definicion.rol}]: campos → ${campos || "sin campos"}`;
+  }).join("\n");
+
   const user = `Propón entre 3 y 6 ideas concretas de publicación para Instagram, basadas SOLO en los datos de abajo.
 
 REGLA INNEGOCIABLE SOBRE LOS DATOS: la cuenta tiene pocos posts todavía. Donde veas
@@ -224,7 +241,20 @@ ${plantillas}
 RUTAS CON PRECIO CONOCIDO:
 ${RUTAS.filter((r) => r.desde).map((r) => `- ${r.nombre}: desde ${r.desde}€ — ${r.detalle}`).join("\n")}
 
-FORMATOS: 4x5 (carrusel de feed, el que más rinde), 1x1, 9x16 (historia), reel (portada).`;
+FORMATOS: 4x5 (carrusel de feed, el que más rinde), 1x1, 9x16 (historia), reel (portada).
+
+CADA IDEA TIENE QUE TRAER EL CARRUSEL ENTERO REDACTADO EN "slides" (entre 3 y 6 slides),
+listo para publicar sin reescribir nada. Reglas estrictas:
+- Usa SOLO estos ids de plantilla y SOLO estos campos (nada inventado):
+${catalogoSlides}
+- Cada slide es { "plantilla": "<id de la lista de arriba>", "valores": { "<campo>": "<texto>" } }.
+  Solo incluyas los campos que esa plantilla declara, y respeta su largo máximo.
+- Estructura del carrusel: el primer slide usa una plantilla de rol "portada", el
+  último usa "cierre-cta", y entre 1 y 4 slides intermedios usan plantillas de rol
+  "cuerpo". No repitas la portada ni el cierre en medio.
+- "fuente_dato" dice de qué dato salió la idea: "metricas" (rendimiento por pilar en
+  Instagram), "catalogo" (rutas sin publicar), "cotizaciones" (demanda comercial real),
+  o "calendario" (tema editorial del blog). Elige el que de verdad sustenta la idea.`;
 
   const items = [...pilares.evidencias, ...demanda.evidencias];
   const debiles = items.filter((e) => e.senal_debil).length;
@@ -239,12 +269,36 @@ FORMATOS: 4x5 (carrusel de feed, el que más rinde), 1x1, 9x16 (historia), reel 
   };
 }
 
+/**
+ * Filtra los slides propuestos contra el registry: descarta los que usen una plantilla
+ * que no existe, y de los campos de cada uno se queda solo con los que la plantilla
+ * declara (nada de valores huérfanos que el editor no sabría dónde poner). Si tras
+ * filtrar quedan menos de 2 slides, mejor vacío que un carrusel roto a medias.
+ */
+function validarSlides(slides: { plantilla: string; valores: Record<string, string> }[]) {
+  const validos = slides.flatMap((s) => {
+    const p = buscarPlantilla(s.plantilla);
+    if (!p) return [];
+    const idsCampos = new Set(p.definicion.campos.map((c) => c.id));
+    const valores: Record<string, string> = {};
+    for (const [k, v] of Object.entries(s.valores)) {
+      if (idsCampos.has(k)) valores[k] = v;
+    }
+    return [{ plantilla: s.plantilla, valores }];
+  });
+  return validos.length >= 2 ? validos : [];
+}
+
 /** Valida lo que devolvió el worker y le pega la evidencia con la que se pidió. */
 export function interpretarIdeas(crudo: unknown, contexto: ContextoIdeas) {
   const r = RespuestaIdeas.safeParse(crudo);
   if (!r.success) return { error: "Claude respondió con una lista que no encaja. Vuelve a intentarlo." };
   return {
     ok: true as const,
-    ideas: r.data.ideas.map((i) => ({ ...i, evidencia: contexto })) as IdeaGenerada[],
+    ideas: r.data.ideas.map((i) => ({
+      ...i,
+      slides: validarSlides(i.slides),
+      evidencia: contexto,
+    })) as IdeaGenerada[],
   };
 }
