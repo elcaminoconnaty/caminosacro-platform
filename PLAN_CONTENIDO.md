@@ -551,7 +551,7 @@ son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
       **Archivos:** `plantillas/*`, `registry.ts` (`usaFoto`).
       **Terminado:** cualquier slide del carrusel puede llevar foto.
 
-- [ ] **T5 — Que las sugerencias crezcan con los datos**
+- [x] **T5 — Que las sugerencias crezcan con los datos**
       Nico lo dijo bien: *"sé que al inicio vas a ser torpe"*. Que la pantalla **muestre de
       qué datos está saliendo cada idea** y cuántos posts medidos hay detrás, y que el peso
       de las métricas de Instagram suba solo a medida que haya más. Con 15 filas manda el
@@ -703,3 +703,16 @@ worker respeta `maxLargo` y la estructura pedida.
 - `validarSlides()` descarta campos no declarados en silencio; si Claude insiste en
   inventar campos, las ideas seguirán llegando pero con menos texto del esperado — no
   hay aviso visible de cuánto se filtró, solo el resultado final en el `<details>`.
+
+### T5 — 2026-08-24
+- **El peso de las métricas de Instagram sube solo con el volumen**, en una constante con
+  nombre (`PESO_METRICAS`) y su porqué escrito: por debajo de **20 posts medidos** casi
+  ningún pilar llega a 5 observaciones, así que el prompt le **prohíbe** a Claude basar una
+  idea solo en métricas y lo manda al catálogo y a las cotizaciones; entre 20 y 40 puede
+  apoyarse en ellas diciendo sobre cuántos posts; por encima de 40 son la señal principal.
+- La cuenta de posts medidos sale de los que **de verdad tienen métricas**, no de
+  `posts_log` entero.
+- `ResumenMetricas` dice en qué punto está la cuenta y **cambia solo** al crecer. Nico sabe
+  que al principio va a ser torpe; decírselo es más honesto que un mensaje fijo, y deja ver
+  que el módulo mejora sin que nadie lo toque.
+- La chapita de `fuente_dato` en cada idea la dejó el agente de T8.

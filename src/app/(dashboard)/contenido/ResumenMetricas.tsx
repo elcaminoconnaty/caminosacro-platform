@@ -1,4 +1,5 @@
 import { createPublicSchemaClient } from "@/lib/supabase/server";
+import { pesoDeLasMetricas } from "@/lib/contenido/ideas";
 
 /**
  * Cómo va la cuenta, con la n SIEMPRE a la vista.
@@ -49,12 +50,23 @@ export default async function ResumenMetricas() {
             ))}
           </ul>
 
-          {n < 30 && (
-            <p className="px-5 py-2.5 text-[11px] text-dorado-oscuro border-t border-border leading-snug">
-              Muestra pequeña: con {n} posts medidos, estos números sirven para orientarse,
-              no para sacar conclusiones firmes.
-            </p>
-          )}
+          {/*
+            Este aviso cambia solo a medida que entran métricas. Nico pidió que las ideas
+            "no salgan de la nada" y sabe que al principio van a ser torpes: decirle en qué
+            punto está la cuenta es más honesto que un mensaje fijo, y le deja ver que el
+            módulo mejora solo sin que nadie lo toque.
+          */}
+          {(() => {
+            const peso = pesoDeLasMetricas(n);
+            if (peso === "alto") return null;
+            return (
+              <p className="px-5 py-2.5 text-[11px] text-dorado-oscuro border-t border-border leading-snug">
+                {peso === "bajo"
+                  ? `Con ${n} posts medidos todavía es poca data: las ideas se apoyan sobre todo en el catálogo y en lo que se está cotizando. A partir de unos 20 posts las métricas empiezan a pesar.`
+                  : `Con ${n} posts medidos ya se ven tendencias, pero aún no son firmes. Pasados los 40, las métricas pasan a ser la señal principal.`}
+              </p>
+            );
+          })()}
 
           {aprendizaje && (
             <details className="border-t border-border">

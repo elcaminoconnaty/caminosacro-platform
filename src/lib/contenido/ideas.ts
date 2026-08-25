@@ -24,6 +24,51 @@ import { PLANTILLAS_LISTA, plantilla as buscarPlantilla } from "./plantillas/reg
  */
 const UMBRAL_SENAL = 5;
 
+/**
+ * CUÁNTO PESAN LAS MÉTRICAS DE INSTAGRAM, SEGÚN CUÁNTAS HAYA.
+ *
+ * Nico lo pidió tal cual: "quiero que las sugerencias no salgan de la nada, quiero que
+ * salgan cada vez que tenga más y más data de las estadísticas de Instagram (sé que al
+ * inicio vas a ser torpe)".
+ *
+ * La torpeza del principio no se arregla con mejores palabras: se arregla **no fingiendo**.
+ * Con 15 posts medidos, cualquier ranking de pilares es ruido, así que el prompt le prohíbe
+ * a Claude apoyarse en él y lo manda al catálogo y a las cotizaciones —que no dependen de
+ * Instagram y ya tienen volumen—. A medida que entren métricas, el peso se invierte solo,
+ * sin que nadie toque nada.
+ *
+ * Los cortes son a ojo pero no arbitrarios: por debajo de 20 posts casi ningún pilar llega
+ * a 5 observaciones (UMBRAL_SENAL), y por encima de 40 la mayoría sí.
+ */
+const PESO_METRICAS = [
+  { desde: 0, peso: "bajo" as const },
+  { desde: 20, peso: "medio" as const },
+  { desde: 40, peso: "alto" as const },
+];
+
+export type PesoMetricas = "bajo" | "medio" | "alto";
+
+export function pesoDeLasMetricas(postsMedidos: number): PesoMetricas {
+  return [...PESO_METRICAS].reverse().find((p) => postsMedidos >= p.desde)!.peso;
+}
+
+/** Lo que se le dice a Claude sobre cuánto puede fiarse de Instagram. */
+function instruccionSegunPeso(peso: PesoMetricas, n: number): string {
+  if (peso === "bajo") {
+    return `Solo hay ${n} posts medidos en Instagram: DEMASIADO POCO. Las métricas de abajo son
+un indicio, no una conclusión, y NO puedes basar una idea únicamente en ellas. Apóyate en el
+catálogo, en las cotizaciones y en el calendario editorial, que son señales sólidas. Si citas
+una métrica, di explícitamente que está por confirmar.`;
+  }
+  if (peso === "medio") {
+    return `Hay ${n} posts medidos: ya se empiezan a ver tendencias, pero todavía no son firmes.
+Puedes apoyarte en las métricas para uno o dos de tus ideas, siempre diciendo sobre cuántos
+posts se sostiene. El resto que salga del catálogo y de las cotizaciones.`;
+  }
+  return `Hay ${n} posts medidos: suficiente para fiarse. Las métricas son ahora tu señal
+principal; el catálogo y las cotizaciones sirven para completar lo que Instagram no cubre.`;
+}
+
 /** Un slide propuesto por Claude: misma forma que contenido_piezas.slides, sin la foto. */
 const SlidePropuesto = z.object({
   plantilla: z.string(),
@@ -52,7 +97,7 @@ export const RespuestaIdeas = z.object({
 type Evidencia = { fuente: string; dato: string; n: number; senal_debil: boolean };
 
 /** Rendimiento por pilar, siempre con la n a la vista. */
-async function rendimientoPorPilar(): Promise<{ texto: string; evidencias: Evidencia[] }> {
+async function rendimientoPorPilar(): Promise<{ texto: string; evidencias: Evidencia[]; medidos: number }> {
   const supabase = await createPublicSchemaClient();
   const { data } = await supabase
     .from("posts_log")
@@ -95,7 +140,10 @@ async function rendimientoPorPilar(): Promise<{ texto: string; evidencias: Evide
         .join("\n")
     : "- todavía no hay posts con métricas";
 
-  return { texto, evidencias };
+  // Cuántos posts tienen métricas de verdad: es el número que decide cuánto pesa Instagram.
+  const medidos = filas.reduce((a, f) => a + f.n, 0);
+
+  return { texto, evidencias, medidos };
 }
 
 /** Los aprendizajes que ya destiló el bot semanal: la señal más madura que existe. */
@@ -184,7 +232,7 @@ export type IdeaGenerada = z.infer<typeof RespuestaIdeas>["ideas"][number] & {
 };
 
 /** Contexto con el que se armó el encargo: hay que guardarlo para adjuntarlo a las ideas. */
-export type ContextoIdeas = { items: Evidencia[]; nota: string };
+export type ContextoIdeas = { items: Evidencia[]; nota: string; medidos: number; peso: PesoMetricas };
 
 export async function construirEncargoIdeas(): Promise<{ encargo: Encargo; contexto: ContextoIdeas }> {
   const [pilares, aprendizaje, demanda, sinPublicar, calendario] = await Promise.all([
@@ -194,6 +242,8 @@ export async function construirEncargoIdeas(): Promise<{ encargo: Encargo; conte
     rutasSinPublicar(),
     temaDeLaSemana(),
   ]);
+
+  const postsMedidos = pilares.medidos;
 
   const plantillas = PLANTILLAS_LISTA.map(
     (p) => `- ${p.definicion.id} (${p.definicion.nombre}): ${p.definicion.descripcion}`,
@@ -210,7 +260,10 @@ export async function construirEncargoIdeas(): Promise<{ encargo: Encargo; conte
 
   const user = `Propón entre 3 y 6 ideas concretas de publicación para Instagram, basadas SOLO en los datos de abajo.
 
-REGLA INNEGOCIABLE SOBRE LOS DATOS: la cuenta tiene pocos posts todavía. Donde veas
+CUÁNTO PUEDES FIARTE DE INSTAGRAM AHORA MISMO:
+${instruccionSegunPeso(pesoDeLasMetricas(postsMedidos), postsMedidos)}
+
+REGLA INNEGOCIABLE SOBRE LOS DATOS: donde veas
 "SEÑAL DÉBIL" NO afirmes que algo funciona: como mucho di que hay un indicio por
 confirmar. Las señales fuertes son los aprendizajes destilados y, sobre todo, las
 cotizaciones —lo que la gente pide de verdad—, que no dependen de Instagram.
@@ -265,7 +318,7 @@ ${catalogoSlides}
 
   return {
     encargo: { system: SYSTEM_PROMPT, user, schema: aJsonSchema(RespuestaIdeas) },
-    contexto: { items, nota },
+    contexto: { items, nota, medidos: postsMedidos, peso: pesoDeLasMetricas(postsMedidos) },
   };
 }
 
