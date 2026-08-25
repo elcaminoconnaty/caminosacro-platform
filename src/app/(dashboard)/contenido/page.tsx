@@ -19,7 +19,9 @@ export default async function ContenidoPage() {
       .select("id,titulo,formato,estado,slides,updated_at,export_paths")
       .neq("estado", "archivado")
       .order("updated_at", { ascending: false })
-      .limit(60),
+      // 27 rutas + bicis + lo que se cree a mano: 60 se quedaba corto y cortaba la lista
+      // en silencio. El filtrado y la búsqueda van en el cliente sobre esto.
+      .limit(300),
     supabase
       .from("contenido_ideas")
       .select("id,titular,pilar,formato,angulo,razon,ruta_nombre,evidencia,slides,fuente_dato")

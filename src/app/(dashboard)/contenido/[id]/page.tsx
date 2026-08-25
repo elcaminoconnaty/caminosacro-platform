@@ -4,7 +4,7 @@ import { leerSlides } from "@/lib/contenido/tipos";
 import { esFormatoId, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
 import { PLANTILLAS_LISTA, valoresPorDefecto } from "@/lib/contenido/plantillas/registry";
 import { listarBanco, listarSubidas } from "@/lib/contenido/fotos";
-import { listarRutas } from "@/lib/contenido/datos";
+import { listarRutas, refrescarDesdeCatalogo } from "@/lib/contenido/datos";
 import { estadoDelWorker } from "@/lib/contenido/cola";
 import Editor from "./Editor";
 import BarraCopy from "./BarraCopy";
@@ -28,7 +28,16 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
   if (!pieza) notFound();
 
   const formato = esFormatoId(pieza.formato) ? pieza.formato : FORMATO_POR_DEFECTO;
-  const { slides } = leerSlides(pieza.slides);
+  // El catálogo se relee AQUÍ, al abrir el editor, y no en cada dibujo del preview.
+  //
+  // Por qué importa: el endpoint que exporta (`/piezas/[id]/[n]`) sí lo relee, pero el del
+  // preview no —se hizo así para que dibujar no cueste consultas a la base—. Sin este
+  // refresco, cambiar un precio en Catálogo dejaba el preview con el precio viejo y la
+  // exportación con el nuevo: exactamente la divergencia que este módulo promete que no
+  // puede ocurrir. Refrescando al abrir, el estado del editor ya viene fresco y las dos
+  // puntas coinciden, sin pagar una consulta por cada tecla.
+  const { slides: guardados } = leerSlides(pieza.slides);
+  const slides = await refrescarDesdeCatalogo(guardados);
 
   // El registry vive en el servidor y contiene componentes, que no se pueden serializar
   // hacia el cliente. Se manda solo la parte declarativa: con eso el editor arma el

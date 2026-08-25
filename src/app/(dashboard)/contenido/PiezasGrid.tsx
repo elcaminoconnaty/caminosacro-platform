@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useTransition, useState } from "react";
-import { Copy, Trash2 } from "lucide-react";
+import { useTransition, useState, useMemo } from "react";
+import { Copy, Trash2, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { miniatura } from "@/lib/contenido/miniatura";
@@ -27,10 +27,31 @@ const COLOR_ESTADO: Record<string, string> = {
   archivado: "bg-taupe/50 text-muted",
 };
 
+/** Quita tildes y baja a minúsculas: buscar "frances" tiene que encontrar "Francés". */
+function normalizar(t: string): string {
+  return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+const ESTADOS = ["todas", "borrador", "listo", "publicado"] as const;
+type FiltroEstado = (typeof ESTADOS)[number];
+
 export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
   const router = useRouter();
   const [pendiente, iniciar] = useTransition();
   const [aviso, setAviso] = useState<string | null>(null);
+  // Con un post por cada una de las 27 rutas, la lista sin filtro es un muro: encontrar
+  // "el del Primitivo" obligaba a recorrerla entera con los ojos.
+  const [busqueda, setBusqueda] = useState("");
+  const [estado, setEstado] = useState<FiltroEstado>("todas");
+
+  const visibles = useMemo(() => {
+    const q = normalizar(busqueda.trim());
+    return filas.filter((p) => {
+      if (estado !== "todas" && p.estado !== estado) return false;
+      if (!q) return true;
+      return normalizar(p.titulo).includes(q);
+    });
+  }, [filas, busqueda, estado]);
 
   if (filas.length === 0) {
     return (
@@ -43,10 +64,51 @@ export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="relative flex items-center">
+          <Search size={13} className="absolute left-2.5 text-muted pointer-events-none" />
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por título…"
+            className="pl-8 pr-3 py-1.5 rounded-md border border-border bg-bg-card text-xs w-56 focus:outline-none focus:border-bosque"
+          />
+        </label>
+
+        <div className="flex items-center gap-1">
+          {ESTADOS.map((e) => (
+            <button
+              key={e}
+              type="button"
+              onClick={() => setEstado(e)}
+              className={cn(
+                "px-2.5 py-1.5 rounded-md text-[11px] transition",
+                estado === e ? "bg-bosque text-white" : "border border-border text-muted hover:bg-taupe/40",
+              )}
+            >
+              {e === "todas" ? "Todas" : e}
+            </button>
+          ))}
+        </div>
+
+        <span className="text-[11px] text-muted ml-auto">
+          {visibles.length === filas.length
+            ? `${filas.length} ${filas.length === 1 ? "pieza" : "piezas"}`
+            : `${visibles.length} de ${filas.length}`}
+        </span>
+      </div>
+
       {aviso && <p className="text-xs text-dorado-oscuro">{aviso}</p>}
+
+      {visibles.length === 0 && (
+        <p className="bg-bg-card border border-dashed border-border rounded-xl px-6 py-8 text-center text-xs text-muted">
+          Ninguna pieza coincide con lo que buscas.
+        </p>
+      )}
+
       <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {filas.map((p) => {
+        {visibles.map((p) => {
           const f = FORMATOS[p.formato as keyof typeof FORMATOS];
           return (
             <li
