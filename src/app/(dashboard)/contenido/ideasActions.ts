@@ -8,7 +8,7 @@ import { construirEncargoIdeas, interpretarIdeas, type ContextoIdeas } from "@/l
 import { encolar, consultarTrabajo, marcarConsumido, estadoDelWorker } from "@/lib/contenido/cola";
 import { esFormatoId, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
 import { plantilla, valoresPorDefecto } from "@/lib/contenido/plantillas/registry";
-import type { Slide } from "@/lib/contenido/tipos";
+import { leerSlides, type Slide } from "@/lib/contenido/tipos";
 
 /**
  * Encarga las ideas. Igual que el copy: no habla con Claude, deja el pedido en la cola.
@@ -64,23 +64,15 @@ export async function recogerIdeas(trabajoId: number, contexto: ContextoIdeas) {
 }
 
 /**
- * Convierte una idea en una pieza ya armada: portada con el titular de la idea, el slide
- * que la idea sugiere, y el cierre. La gracia es que aceptar una idea no deje al usuario
- * frente a un lienzo en blanco.
+ * Respaldo para ideas que llegaron sin `slides` (worker viejo, o Claude no dio
+ * suficientes slides válidos): portada con el titular de la idea, el slide que la idea
+ * sugiere, y el cierre. Es el comportamiento de siempre, ahora relegado a respaldo.
  */
-export async function aceptarIdea(id: number) {
-  const supabase = await createPublicSchemaClient();
-  const { data: idea, error: errLeer } = await supabase
-    .from("contenido_ideas")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (errLeer) return { error: mensajeError(errLeer) };
-  if (!idea) return { error: "Esa idea ya no existe." };
-
-  const formato = esFormatoId(idea.formato ?? "") ? idea.formato : FORMATO_POR_DEFECTO;
-
+function slidesDeRelleno(idea: {
+  titular: string;
+  ruta_nombre: string | null;
+  plantilla_sugerida: string | null;
+}): Slide[] {
   const slides: Slide[] = [
     {
       plantilla: "portada-ruta",
@@ -103,6 +95,32 @@ export async function aceptarIdea(id: number) {
   }
 
   slides.push({ plantilla: "cierre-cta", valores: valoresPorDefecto("cierre-cta"), foto: null });
+  return slides;
+}
+
+/**
+ * Convierte una idea en una pieza ya armada. Si la idea trae el carrusel ya redactado
+ * (`slides`), lo usa tal cual y en su orden; si no, cae al relleno de siempre. La gracia
+ * es que aceptar una idea no deje al usuario frente a un lienzo en blanco.
+ */
+export async function aceptarIdea(id: number) {
+  const supabase = await createPublicSchemaClient();
+  const { data: idea, error: errLeer } = await supabase
+    .from("contenido_ideas")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (errLeer) return { error: mensajeError(errLeer) };
+  if (!idea) return { error: "Esa idea ya no existe." };
+
+  const formato = esFormatoId(idea.formato ?? "") ? idea.formato : FORMATO_POR_DEFECTO;
+
+  // La idea ya trae el carrusel redactado (validado contra el registry al guardarse):
+  // úsalo tal cual, en su orden. Si vino vacío (worker viejo, o Claude no dio suficientes
+  // slides válidos), cae al relleno de siempre para no dejar al usuario en blanco.
+  const { slides: slidesIdea } = leerSlides(idea.slides);
+  const slides: Slide[] = slidesIdea.length > 0 ? slidesIdea : slidesDeRelleno(idea);
 
   const { data: pieza, error } = await supabase
     .from("contenido_piezas")
