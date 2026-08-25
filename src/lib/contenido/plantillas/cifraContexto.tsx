@@ -100,7 +100,16 @@ export function CifraContexto({ f, slide }: { f: Formato; slide: Slide }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: u(26, w) }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: u(14, w) }}>
+          {/*
+            `flexWrap:"wrap"` + `whiteSpace:"nowrap"` en la cifra: el campo está pensado
+            para un número corto ("100", "18-25"), pero es un campo de texto libre —nada
+            impide escribir algo más largo dentro de maxLargo=8— y sin esto la cifra
+            envolvía a dos líneas mientras la unidad, alineada por baseline, quedaba
+            flotando ENCIMA de la segunda línea, ilegible. Con nowrap la cifra no se
+            parte, y si aun así no cabe junto a la unidad, la unidad cae a su propia
+            línea en vez de superponerse.
+          */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: u(14, w) }}>
             <span
               style={{
                 fontFamily: TIPO.display,
@@ -108,6 +117,7 @@ export function CifraContexto({ f, slide }: { f: Formato; slide: Slide }) {
                 fontSize: aj.ut(compacto ? 140 : 190),
                 color: PALETA.dorado,
                 lineHeight: 0.86,
+                whiteSpace: "nowrap",
               }}
             >
               {v.cifra ?? ""}
