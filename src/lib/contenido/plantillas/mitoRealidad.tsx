@@ -2,6 +2,7 @@
 // "no incluido" y la verde del "incluido". Acá el rosa es el mito y el verde la realidad.
 
 import { PALETA, TIPO, ESCALA, MEDIDAS, u } from "../marca";
+import { resolverAjustes } from "../ajustes";
 import type { Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Eyebrow } from "./_lockups";
@@ -17,7 +18,7 @@ export const definicion: DefinicionPlantilla = {
   nombre: "Mito y realidad",
   descripcion: "Una objeción y su respuesta, en dos mitades. Para las preguntas que más se repiten.",
   formatos: ["4x5", "1x1", "9x16"],
-  usaFoto: false,
+  usaFoto: true,
   rol: "cuerpo",
   campos: [
     { id: "mito", etiqueta: "Lo que se cree", tipo: "textarea", requerido: true, maxLargo: 110, porDefecto: "En el Camino hay que dormir en albergues compartidos." },
@@ -25,8 +26,12 @@ export const definicion: DefinicionPlantilla = {
   ],
 };
 
+// Las cajas de "Lo que se cree" / "Lo que es" son sólidas a propósito: aunque el slide
+// lleve foto de fondo, estas cajas la tapan por completo y su contraste no cambia. Solo
+// `ut` (el tamaño de letra) responde a los ajustes; el resto de la maqueta es fija.
 function Mitad({
   w,
+  ut,
   rotulo,
   texto,
   fondo,
@@ -34,6 +39,7 @@ function Mitad({
   grande,
 }: {
   w: number;
+  ut: (n: number) => number;
   rotulo: string;
   texto: string;
   fondo: string;
@@ -56,7 +62,7 @@ function Mitad({
         style={{
           fontFamily: TIPO.cuerpo,
           fontWeight: 700,
-          fontSize: u(ESCALA.eyebrow, w),
+          fontSize: ut(ESCALA.eyebrow),
           color: colorRotulo,
           textTransform: "uppercase",
           letterSpacing: "0.12em",
@@ -68,7 +74,7 @@ function Mitad({
         style={{
           fontFamily: grande ? TIPO.display : TIPO.cuerpo,
           fontWeight: grande ? 700 : 400,
-          fontSize: u(grande ? 42 : ESCALA.cuerpo, w),
+          fontSize: ut(grande ? 42 : ESCALA.cuerpo),
           color: PALETA.tinta,
           lineHeight: grande ? 1.15 : 1.45,
         }}
@@ -84,33 +90,58 @@ export function MitoRealidad({ f, slide }: { f: Formato; slide: Slide }) {
   const m = u(MEDIDAS.margen, w);
   const v = slide.valores;
   const zs = f.zonaSegura;
+  const aj = resolverAjustes(f, slide.ajustes);
+  const foto = slide.foto?.url ?? null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        width: f.w,
-        height: f.h,
-        backgroundColor: PALETA.blanco,
-        paddingLeft: m,
-        paddingRight: m,
-        paddingTop: zs ? Math.max(m, zs.arriba) : m,
-        paddingBottom: zs ? Math.max(m, zs.abajo) : m,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Cabecera w={w} sobreOscuro={false} />
-        <Eyebrow w={w} color={PALETA.doradoOscuro}>Se dice por ahí</Eyebrow>
-      </div>
+    <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.blanco }}>
+      {foto ? (
+        <img
+          src={foto}
+          width={f.w}
+          height={f.h}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            objectFit: "cover",
+            objectPosition: aj.posicionFoto,
+            ...(aj.zoomFoto ? { transform: aj.zoomFoto } : {}),
+          }}
+        />
+      ) : null}
+      {foto ? (
+        <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: aj.overlay }} />
+      ) : null}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: u(20, w), width: "100%" }}>
-        <Mitad w={w} rotulo="Lo que se cree" texto={v.mito ?? ""} fondo={ROSA_FONDO} colorRotulo={ROSA_TEXTO} />
-        <Mitad w={w} rotulo="Lo que es" texto={v.realidad ?? ""} fondo={VERDE_FONDO} colorRotulo={VERDE_TEXTO} grande />
-      </div>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          position: "relative",
+          width: f.w,
+          height: f.h,
+          paddingLeft: m,
+          paddingRight: m,
+          paddingTop: zs ? Math.max(m, zs.arriba) : m,
+          paddingBottom: zs ? Math.max(m, zs.abajo) : m,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Cabecera w={w} sobreOscuro={!!foto} />
+          <Eyebrow w={w} color={foto ? undefined : PALETA.doradoOscuro}>Se dice por ahí</Eyebrow>
+        </div>
 
-      <Pie w={w} sobreOscuro={false} />
+        <div style={{ display: "flex", flexDirection: "column", gap: u(20, w), width: "100%" }}>
+          <Mitad w={w} ut={aj.ut} rotulo="Lo que se cree" texto={v.mito ?? ""} fondo={ROSA_FONDO} colorRotulo={ROSA_TEXTO} />
+          <Mitad w={w} ut={aj.ut} rotulo="Lo que es" texto={v.realidad ?? ""} fondo={VERDE_FONDO} colorRotulo={VERDE_TEXTO} grande />
+        </div>
+
+        <Pie w={w} sobreOscuro={!!foto} />
+      </div>
     </div>
   );
 }
