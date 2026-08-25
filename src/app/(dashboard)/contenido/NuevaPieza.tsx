@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { FORMATOS_LISTA, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
-import { crearPieza } from "./actions";
+import { crearPieza, ARRANQUES, type ArranqueId } from "./actions";
 
 /**
  * El alta va por componente cliente y no por `<form action={serverAction}>` porque la
@@ -13,6 +13,9 @@ import { crearPieza } from "./actions";
 export default function NuevaPieza() {
   const [pendiente, iniciar] = useTransition();
   const [aviso, setAviso] = useState<string | null>(null);
+  // Por dónde empieza la pieza. Antes siempre arrancaba en "una ruta del catálogo", y eso
+  // empujaba todo el contenido a hablar de lo mismo.
+  const [arranque, setArranque] = useState<ArranqueId>("ruta");
 
   return (
     <div className="flex flex-col items-end gap-1.5">
@@ -37,6 +40,21 @@ export default function NuevaPieza() {
           />
         </label>
         <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted">Empezar por</span>
+          <select
+            name="arranque"
+            value={arranque}
+            onChange={(e) => setArranque(e.target.value as ArranqueId)}
+            className="px-3 py-2 rounded-md border border-border bg-bg-card text-sm focus:outline-none focus:border-bosque"
+          >
+            {(Object.keys(ARRANQUES) as ArranqueId[]).map((id) => (
+              <option key={id} value={id}>
+                {ARRANQUES[id].etiqueta}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
           <span className="text-[11px] text-muted">Formato</span>
           <select
             name="formato"
@@ -58,6 +76,9 @@ export default function NuevaPieza() {
           {pendiente ? "Creando…" : "Nueva pieza"}
         </button>
       </form>
+      <span className="text-[11px] text-muted max-w-md text-right leading-snug">
+        {ARRANQUES[arranque].ayuda}
+      </span>
       {aviso && <span className="text-[11px] text-dorado-oscuro">{aviso}</span>}
     </div>
   );
