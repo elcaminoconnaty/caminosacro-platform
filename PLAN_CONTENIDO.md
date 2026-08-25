@@ -559,7 +559,7 @@ son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
       **Archivos:** `ideas.ts`, `IdeasPanel.tsx`, `ResumenMetricas.tsx`.
       **Terminado:** cada idea dice de dónde salió, y el panel dice cuánta data hay.
 
-- [ ] **T6 — Buscador de fotos de verdad**
+- [x] **T6 — Buscador de fotos de verdad**
       La rejilla actual es de 3 columnas y 256 px de alto: no se ve nada. Hacerlo un
       buscador: más grande, en modal o panel ancho, con búsqueda por `ruta_tag` y por
       nombre, miniaturas más grandes y scroll infinito.
@@ -715,4 +715,50 @@ worker respeta `maxLargo` y la estructura pedida.
 - `ResumenMetricas` dice en qué punto está la cuenta y **cambia solo** al crecer. Nico sabe
   que al principio va a ser torpe; decírselo es más honesto que un mensaje fijo, y deja ver
   que el módulo mejora sin que nadie lo toque.
+
+### T6 interfaz — 2026-08-24
+
+El backend (`fotos.ts`, `fotoActions.ts`) ya estaba hecho de una vuelta anterior; esta era
+pura interfaz, solo tocando `SelectorFoto.tsx`.
+
+- **Modal casi a pantalla completa** en vez de la rejilla de 3 columnas y 256px metida en la
+  barra lateral. Fuera del modal solo queda una miniatura de 64px de la foto elegida y un
+  botón «Cambiar foto» / «Elegir foto». Cierra con Escape, con clic fuera, o al elegir una
+  foto (elegir = terminar el flujo). Bloquea el scroll del fondo mientras está abierto.
+- **Cuatro pestañas** dentro del modal: Banco, Mis fotos, Subir, Sin foto — las mismas cuatro
+  fuentes de siempre, la subida de archivos sueltos o carpeta (`webkitdirectory`) ahora vive
+  en su propia pestaña en vez de estar siempre visible encima de la rejilla.
+- **Buscador y filtros**: campo de texto con espera de 300ms antes de llamar a
+  `buscarFotosAccion` (busca por nombre y `ruta_tag`), chips de ruta desde `rutasDeFotos`
+  (cacheados por fuente, no hay lista fija), y el filtro de estado
+  (todas/disponibles/usadas) solo para el banco — las fotos subidas nunca están "usadas",
+  no las publica el bot.
+- **Decisión de rendimiento:** sin ningún filtro activo la rejilla sigue mostrando
+  directamente `banco`/`subidasIniciales`, las props que ya trae el editor (la primera
+  tanda). Abrir el modal **no dispara ninguna consulta**. Solo se llama al servidor cuando
+  hay un término de búsqueda, un chip de ruta o un filtro de estado activo, o al pedir más
+  fotos.
+- **Carga por tandas**: botón «Ver más» al fondo de la rejilla más un centinela con
+  `IntersectionObserver` que dispara la misma carga con el scroll (el botón queda de
+  respaldo, por si el navegador bloquea el observer o la ventana no da para hacer scroll).
+  Pagina tanto la lista sin filtro (con un heurístico de "hay más" basado en si la semilla
+  llegó a `TANDA_FOTOS`, que se corrige con la respuesta real del primer "ver más") como el
+  resultado de una búsqueda (sigue desde `resultado.desde`).
+- **Trampa de build que costó una vuelta:** `fotos.ts` lleva `import "server-only"` — un
+  Client Component no puede importar nada de valor real de ese módulo aunque solo use una
+  constante (`TANDA_FOTOS`), Next.js revienta el build ("server-only cannot be imported from
+  a Client Component"). La solución fue mover el `import` de ese módulo a `import type`
+  (los tipos se borran en build, no arrastran el módulo) y duplicar `TANDA_FOTOS = 48`
+  localmente en `SelectorFoto.tsx` con un comentario explicando por qué no se importa.
+- **Riesgo de repo compartido, anotado para quien siga:** hubo otro agente trabajando en
+  paralelo sobre T3/T5/T8 en los mismos minutos. En el paso 2 un `git commit` suyo con
+  `git add -A` corrió a mitad de mi propio `git add <archivo> && git commit` y se llevó mis
+  cambios de `SelectorFoto.tsx` dentro de *su* commit (`52b98a7 — "Cada slide se puede
+  ajustar sin salirse de la marca"`) en vez de uno propio de T6. El código quedó bien y
+  compilando (nada se perdió), solo el historial de ese paso queda mezclado con T3. Pasos 1
+  y 3 sí quedaron en commits propios.
+- **No verificado en el navegador de verdad:** todo pasa `tsc --noEmit` y `next build`, pero
+  nadie abrió el modal a mano todavía. Vale la pena probar con las 177 fotos reales del
+  banco: que el `IntersectionObserver` dispare bien dentro de un contenedor con scroll
+  propio (no la ventana), y que los chips de ruta no se desborden feo con muchos tags.
 - La chapita de `fuente_dato` en cada idea la dejó el agente de T8.
