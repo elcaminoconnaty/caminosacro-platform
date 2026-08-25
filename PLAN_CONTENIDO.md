@@ -996,3 +996,88 @@ envuelve texto ni encoge la letra. Ninguno de los dos lo cazó `tsc --noEmit`; l
 salieron de abrir los PNG con la herramienta Read, como pide el Paso 2.
 
 Verificado con `npx tsc --noEmit && npm run build` limpios al cierre de los tres pasos.
+
+### Revisión crítica de las plantillas nuevas — 2026-08-25
+
+Encargo: revisar a fondo (no "a ojo") las 6 plantillas nuevas —`listaEmpaque`,
+`preguntaGrande`, `comparativaDos`, `cifraContexto`, `pasosPreparacion`, `fichaBici`— con
+la misma foto de peregrinos que se usó siempre en el smoke, más una foto de producto sobre
+fondo CLARO (`bicis/berria-bravo-sport.jpg`, la que destapó el bug de `ficha-bici` con
+"AGENCIA DE PEREGRINACIONES" en oro ilegible, ya arreglado antes de empezar esta revisión)
+y sin foto. Método: un script temporal (borrado al terminar) que renderiza cada plantilla ×
+cada formato que declara × las 3 fotos × 2 largos de texto (el `porDefecto` corto y el
+máximo que permite `maxLargo` de cada campo) a **escala 1 real** — importante: pedirle a
+`renderSlide` una escala reducida directamente desprograma la `zonaSegura` (ver más abajo)
+y falsea cualquier prueba de desborde — componiendo todo en una imagen de contacto por
+plantilla+formato con `sharp`, abierta con Read. 20 imágenes de contacto, 120 renders.
+`npx tsc --noEmit` limpio y `scripts/contenido_smoke.tsx` en 0 fallos (56 piezas) al cierre.
+
+**Dos fallos reales encontrados y arreglados**, ambos invisibles a `tsc` y al `porDefecto`
+corto — solo aparecían con el texto más largo que permite `maxLargo`:
+
+1. **`cifraContexto.tsx`** — `cifra` es texto libre (`maxLargo=8`), no forzosamente
+   numérico. Con un valor de 8 caracteres que envolvía a dos líneas dentro del número
+   gigante (190px), la `unidad` de al lado —alineada por `baseline` en la misma fila—
+   quedaba flotando ENCIMA de la segunda línea, las dos ilegibles superpuestas. Destapado
+   en **cualquier formato** (4x5/1x1/9x16), con cualquiera de las 3 fotos: es un bug de
+   layout, no de contraste. Arreglo: `whiteSpace:"nowrap"` en la cifra (no se parte) +
+   `flexWrap:"wrap"` en la fila contenedora (si aun así no cabe junto a la unidad, la
+   unidad cae a su propia línea en vez de superponerse). Commit `25146d7`.
+2. **`fichaBici.tsx`** — el pill de la cabecera (`tipo`, texto libre, `maxLargo=40`)
+   reutiliza el mismo componente `Pill` que `portada-ruta`, pero ahí solo recibe `precio`
+   (corto, autollenado del catálogo). Con un valor de `tipo` cercano al límite, el pill se
+   salía del lienzo por la derecha en 4x5 y 1x1 — Satori no encoge un flex item por debajo
+   de su ancho de contenido sin un tope explícito. Arreglo: el pill va en un contenedor con
+   `maxWidth:"58%"` + `minWidth:0`, y la `Cabecera` con `flexShrink:0` para que sea el pill
+   el que ceda espacio; el texto largo pasa a dos líneas dentro de la píldora en vez de
+   cortarse fuera del borde. Commit `ab02cba`.
+   - **Este mismo bug ya lo había pisado otro agente** trabajando en paralelo en
+     `scripts/sembrar_posts_bicis.ts` (ver la sección "Posts por ruta" arriba, con
+     `category_label` real de hasta 36 caracteres) — pero lo esquivó por el lado de los
+     datos (`EYEBROW_POR_SLUG` / `.slice(0, 25)` en el seed), no en la plantilla. El fix de
+     hoy lo arregla en la raíz: ese acortamiento en el seed ya no es indispensable para que
+     la pieza no se rompa (se puede dejar, no estorba, pero ahora es cosmético y no una
+     defensa contra un desborde).
+
+**Lo que se probó y salió limpio** (sin fallos, en las 3 fotos × los 2 largos de texto ×
+todos los formatos declarados):
+- `listaEmpaque`: 6 renglones a `maxLargo=60` cada uno, en 4x5/1x1/9x16. El velo plano
+  (0.78 sobre toda la foto, no un degradado parcial) cubre incluso la foto clara sin
+  problema — es justo el patrón que le faltaba a `ficha-bici` antes del primer fix.
+- `preguntaGrande`: pregunta a 70 y respuesta a 220 caracteres, sin desbordar en ningún
+  formato. Mismo velo plano fuerte, mismo resultado.
+- `comparativaDos`: con `texto_a`/`texto_b` a 140 caracteres cada uno las tarjetas crecen a
+  alto natural (sin `flex:1`, tal como dice el comentario del propio archivo) sin
+  desbordarse ni forzar alturas iguales. El `apilar` (columnas una debajo de otra) se activa
+  correctamente no solo en 9x16 sino también en 4x5 (`1350 > 1080*1.2`), verificado.
+- `pasosPreparacion`: 4 pasos a 90 caracteres cada uno, sobra espacio incluso en 9x16.
+- `fichaBici`: los 5 formatos (incluye `1.91x1` compacto y `reel`, los dos que no tienen
+  las otras 5 plantillas) respetan la zona segura y el contraste del velo del header en
+  todas las combinaciones de foto, antes y después del fix del pill.
+
+**Decidido dejar como está (no es un fallo de estas 6, es coherente con las 8 viejas)**:
+- La `zonaSegura` (`zs.arriba`/`zs.abajo` de `formatos.ts`) se usa sin pasar por `u()` en
+  las 14 plantillas del catálogo — las 6 nuevas y las 8 viejas por igual (confirmado con
+  `grep`). A escala 1 (exportación real) es invisible; a una escala reducida (la que pide
+  el preview del editor, `Lienzo.tsx`) el padding seguro queda desproporcionado. Es un
+  problema real pero de infraestructura compartida (`ajustes.ts`/`render.tsx`), no algo que
+  el otro agente haya introducido al escribir estas 6, y arreglarlo solo aquí las
+  desalinearía de las 8 viejas. Vale como ticket aparte, fuera del alcance de esta revisión.
+- La bajada "AGENCIA DE PEREGRINACIONES" de `Cabecera` (dorado fijo, `_lockups.tsx`) y el
+  `Eyebrow` en `doradoOscuro` que usan `comparativaDos`/`pasosPreparacion` sin foto tienen
+  contraste bajo sobre fondo blanco/crema — se ve, pero se lee peor que el resto de la
+  pieza. Confirmado con zoom. Mismo patrón EXACTO ya presente en `mitoRealidad.tsx` y
+  `comparativaPrecio.tsx` (las dos viejas), así que no es una incoherencia introducida por
+  las 6 nuevas — es coherente con lo que ya había. No se tocó `_lockups.tsx` porque
+  arreglarlo ahí cambia las 14 plantillas a la vez, un alcance mayor al de este encargo.
+- `comparativaDos`, `texto_a` por defecto ("Literas compartidas, horarios fijos y sin
+  garantía de descansar bien tras una etapa larga.") no es una cita textual de
+  `TIPS`/`FAQS`/`SERVICIOS` como sí lo son casi todos los demás `porDefecto` de estas 6 —
+  es una caracterización razonable y coherente con la marca del lado "malo" del contraste,
+  pero inventada en el sentido estricto del criterio. No la cambié: no inventa precios,
+  fechas ni datos (lo único que `TONO` prohíbe explícitamente inventar), y es solo el
+  placeholder de un campo que el usuario reemplaza al crear la pieza.
+
+**Sin hallazgos en**: `listaEmpaque` y `pasosPreparacion` — de verdad no encontré nada roto
+en ninguna de las combinaciones probadas, más allá de las dos notas de "coherente con las 8
+viejas" de arriba, que no son fallos de estas plantillas.
