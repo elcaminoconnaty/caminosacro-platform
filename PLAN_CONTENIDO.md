@@ -924,3 +924,75 @@ una:
 - No se agregaron plantillas para prueba social sin foto de "peregrino real" (el pilar
   `prueba_social` de `estrategia.ts` sigue cubierto solo por `testimonio`, que ya existía).
   Si en el futuro se quiere más variedad ahí, sería la próxima candidata natural.
+
+### Posts por ruta — 2026-08-25
+
+**29 piezas creadas**, todas `estado: borrador`, `formato: 4x5`:
+- **27**, una por cada ruta activa de `comercial.routes` (`scripts/sembrar_posts_rutas.ts`),
+  carrusel de 4 slides: `portada-ruta` → (`etapas-ruta` si hay km día a día, si no
+  `dato-grande` con un hecho real) → (`mito-realidad` en las 3 de bici, `tip-numerado` en
+  las demás, por familia) → `cierre-cta`.
+- **2 de bicicletas**, sin `ruta_id` (`scripts/sembrar_posts_bicis.ts`): "La flota" (9
+  slides, un `ficha-bici` por cada una de las 7 bicis reales) y "Precio del alquiler —
+  Francés Bici Ponferrada" (10 slides, un `dato-grande` con el precio real por bici + la
+  fianza).
+
+Ambos scripts son idempotentes (por `ruta_id` los de ruta, por `titulo` + `ruta_id is null`
+los de bici) — correrlos de nuevo actualiza en vez de duplicar.
+
+**Decisión de las bicis:** las dos cosas que pedía el encargo, no una sola. La flota
+justifica un post en sí misma (7 fichas con foto real) y el precio solo tiene sentido
+mostrarlo donde hay datos reales — que es únicamente Ponferrada — así que forzarlo en un
+solo post habría dejado la mitad sin precio o habría inventado tarifas. Se sumó un slide
+de fianza (`FIANZA_POR_BICI_EUR = 200`, de `src/lib/bikes/catalog.ts`) porque es un dato
+real que faltaba y cierra la pregunta obvia ("¿y si la rompo?") antes del CTA.
+
+**Rutas que quedaron cojas por falta de datos** (no se inventó nada, se sustituyó por el
+hecho real más cercano):
+- `Espiritual desde Tui`, `Portugués Bici Oporto`, `Portugués desde Vigo` y
+  `Primitivo Bici Oviedo`: sin etapas con km en `route_stages` → el slide 2 es un
+  `dato-grande` con los km/días/etapas totales de la ruta en vez de la barra por etapa.
+- `Norte desde Vilalba`: sin km NI días cargados, el único dato real es la dificultad
+  (`Alta`) → el `dato-grande` usa "Alta" como número y "dificultad" como unidad. Es el
+  caso más extremo del catálogo.
+- De las 3 rutas de bici, solo `Francés Bici Ponferrada` tiene tarifas en
+  `comercial.bike_prices` (7, año 2026): el post de precio es únicamente de esa ruta,
+  como pedía el encargo. `Portugués Bici Oporto` y `Primitivo Bici Oviedo` tienen sus 14
+  filas de `bike_prices` con `price_cs` en null — están en la tabla, sin cargar — así que
+  no tienen post de precio propio; sus posts de ruta (de los 27) sí llevan el pill
+  "desde X €" porque ESE precio (el paquete completo, no el alquiler de bici) sí está
+  cargado en `comercial.pricing`.
+- La ruta `"Frances desde Sarria 6 etapas (Melide)"` sigue con el nombre sin tilde en
+  "Frances" tal como está en el catálogo — se ve en la cabecera del post
+  ("FRANCES DESDE SARRIA…"). No lo corregí: es dato comercial y no me toca cambiarlo por
+  mi cuenta (mismo criterio que el bug de km de la Etapa 4). Vale la pena que alguien lo
+  arregle en `comercial.routes`.
+
+**Plantilla que habría hecho falta, y la que sí apareció:**
+- Para "La flota" hacía falta una ficha de producto sin catálogo de rutas (foto + nombre +
+  categoría + descripción, sin el "número gigante" de `dato-grande` ni el precio "desde"
+  de `portada-ruta`). **Apareció sola**: `ficha-bici` la escribió otro agente trabajando en
+  paralelo sobre el mismo repo, casi a la vez que este script — se adoptó en cuanto se vio
+  en `git status`, en vez de mantener el rodeo original (que era reusar `dato-grande` con
+  litros de alforja / mm de recorrido / Wh de batería como "número grande", ver el commit
+  de Paso 3 para el detalle). El post de precio sí se quedó en `dato-grande`: ahí el precio
+  ES el número que tiene que ganar la pieza, y `ficha-bici` no tiene campo de precio.
+- Lo que SÍ seguiría haciendo falta: una plantilla de **lista/comparativa de N precios**
+  (más de dos). El post de precio del alquiler repite 7 `dato-grande` casi idénticos —uno
+  por bici— porque `comparativa-precio` solo enfrenta DOS cifras. Con 7 sale bien pero es
+  el punto donde una tabla compacta (una fila por bici, todo en un solo slide) habría sido
+  más natural que un slide por bici.
+
+**Bug real encontrado con los ojos, invisible para `tsc`:** con foto, tanto `portada-ruta`
+como (antes del cambio) `dato-grande` reusado dependen de que la foto sea razonablemente
+oscura arriba — el degradado de marca solo tapa un 25% en esa zona. Las 7 fotos de bici
+son tomas de estudio sobre fondo gris claro y ahí "AGENCIA DE PEREGRINACIONES" y el eyebrow
+casi desaparecían. Fix aplicado: las portadas de ambas piezas de bici van sin foto
+(degradado de marca, 100% legible) y las tarjetas por bici usan la plantilla que tapa la
+foto completa con un velo plano (72%), no un degradado. También se encontró que un pill
+de `tipo`/`eyebrow` puede salirse del lienzo por la derecha estando DENTRO de su
+`maxLargo` declarado (`category_label` completo, 36 de 40 caracteres) — el pill no
+envuelve texto ni encoge la letra. Ninguno de los dos lo cazó `tsc --noEmit`; los dos
+salieron de abrir los PNG con la herramienta Read, como pide el Paso 2.
+
+Verificado con `npx tsc --noEmit && npm run build` limpios al cierre de los tres pasos.
