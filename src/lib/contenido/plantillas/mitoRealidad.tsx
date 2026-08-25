@@ -92,6 +92,7 @@ export function MitoRealidad({ f, slide }: { f: Formato; slide: Slide }) {
   const zs = f.zonaSegura;
   const aj = resolverAjustes(f, slide.ajustes);
   const foto = slide.foto?.url ?? null;
+  const veloPropio = slide.ajustes?.velo != null;
 
   return (
     <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.blanco }}>
@@ -113,7 +114,19 @@ export function MitoRealidad({ f, slide }: { f: Formato; slide: Slide }) {
         />
       ) : null}
       {foto ? (
-        <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: aj.overlay }} />
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            // Las cajas rosa/verde ya tapan la foto donde importa; esto solo se ve en la
+            // cabecera, el pie y los huecos entre cajas. Mismo criterio que las demás:
+            // velo plano fuerte por defecto, degradado de marca solo si Nico lo pidió.
+            ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
+          }}
+        />
       ) : null}
 
       <div

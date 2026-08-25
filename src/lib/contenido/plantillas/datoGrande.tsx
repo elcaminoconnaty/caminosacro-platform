@@ -36,6 +36,10 @@ export function DatoGrande({ f, slide }: { f: Formato; slide: Slide }) {
   const compacto = f.h < 700;
   const aj = resolverAjustes(f, slide.ajustes);
   const foto = slide.foto?.url ?? null;
+  // Mismo criterio que tip-numerado: el número y la bajada van directo sobre la foto, sin
+  // bloque sólido detrás. Con velo por defecto (degradado de marca) el arriba queda casi
+  // sin tapar, así que mientras Nico no toque la perilla se usa un velo plano fuerte.
+  const veloPropio = slide.ajustes?.velo != null;
 
   return (
     <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.crema }}>
@@ -57,7 +61,16 @@ export function DatoGrande({ f, slide }: { f: Formato; slide: Slide }) {
         />
       ) : null}
       {foto ? (
-        <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: aj.overlay }} />
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
+          }}
+        />
       ) : null}
 
       <div

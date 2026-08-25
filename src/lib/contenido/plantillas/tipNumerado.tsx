@@ -35,11 +35,17 @@ export function TipNumerado({ f, slide }: { f: Formato; slide: Slide }) {
   const zs = f.zonaSegura;
   const aj = resolverAjustes(f, slide.ajustes);
   const foto = slide.foto?.url ?? null;
+  // El texto va DIRECTO sobre la foto (no hay bloque sólido detrás, como sí lo hay en
+  // portada-ruta): el degradado de marca por defecto (`aj.overlay` con velo null) deja el
+  // tercio de arriba casi sin tapar y el cuerpo se pierde contra una foto clara. Por eso,
+  // mientras Nico no toque la perilla del velo, se usa un velo plano fuerte — el mismo
+  // que ya prueba testimonio.tsx. Si SÍ mueve la perilla, se respeta lo que pidió.
+  const veloPropio = slide.ajustes?.velo != null;
 
   return (
     <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.crema }}>
       {/* Fondo claro de siempre. Con foto, esta plantilla pasa a leerse como testimonio:
-          la foto a sangre con el mismo velo verde regulable, y el texto se vuelve claro. */}
+          la foto a sangre con velo verde, y el texto se vuelve claro. */}
       {foto ? (
         <img
           src={foto}
@@ -58,7 +64,16 @@ export function TipNumerado({ f, slide }: { f: Formato; slide: Slide }) {
         />
       ) : null}
       {foto ? (
-        <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: aj.overlay }} />
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
+          }}
+        />
       ) : null}
 
       <div
