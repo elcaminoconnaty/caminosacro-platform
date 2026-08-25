@@ -114,17 +114,21 @@ function slidePortada(r: RutaFila, precio: number | null): Slide {
   const destino = destinoCorto(r.destination);
   const eyebrow = r.family ? `Camino ${r.family}` : r.name;
 
-  let linea2: string;
+  // Ojo: portada-ruta NO lleva `whiteSpace: pre-wrap` en su titular (a diferencia de
+  // cierre-cta), así que un "\n" a mano no fuerza el salto de línea — Satori lo ignora y
+  // envuelve por ancho donde le queda, partiendo la frase en un punto raro. Por eso acá
+  // se escribe como UNA frase natural y se deja que envuelva sola (hasta dos líneas).
+  let cola: string;
   if (r.modality === "bici") {
-    linea2 = r.days ? `en bici, ${r.days} días` : "en bici";
+    cola = r.days ? `, ${r.days} días en bici` : ", en bici";
   } else if (r.days) {
-    linea2 = `${r.days} días caminando`;
+    cola = `, ${r.days} días caminando`;
   } else if (r.stages) {
-    linea2 = `${r.stages} etapas`;
+    cola = `, ${r.stages} etapas caminando`;
   } else {
-    linea2 = `por el Camino ${r.family ?? ""}`.trim();
+    cola = r.family ? ` por el Camino ${r.family}` : "";
   }
-  const titular = `De ${origen} a ${destino}\n${linea2}`;
+  const titular = `De ${origen} a ${destino}${cola}`;
 
   const valores: Record<string, string> = {
     ruta: r.id,
@@ -247,7 +251,7 @@ const TIP_POR_FAMILIA: Record<string, TipFamilia> = {
     cuerpo: `${r.name.replace("Inglés desde ", "")} recibía a los peregrinos ingleses e irlandeses que cruzaban el mar. Hoy es el más corto de los caminos históricos y uno de los menos transitados: ${r.days ?? "pocos"} días de Galicia interior sin aglomeraciones.`,
   }),
   Norte: () => ({
-    titular: "El Camino más antiguo y menos caminado",
+    titular: "El Camino de las multitudes justas",
     cuerpo: "El Camino del Norte bordea la cornisa cantábrica antes de virar hacia Santiago. Más exigente que el Francés y con una fracción de sus peregrinos: se camina en compañía del mar, no de multitudes.",
   }),
   Portugués: (r) => ({
