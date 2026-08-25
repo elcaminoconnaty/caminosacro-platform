@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Check, X, TriangleAlert, Laptop } from "lucide-react";
+import { Sparkles, Check, X, TriangleAlert, Laptop, ChevronDown } from "lucide-react";
 import { encargarIdeas, recogerIdeas, aceptarIdea, descartarIdea } from "./ideasActions";
 import type { ContextoIdeas } from "@/lib/contenido/ideas";
+import { plantilla as buscarPlantilla } from "@/lib/contenido/plantillas/registry";
 
 /** Cada cuánto se pregunta si el encargo ya está listo. */
 const ESPERA_MS = 3000;
+
+export type SlideIdea = { plantilla: string; valores: Record<string, string> };
 
 export type FilaIdea = {
   id: number;
@@ -18,7 +21,30 @@ export type FilaIdea = {
   razon: string;
   ruta_nombre: string | null;
   evidencia: { nota?: string } | null;
+  slides: SlideIdea[] | null;
+  fuente_dato: string | null;
 };
+
+/** Etiquetas en español para la chapita de fuente_dato. */
+const ETIQUETAS_FUENTE: Record<string, string> = {
+  metricas: "métricas",
+  catalogo: "catálogo",
+  cotizaciones: "cotizaciones",
+  calendario: "calendario",
+};
+
+/** El titular de un slide: el primer campo de la plantilla que traiga texto. */
+function tituloDeSlide(s: SlideIdea): string {
+  const def = buscarPlantilla(s.plantilla)?.definicion;
+  if (def) {
+    for (const campo of def.campos) {
+      const v = s.valores[campo.id];
+      if (v && v.trim()) return v;
+    }
+  }
+  const primero = Object.values(s.valores).find((v) => v && v.trim());
+  return primero ?? "(sin texto)";
+}
 
 export default function IdeasPanel({
   ideas,
@@ -122,6 +148,11 @@ export default function IdeasPanel({
                     {idea.pilar && (
                       <span className="px-1.5 py-0.5 rounded bg-taupe text-muted">{idea.pilar}</span>
                     )}
+                    {idea.fuente_dato && (
+                      <span className="px-1.5 py-0.5 rounded bg-bosque/10 text-bosque-medio">
+                        {ETIQUETAS_FUENTE[idea.fuente_dato] ?? idea.fuente_dato}
+                      </span>
+                    )}
                     {idea.formato && <span>{idea.formato}</span>}
                     {idea.ruta_nombre && <span>· {idea.ruta_nombre}</span>}
                   </span>
@@ -140,6 +171,25 @@ export default function IdeasPanel({
                       <TriangleAlert size={11} className="mt-px shrink-0" />
                       {idea.evidencia.nota}
                     </p>
+                  )}
+
+                  {idea.slides && idea.slides.length > 0 && (
+                    <details className="mt-2 group">
+                      <summary className="flex items-center gap-1 text-[10px] text-bosque-medio cursor-pointer select-none list-none">
+                        <ChevronDown size={11} className="transition group-open:rotate-180" />
+                        Ver los {idea.slides.length} slides
+                      </summary>
+                      <ol className="mt-1.5 flex flex-col gap-1 pl-2.5 border-l-2 border-border">
+                        {idea.slides.map((s, i) => (
+                          <li key={i} className="text-[10px] text-muted leading-snug">
+                            <span className="text-fg">{i + 1}.</span>{" "}
+                            <span className="text-fg">{buscarPlantilla(s.plantilla)?.definicion.nombre ?? s.plantilla}</span>
+                            {" — "}
+                            {tituloDeSlide(s)}
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
                   )}
                 </div>
 
