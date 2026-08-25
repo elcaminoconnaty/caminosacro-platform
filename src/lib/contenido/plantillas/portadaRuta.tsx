@@ -4,7 +4,8 @@
 // maqueta —foto a sangre, tinte verde, bloque verde sólido abajo con el titular— es lo
 // que hace que la pieza se lea como Camino Sacro sin necesidad de un logo.
 
-import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, OVERLAY_FOTO, FONDO_SIN_FOTO, u } from "../marca";
+import { PALETA, TIPO, ESCALA, MEDIDAS, FONDO_SIN_FOTO, u } from "../marca";
+import { resolverAjustes } from "../ajustes";
 import type { Formato } from "../formatos";
 import type { Slide } from "../tipos";
 import type { DefinicionPlantilla } from "../tipos";
@@ -63,8 +64,12 @@ export function PortadaRuta({ f, slide }: { f: Formato; slide: Slide }) {
 
   // El bloque verde ocupa el tercio inferior, salvo en el apaisado, donde no hay alto
   // para eso y la pieza se resuelve solo con el degradado sobre la foto.
+  // Los ajustes del slide mandan sobre los valores por defecto del formato: `ut` es el
+  // tamaño de letra ya escalado, y `altoBloque` puede venir bajado a mano para que se vea
+  // más foto (que es justo lo que ahogaba a las historias).
+  const aj = resolverAjustes(f, slide.ajustes);
   const compacto = f.h < 700;
-  const altoBloque = compacto ? 0 : Math.round(f.h * MEDIDAS.fraccionBloqueVerde);
+  const altoBloque = compacto ? 0 : aj.altoBloque;
 
   // En la historia y en la portada de reel el contenido tiene que caer dentro de la zona
   // segura, o se lo come la interfaz de Instagram (o el recorte a 1:1 de la grilla).
@@ -80,14 +85,25 @@ export function PortadaRuta({ f, slide }: { f: Formato; slide: Slide }) {
           src={foto}
           width={f.w}
           height={f.h}
-          style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, objectFit: "cover" }}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            objectFit: "cover",
+            objectPosition: aj.posicionFoto,
+            // Spread condicional: Satori revienta con `transform: none` Y con
+            // `transform: undefined`. La propiedad tiene que NO ESTAR.
+            ...(aj.zoomFoto ? { transform: aj.zoomFoto } : {}),
+          }}
         />
       ) : (
         <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: FONDO_SIN_FOTO }} />
       )}
 
       {/* Tinte verde: la foto pierde contraste hacia abajo para que el titular respire. */}
-      <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: OVERLAY_FOTO }} />
+      <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: aj.overlay }} />
 
       {/* Cabecera, sobre la foto. */}
       <div
@@ -122,7 +138,14 @@ export function PortadaRuta({ f, slide }: { f: Formato; slide: Slide }) {
           bottom: 0,
           width: f.w,
           minHeight: altoBloque,
-          backgroundColor: compacto ? "transparent" : PALETA.bosque,
+          // Con la franja bajada a cero el texto queda sobre la foto: el degradado de
+          // abajo es lo único que lo mantiene legible.
+          backgroundColor: compacto || altoBloque === 0 ? "transparent" : PALETA.bosque,
+          // Misma regla que con `transform`: Satori revienta si la propiedad existe con
+          // valor `undefined`. Hay que omitirla con spread condicional.
+          ...(!compacto && altoBloque === 0
+            ? { backgroundImage: "linear-gradient(180deg, rgba(26,58,42,0) 0%, rgba(26,58,42,0.85) 55%)" }
+            : {}),
           paddingLeft: m,
           paddingRight: m,
           paddingTop: u(compacto ? 0 : 40, w),
@@ -134,7 +157,7 @@ export function PortadaRuta({ f, slide }: { f: Formato; slide: Slide }) {
           style={{
             fontFamily: TIPO.display,
             fontWeight: 700,
-            fontSize: u(compacto ? ESCALA.subtitulo : ESCALA.titular, w),
+            fontSize: aj.ut(compacto ? ESCALA.subtitulo : ESCALA.titular),
             color: PALETA.blanco,
             lineHeight: 1.06,
           }}
@@ -145,7 +168,7 @@ export function PortadaRuta({ f, slide }: { f: Formato; slide: Slide }) {
           <span
             style={{
               fontFamily: TIPO.cuerpo,
-              fontSize: u(ESCALA.dato, w),
+              fontSize: aj.ut(ESCALA.dato),
               color: PALETA.dorado,
               letterSpacing: "0.02em",
             }}

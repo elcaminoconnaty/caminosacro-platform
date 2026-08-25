@@ -12,6 +12,7 @@
 
 import { z } from "zod";
 import { FORMATOS, type FormatoId } from "./formatos";
+import { AjustesSlideSchema } from "./ajustes";
 
 // ---------- Definición de una plantilla (el registry) ----------
 
@@ -69,6 +70,9 @@ export const SlideSchema = z.object({
   plantilla: z.string(),
   valores: z.record(z.string(), z.string()).default({}),
   foto: FotoSlideSchema.nullable().default(null),
+  // Las cuatro perillas de diseño. Opcional: los slides guardados antes de que existieran
+  // siguen siendo válidos y toman los valores por defecto.
+  ajustes: AjustesSlideSchema.optional(),
 });
 export type Slide = z.infer<typeof SlideSchema>;
 

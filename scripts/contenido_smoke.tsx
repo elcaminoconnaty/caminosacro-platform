@@ -19,6 +19,7 @@ import { FORMATOS_LISTA, type Formato } from "../src/lib/contenido/formatos";
 import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, MARCA, u } from "../src/lib/contenido/marca";
 import { Cabecera, Pie, Eyebrow, Pill, Filete } from "../src/lib/contenido/plantillas/_lockups";
 import { PLANTILLAS_LISTA, valoresPorDefecto } from "../src/lib/contenido/plantillas/registry";
+import { PortadaRuta as PortadaAjustada } from "../src/lib/contenido/plantillas/portadaRuta";
 import { FORMATOS } from "../src/lib/contenido/formatos";
 import type { Slide } from "../src/lib/contenido/tipos";
 import { HASHTAGS, RUTAS, PILARES } from "../src/lib/contenido/estrategia";
@@ -127,6 +128,19 @@ function casos(): Caso[] {
       out.push({ nombre: definicion.id, formato, elemento: <Componente f={formato} slide={slide} /> });
     }
   }
+
+  // Los ajustes de diseño también se prueban: es donde Satori es más quisquilloso —revienta
+  // si `transform` o `backgroundImage` existen con valor `undefined` en vez de omitirse— y
+  // eso solo se ve renderizando de verdad.
+  const conAjustes: Slide = {
+    plantilla: "portada-ruta",
+    valores: valoresPorDefecto("portada-ruta"),
+    foto: FOTO_PRUEBA ? { url: FOTO_PRUEBA, origen: "banco" } : null,
+    ajustes: { escalaTexto: 1.3, altoBloque: 0, encuadreFoto: "abajo", zoomFoto: 1.25, velo: 0.5 },
+  };
+  const sinZoom: Slide = { ...conAjustes, ajustes: { ...conAjustes.ajustes!, zoomFoto: 1, altoBloque: 0.2, velo: null } };
+  out.push({ nombre: "ajustes-al-limite", formato: FORMATOS["9x16"], elemento: <PortadaAjustada f={FORMATOS["9x16"]} slide={conAjustes} /> });
+  out.push({ nombre: "ajustes-sin-zoom", formato: FORMATOS["4x5"], elemento: <PortadaAjustada f={FORMATOS["4x5"]} slide={sinZoom} /> });
 
   return out;
 }

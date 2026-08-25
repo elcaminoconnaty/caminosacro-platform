@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { FORMATOS_LISTA, type FormatoId } from "@/lib/contenido/formatos";
 import type { DefinicionPlantilla, Slide, FotoSlide } from "@/lib/contenido/tipos";
+import { AJUSTES_POR_DEFECTO, type AjustesSlide } from "@/lib/contenido/ajustes";
 import type { FotoDelBanco, FotoSubida } from "@/lib/contenido/fotos";
 import type { RutaLista } from "@/lib/contenido/datos";
 import { guardarSlides, cambiarFormato } from "./actions";
@@ -13,6 +14,7 @@ import Lienzo from "./Lienzo";
 import PanelCampos from "./PanelCampos";
 import TiraSlides from "./TiraSlides";
 import SelectorFoto from "./SelectorFoto";
+import PanelAjustes from "./PanelAjustes";
 import Exportar from "./Exportar";
 
 export type EditorProps = {
@@ -125,6 +127,19 @@ export default function Editor({
       const guardado = await guardarSlides(piezaId, nuevos);
       if ("error" in guardado && guardado.error) setAviso(guardado.error);
     });
+  };
+
+  /** Las perillas de diseño. Se guardan con la misma espera que los textos. */
+  const cambiarAjustes = (ajustes: Partial<AjustesSlide>) => {
+    // Se guarda el objeto COMPLETO, no el parcial: así el slide siempre lleva valores
+    // válidos y el render no tiene que adivinar. Un objeto vacío significa "volver al
+    // original", y entonces se quita del todo.
+    const completo: AjustesSlide | undefined = Object.keys(ajustes).length
+      ? { ...AJUSTES_POR_DEFECTO, ...ajustes }
+      : undefined;
+    const nuevos: Slide[] = slides.map((s, i) => (i === activo ? { ...s, ajustes: completo } : s));
+    setSlides(nuevos);
+    programarGuardado(nuevos);
   };
 
   const cambiarFoto = (foto: FotoSlide | null) => {
@@ -274,6 +289,15 @@ export default function Editor({
                 onCambio={cambiarCampo}
                 onElegirRuta={elegirRuta}
               />
+              <div className="mt-4 pt-4 border-t border-border">
+                <PanelAjustes
+                  ajustes={slideActivo?.ajustes}
+                  usaFoto={defActiva.usaFoto && Boolean(slideActivo?.foto)}
+                  tieneFranja={defActiva.rol === "portada"}
+                  onCambio={cambiarAjustes}
+                />
+              </div>
+
               {defActiva.usaFoto && (
                 <div className="mt-4 pt-4 border-t border-border">
                   <span className="block text-xs text-fg mb-2">Foto</span>

@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Upload, FolderOpen, ImageOff, Check, X, Images } from "lucide-react";
+import { Upload, FolderOpen, ImageOff, Check, X, Images, Search, Loader2 } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase/client";
 import { rutaFotoContenido, sinBucket } from "@/lib/storage/paths";
 import { cn } from "@/lib/cn";
-import type { FotoDelBanco, FotoSubida } from "@/lib/contenido/fotos";
+import { TANDA_FOTOS, type FiltroEstado, type FotoBuscada, type FotoDelBanco, type FotoSubida, type RutaDeFotos } from "@/lib/contenido/fotos";
 import type { FotoSlide } from "@/lib/contenido/tipos";
-import { registrarSubida } from "./fotoActions";
+import { buscarFotosAccion, registrarSubida, rutasDeFotos } from "./fotoActions";
 
 export type SelectorFotoProps = {
   banco: FotoDelBanco[];
@@ -20,6 +20,23 @@ export type SelectorFotoProps = {
 type Pestana = "banco" | "subidas" | "subir" | "sin";
 
 const BUCKET = "contenido-fotos";
+
+/** La pestaña de fuente equivalente para `ConsultaFotos`; `null` si no aplica (subir/sin). */
+function fuenteDe(pestana: Pestana): "banco" | "subida" | null {
+  if (pestana === "banco") return "banco";
+  if (pestana === "subidas") return "subida";
+  return null;
+}
+
+/** Resultado de una búsqueda o filtro activo. `null` = sin filtro: se muestran las listas base. */
+type Resultado = {
+  fotos: FotoBuscada[];
+  total: number;
+  hayMas: boolean;
+  desde: number;
+} | null;
+
+const ESPERA_BUSQUEDA_MS = 300;
 
 /**
  * Selector de foto del editor de contenido.
@@ -41,8 +58,84 @@ export default function SelectorFoto({
   const [aviso, setAviso] = useState<string | null>(null);
   const [, iniciar] = useTransition();
 
+  // Buscador y filtros (T6 paso 2).
+  const [texto, setTexto] = useState("");
+  const [textoDebounced, setTextoDebounced] = useState("");
+  const [ruta, setRuta] = useState<string | null>(null);
+  const [estado, setEstado] = useState<FiltroEstado>("todas");
+  const [rutas, setRutas] = useState<Partial<Record<"banco" | "subida", RutaDeFotos[]>>>({});
+  const [resultado, setResultado] = useState<Resultado>(null);
+  const [buscando, setBuscando] = useState(false);
+  const rutasPedidas = useRef<Set<"banco" | "subida">>(new Set());
+
   const inputArchivos = useRef<HTMLInputElement>(null);
   const inputCarpeta = useRef<HTMLInputElement>(null);
+
+  const fuenteActiva = fuenteDe(pestana);
+
+  // El término se aplica 300ms después de la última tecla: no se busca en cada pulsación.
+  useEffect(() => {
+    const t = setTimeout(() => setTextoDebounced(texto), ESPERA_BUSQUEDA_MS);
+    return () => clearTimeout(t);
+  }, [texto]);
+
+  // Al cambiar de pestaña se limpian los filtros: los chips de ruta y el estado son propios
+  // de cada fuente, y arrastrar un filtro de una a otra confunde más de lo que ayuda.
+  useEffect(() => {
+    setTexto("");
+    setTextoDebounced("");
+    setRuta(null);
+    setEstado("todas");
+    setResultado(null);
+  }, [pestana]);
+
+  // Chips de ruta: se piden una vez por fuente y se cachean, no hay lista fija en ningún lado.
+  useEffect(() => {
+    if (!fuenteActiva || rutasPedidas.current.has(fuenteActiva)) return;
+    rutasPedidas.current.add(fuenteActiva);
+    let cancelado = false;
+    rutasDeFotos(fuenteActiva).then((r) => {
+      if (cancelado || !("ok" in r) || !r.ok) return;
+      setRutas((prev) => ({ ...prev, [fuenteActiva]: r.rutas }));
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [fuenteActiva]);
+
+  // La búsqueda de verdad: solo se dispara si hay algún filtro activo. Sin filtro se ven las
+  // listas base (banco/subidas) que ya trajo el editor, para que abrir el modal sea instantáneo.
+  useEffect(() => {
+    if (!fuenteActiva) return;
+    const filtrando =
+      textoDebounced.trim() !== "" || ruta !== null || (fuenteActiva === "banco" && estado !== "todas");
+    if (!filtrando) {
+      setResultado(null);
+      setBuscando(false);
+      return;
+    }
+    let cancelado = false;
+    setBuscando(true);
+    buscarFotosAccion({
+      fuente: fuenteActiva,
+      texto: textoDebounced || undefined,
+      ruta,
+      estado: fuenteActiva === "banco" ? estado : undefined,
+      desde: 0,
+      tamano: TANDA_FOTOS,
+    }).then((r) => {
+      if (cancelado) return;
+      setBuscando(false);
+      if ("ok" in r && r.ok) {
+        setResultado({ fotos: r.fotos, total: r.total, hayMas: r.hayMas, desde: r.fotos.length });
+      } else {
+        setResultado({ fotos: [], total: 0, hayMas: false, desde: 0 });
+      }
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [fuenteActiva, textoDebounced, ruta, estado]);
 
   // Escape cierra el modal.
   useEffect(() => {
@@ -129,7 +222,10 @@ export default function SelectorFoto({
 
   const esActual = (url: string) => seleccionada?.url === url;
 
-  const listaActiva = pestana === "banco" ? banco : pestana === "subidas" ? subidas : [];
+  const listaBase: Array<FotoDelBanco | FotoSubida> =
+    pestana === "banco" ? banco : pestana === "subidas" ? subidas : [];
+  const listaActiva: Array<FotoDelBanco | FotoSubida | FotoBuscada> = resultado ? resultado.fotos : listaBase;
+  const chipsRuta = fuenteActiva ? (rutas[fuenteActiva] ?? []) : [];
 
   return (
     <div className="flex flex-col gap-2">
@@ -255,6 +351,90 @@ export default function SelectorFoto({
               )}
 
               {(pestana === "banco" || pestana === "subidas") && (
+                <div className="flex flex-col gap-2.5 mb-3">
+                  <div className="relative max-w-sm">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+                    <input
+                      type="text"
+                      value={texto}
+                      onChange={(e) => setTexto(e.target.value)}
+                      placeholder="Buscar por nombre o ruta…"
+                      className="w-full pl-8 pr-3 py-1.5 rounded-md border border-border text-xs bg-bg text-fg focus:outline-none focus:border-bosque"
+                    />
+                  </div>
+
+                  {chipsRuta.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setRuta(null)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-full text-[11px] border transition",
+                          ruta === null
+                            ? "bg-bosque text-white border-bosque"
+                            : "border-border text-muted hover:bg-taupe/40",
+                        )}
+                      >
+                        Todas las rutas
+                      </button>
+                      {chipsRuta.map((r) => (
+                        <button
+                          key={r.tag}
+                          type="button"
+                          onClick={() => setRuta(ruta === r.tag ? null : r.tag)}
+                          className={cn(
+                            "px-2.5 py-1 rounded-full text-[11px] border transition",
+                            ruta === r.tag
+                              ? "bg-bosque text-white border-bosque"
+                              : "border-border text-muted hover:bg-taupe/40",
+                          )}
+                        >
+                          {r.tag} ({r.n})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3">
+                    {fuenteActiva === "banco" && (
+                      <div className="flex items-center gap-1">
+                        {(
+                          [
+                            ["todas", "Todas"],
+                            ["disponibles", "Disponibles"],
+                            ["usadas", "Usadas"],
+                          ] as Array<[FiltroEstado, string]>
+                        ).map(([id, etiqueta]) => (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => setEstado(id)}
+                            className={cn(
+                              "px-2.5 py-1 rounded-md text-[11px] border transition",
+                              estado === id
+                                ? "bg-taupe/60 border-taupe text-fg"
+                                : "border-transparent text-muted hover:bg-taupe/30",
+                            )}
+                          >
+                            {etiqueta}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <span className="text-[11px] text-muted ml-auto flex items-center gap-1.5">
+                      {buscando ? (
+                        <>
+                          <Loader2 size={11} className="animate-spin" /> Buscando…
+                        </>
+                      ) : resultado ? (
+                        `${resultado.total} resultado${resultado.total === 1 ? "" : "s"}`
+                      ) : null}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {(pestana === "banco" || pestana === "subidas") && (
                 <ul className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
                   {listaActiva.map((f) => (
                     <li key={`${pestana}-${f.id}`}>
@@ -285,11 +465,13 @@ export default function SelectorFoto({
                       </button>
                     </li>
                   ))}
-                  {listaActiva.length === 0 && (
+                  {listaActiva.length === 0 && !buscando && (
                     <li className="col-span-full text-xs text-muted py-16 text-center">
-                      {pestana === "banco"
-                        ? "El banco está vacío."
-                        : "Todavía no has subido ninguna foto. Usa la pestaña «Subir»."}
+                      {resultado
+                        ? "Ninguna foto cumple esa búsqueda o esos filtros."
+                        : pestana === "banco"
+                          ? "El banco está vacío."
+                          : "Todavía no has subido ninguna foto. Usa la pestaña «Subir»."}
                     </li>
                   )}
                 </ul>
