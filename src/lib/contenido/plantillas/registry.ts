@@ -19,6 +19,7 @@ import { definicion as defTestimonio, Testimonio } from "./testimonio";
 import { definicion as defEtapasRuta, EtapasRuta } from "./etapasRuta";
 import { definicion as defComparativaPrecio, ComparativaPrecio } from "./comparativaPrecio";
 import { definicion as defListaEmpaque, ListaEmpaque } from "./listaEmpaque";
+import { definicion as defPreguntaGrande, PreguntaGrande } from "./preguntaGrande";
 
 export type ComponentePlantilla = (props: { f: Formato; slide: Slide }) => React.ReactElement;
 
@@ -37,6 +38,7 @@ export const PLANTILLAS: Record<string, EntradaRegistry> = {
   [defTestimonio.id]: { definicion: defTestimonio, Componente: Testimonio },
   [defCierreCta.id]: { definicion: defCierreCta, Componente: CierreCta },
   [defListaEmpaque.id]: { definicion: defListaEmpaque, Componente: ListaEmpaque },
+  [defPreguntaGrande.id]: { definicion: defPreguntaGrande, Componente: PreguntaGrande },
 };
 
 export const PLANTILLAS_LISTA: EntradaRegistry[] = Object.values(PLANTILLAS);
