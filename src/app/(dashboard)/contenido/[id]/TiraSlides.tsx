@@ -106,20 +106,44 @@ export default function TiraSlides({
         <summary className="flex items-center gap-1.5 px-2.5 py-2 rounded-md border border-dashed border-border text-xs text-muted cursor-pointer hover:bg-taupe/30">
           <Plus size={13} /> Agregar slide
         </summary>
-        <ul className="mt-1.5 flex flex-col gap-1">
-          {plantillasDisponibles.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => onAgregar(p.id)}
-                className="w-full text-left px-2.5 py-2 rounded-md hover:bg-taupe/40"
-              >
-                <span className="block text-xs text-fg">{p.nombre}</span>
-                <span className="block text-[11px] text-muted leading-snug">{p.descripcion}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+
+        {/*
+          Agrupadas por su papel en el carrusel. Con ocho plantillas una lista plana se
+          aguantaba; pasando de diez se vuelve un menú indistinguible donde hay que leerlo
+          todo para encontrar "una de cuerpo". El orden es el del carrusel: se abre, se
+          desarrolla, se cierra.
+        */}
+        <div className="mt-1.5 flex flex-col gap-2">
+          {(
+            [
+              ["portada", "Para abrir"],
+              ["cuerpo", "Para desarrollar"],
+              ["cierre", "Para cerrar"],
+            ] as const
+          ).map(([rol, titulo]) => {
+            const delRol = plantillasDisponibles.filter((p) => p.rol === rol);
+            if (delRol.length === 0) return null;
+            return (
+              <div key={rol} className="flex flex-col gap-0.5">
+                <span className="px-2.5 text-[10px] uppercase tracking-wider text-muted">{titulo}</span>
+                <ul className="flex flex-col gap-0.5">
+                  {delRol.map((p) => (
+                    <li key={p.id}>
+                      <button
+                        type="button"
+                        onClick={() => onAgregar(p.id)}
+                        className="w-full text-left px-2.5 py-2 rounded-md hover:bg-taupe/40"
+                      >
+                        <span className="block text-xs text-fg">{p.nombre}</span>
+                        <span className="block text-[11px] text-muted leading-snug">{p.descripcion}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
       </details>
     </div>
   );
