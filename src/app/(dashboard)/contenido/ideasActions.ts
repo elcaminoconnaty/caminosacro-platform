@@ -94,6 +94,18 @@ function slidesDeRelleno(idea: {
     });
   }
 
+  // MÍNIMO 4 SLIDES, TAMBIÉN POR AQUÍ. `completarSlides()` en ideas.ts garantiza el rango
+  // para el carrusel que escribe Claude, pero este es el camino de RESPALDO —cuando la
+  // idea vino sin slides— y se quedaba en tres. Una pieza sembrada así ya apareció con 3.
+  // La regla es de producto, no del generador: tiene que valer en los dos caminos.
+  const RELLENOS = ["tip-numerado", "dato-grande", "mito-realidad"];
+  let i = 0;
+  while (slides.length < 3 && i < RELLENOS.length) {
+    const id = RELLENOS[i++];
+    if (!plantilla(id) || slides.some((s) => s.plantilla === id)) continue;
+    slides.push({ plantilla: id, valores: valoresPorDefecto(id), foto: null });
+  }
+
   slides.push({ plantilla: "cierre-cta", valores: valoresPorDefecto("cierre-cta"), foto: null });
   return slides;
 }
