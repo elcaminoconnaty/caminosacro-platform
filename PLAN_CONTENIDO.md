@@ -856,3 +856,71 @@ para que nadie vuelva a pasarle una no declarada.
 **Lección de método:** probé un solo tamaño y una sola calidad antes de subir, y di por
 bueno el resto. Con parámetros que el servidor valida contra una lista blanca hay que
 probar **todas** las combinaciones que el código usa de verdad.
+
+### Plantillas nuevas — 2026-08-25
+
+Nico: "para agregar slides solo tengo unas opciones limitadas a las mismas rutas". Cierto:
+de las 8 plantillas originales, 3 dependían del catálogo de rutas (`portada-ruta`,
+`etapas-ruta`, `comparativa-precio`), así que casi todo carrusel terminaba hablando de una
+ruta. Se agregaron 6 plantillas que **no tocan el catálogo de rutas**, un commit por cada
+una:
+
+- **`lista-empaque`** — "Qué llevar en la mochila de día". 6 renglones numerados con
+  filete dorado entre líneas (nunca checkmark, según pide la voz para el caption — pero
+  esto es pieza gráfica, no caption). Fondo bosque, contenido real del TIP homónimo.
+- **`pregunta-grande`** — una FAQ real de `estrategia.ts` en grande: pregunta en Caladea
+  dorado, respuesta corta en blanco debajo. Foto o degradado de marca, como `testimonio`.
+- **`comparativa-dos`** — dos opciones genéricas enfrentadas (albergue vs hotel, mochila
+  vs maleta, verano vs otoño), bicromía rosa/verde del PDF de cotización. **NO** precios:
+  eso lo sigue haciendo `comparativa-precio`. Apila las cajas en vertical, lado a lado en
+  cuadrado/horizontal.
+- **`cifra-contexto`** — un número grande con una comparación que lo hace tangible ("100
+  km es como caminar de Bogotá a Villeta"), en tarjeta aparte. Distinta de `dato-grande`,
+  que explica en prosa debajo en vez de comparar con otra referencia.
+- **`pasos-preparacion`** — hasta 4 pasos numerados en vertical con línea de itinerario
+  conectando los círculos, para "cómo prepararte" o cualquier proceso paso a paso.
+  Contenido real combinando varios TIPS (entrenar, calzado, mochila, urgencia 2027).
+- **`ficha-bici`** — una bicicleta de la flota (`comercial.bikes`, otro catálogo, no
+  `route_stages`), con la maqueta de `portada-ruta` adaptada a modelo/tipo/descripción.
+  La foto la trae el `SelectorFoto` ya existente filtrando `ruta_tag='bicis'` en
+  `contenido_fotos`; la plantilla solo consume `slide.foto`, igual que las demás.
+
+**Trampas de Satori encontradas al construirlas** (no estaban documentadas antes):
+
+- **Un `React.Fragment` con más de un hijo dentro de un `div flex-column` NO se apila.**
+  Satori pinta los hijos del fragmento en línea, uno junto al otro, sin importar que el
+  padre tenga `display:'flex', flexDirection:'column'`. La regla "todo div con más de un
+  hijo lleva `display:'flex'`" no alcanza si el agrupador es un fragmento: hace falta un
+  `div` propio. Apareció en `cifra-contexto` (el filete y la nota del pie quedaron en la
+  misma línea) y quedó comentado en el archivo.
+- **`flex:1` en un contenedor `flexDirection:'column'` fuerza la MISMA altura a todos los
+  hijos**, partiendo el alto disponible entre ellos en vez de dejar que cada uno crezca
+  según su contenido. Con textos de largo distinto (`comparativa-dos` apilada), la caja
+  más corta recorta su fondo pero el texto sigue desbordándose hacia la caja de abajo.
+  Arreglado quitando `flex:1` cuando se apila y dejando alto natural (`width:'100%'` en
+  vez de `flex:1`); en fila sigue haciendo falta `flex:1` para repartir el ANCHO por
+  igual, ahí no hay bug.
+- **Texto fijo a un color oscuro sin condicionar a si hay foto de fondo** es un bug fácil
+  de colar (pasó en un borrador de `pasos-preparacion`): con velo oscuro por defecto, el
+  texto oscuro se vuelve ilegible. Toda plantilla nueva con foto opcional necesita el
+  patrón `color: foto ? BLANCO.alto : PALETA.tinta` (o su variante `sobreOscuro`) en
+  **cada** span de texto, no solo en el titular.
+
+**Qué falta para que el catálogo dé variedad de verdad:**
+
+- El editor sigue sin filtrar plantillas "sin ruta" vs "con ruta" en el selector: Nico ve
+  las 14 mezcladas. Podría ayudar un badge o agrupador visual (fuera del alcance de este
+  encargo: toca `PanelCampos.tsx` / el selector de plantillas, que están vetados aquí).
+  Cuenta como el hueco más importante: sin eso, la variedad EXISTE pero sigue siendo fácil
+  de no ver.
+- El motor de sugerencias de ideas (`ideas.ts`, vetado en este encargo) todavía no sabe
+  de las 6 plantillas nuevas: si sugiere carruseles, seguirá proponiendo la mezcla vieja
+  de portada+etapas+cierre salvo que alguien lo actualice para variar también el tipo de
+  slide de cuerpo, no solo el pilar de copy.
+- `ficha-bici` no se probó con una foto real de `contenido_fotos` con `ruta_tag='bicis'`
+  (el smoke usa una foto de peregrinos vía `CONTENIDO_FOTO_PRUEBA`, no hay bicis en el
+  banco de prueba). El layout es el mismo de `portada-ruta` ya validado con fotos reales,
+  así que el riesgo es bajo, pero falta la comprobación visual con una foto de bici real.
+- No se agregaron plantillas para prueba social sin foto de "peregrino real" (el pilar
+  `prueba_social` de `estrategia.ts` sigue cubierto solo por `testimonio`, que ya existía).
+  Si en el futuro se quiere más variedad ahí, sería la próxima candidata natural.
