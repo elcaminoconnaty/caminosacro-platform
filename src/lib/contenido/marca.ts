@@ -40,19 +40,28 @@ export const TIPO = {
 } as const;
 
 // Escala tipográfica sobre un lienzo de 1080 de ancho. Se pasa por u() antes de usarse.
+//
+// SUBIDA EL 2026-08-24. Nico: "la letra es muy pequeña, quisiera que tuviera una letra más
+// grande en la información". El problema no eran los titulares —esos ya se leían— sino todo
+// lo demás: la línea de datos, el cuerpo, las notas y el pie. En Instagram la pieza se ve en
+// un teléfono a menos de la mitad de su tamaño, así que lo que en el lienzo de 1080 parece
+// generoso, en la mano queda ilegible.
+//
+// Los titulares se dejaron casi igual: ya ocupaban lo suyo y agrandarlos solo los haría
+// desbordar a dos y tres líneas.
 export const ESCALA = {
   titularXL: 96,
   titular: 84,
   titularS: 64,
-  subtitulo: 44,
-  cuerpoXL: 34,
-  cuerpo: 28,
-  cuerpoS: 24,
-  dato: 26,
-  pie: 20,
-  eyebrow: 18,
-  marca: 34,
-  marcaSub: 18,
+  subtitulo: 50,      // 44
+  cuerpoXL: 40,       // 34
+  cuerpo: 34,         // 28
+  cuerpoS: 28,        // 24
+  dato: 32,           // 26 — la línea "112 km · 7 días · 5 etapas"
+  pie: 24,            // 20
+  eyebrow: 21,        // 18
+  marca: 36,          // 34
+  marcaSub: 20,       // 18
   numeroGigante: 220,
 } as const;
 

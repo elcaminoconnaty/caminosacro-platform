@@ -46,7 +46,7 @@ export function Barras({
             <span
               style={{
                 fontFamily: TIPO.cuerpo,
-                fontSize: u(21, w),
+                fontSize: u(25, w),
                 color: BLANCO.alto,
               }}
             >
@@ -56,7 +56,7 @@ export function Barras({
               style={{
                 fontFamily: TIPO.cuerpo,
                 fontWeight: 700,
-                fontSize: u(21, w),
+                fontSize: u(25, w),
                 color: PALETA.dorado,
               }}
             >

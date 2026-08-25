@@ -99,7 +99,7 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
               </span>
             ) : null}
             {v.ruta ? (
-              <span style={{ fontFamily: TIPO.cuerpo, fontSize: u(21, w), color: BLANCO.medio }}>{v.ruta}</span>
+              <span style={{ fontFamily: TIPO.cuerpo, fontSize: u(25, w), color: BLANCO.medio }}>{v.ruta}</span>
             ) : null}
           </div>
         </div>

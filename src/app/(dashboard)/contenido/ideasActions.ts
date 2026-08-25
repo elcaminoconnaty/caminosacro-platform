@@ -52,6 +52,8 @@ export async function recogerIdeas(trabajoId: number, contexto: ContextoIdeas) {
       razon: i.razon,
       evidencia: i.evidencia,
       ruta_nombre: i.ruta_nombre,
+      slides: i.slides,
+      fuente_dato: i.fuente_dato,
     })),
   );
   if (error) return { error: mensajeError(error) };

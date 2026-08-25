@@ -55,7 +55,7 @@ function Tarjeta({
       <span
         style={{
           fontFamily: TIPO.cuerpo,
-          fontSize: u(19, w),
+          fontSize: u(23, w),
           color: invertida ? PALETA.dorado : PALETA.muted,
           textTransform: "uppercase",
           letterSpacing: "0.1em",
@@ -133,7 +133,7 @@ export function ComparativaPrecio({ f, slide }: { f: Formato; slide: Slide }) {
           <Tarjeta w={w} etiqueta={v.etiqueta_b ?? ""} precio={v.precio_b ?? ""} invertida />
         </div>
         {v.nota ? (
-          <span style={{ fontFamily: TIPO.cuerpo, fontSize: u(21, w), color: PALETA.muted }}>{v.nota}</span>
+          <span style={{ fontFamily: TIPO.cuerpo, fontSize: u(25, w), color: PALETA.muted }}>{v.nota}</span>
         ) : null}
       </div>
 

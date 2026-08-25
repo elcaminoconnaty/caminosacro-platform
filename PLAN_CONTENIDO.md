@@ -526,7 +526,7 @@ son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
       (nuevo), `Lienzo.tsx`, `Editor.tsx`, `PiezasGrid.tsx`.
       **Terminado:** cambiar una letra se ve reflejado en menos de 400 ms.
 
-- [ ] **T2 — Letra más grande**
+- [x] **T2 — Letra más grande**
       La línea de datos y el cuerpo se leen pequeños en el celular. Subir la escala
       tipográfica base y revisar las ocho plantillas en los cinco formatos.
       **Archivos:** `marca.ts` (`ESCALA`), `plantillas/*`.
