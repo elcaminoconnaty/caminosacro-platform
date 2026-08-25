@@ -798,7 +798,7 @@ verdad. El render está comprobado pieza por pieza; la interacción no.
 Pedía cada foto **a tamaño completo** (320 KB) para pintarla en un cuadrito. Con 48 en
 pantalla, ~15 MB por abrir el modal.
 Ahora pasan por el **optimizador de imágenes de Next**, que redimensiona con `sharp` —ya
-estaba instalado, lo trae Next— y devuelve WebP. **Medido: 319.957 → 9.485 bytes (34×
+estaba instalado, lo trae Next— y devuelve WebP. **Medido: 319.957 → 10.838 bytes (29×
 menos)**, y 9 ms cuando ya está cacheada. Hizo falta declarar el host de Supabase en
 `images.remotePatterns` de `next.config.ts`; sin eso el optimizador rechaza las URLs
 remotas.
@@ -830,3 +830,29 @@ ni cierre, campos vacíos): los cinco salen con 4-6 slides y estructura correcta
 
 *Nota para quien pruebe módulos `server-only` desde un script: hay que crear un stub de
 `server-only` en `node_modules`. Se usó y se borró; no queda en el repo.*
+
+### Corrección urgente 2026-08-25 · las miniaturas salieron en blanco
+
+Al pasar las fotos por el optimizador se pidió `q=70` y **todas las miniaturas quedaron en
+blanco con el icono de imagen rota**. Culpa mía, y la causa es una trampa de Next 16 que
+conviene tener escrita:
+
+> **`/_next/image` solo acepta las calidades declaradas en `images.qualities`, y la lista
+> por defecto es SOLO `[75]`.** Cualquier otra devuelve
+> `400 — "q" parameter (quality) of 70 is not allowed`. El navegador no dice nada: pinta el
+> icono de imagen rota.
+
+Lo mismo vale para el ancho: un `w=` que no esté en `imageSizes` ni en `deviceSizes` también
+da 400.
+
+Arreglado fijando la calidad en 75 (la única declarada) y declarándola explícitamente en
+`next.config.ts` con el aviso al lado. `miniatura()` ya **no acepta calidad como parámetro**
+para que nadie vuelva a pasarle una no declarada.
+
+**Verificados los cuatro anchos que usa el código**, no solo uno: `w=96` → 2.485 B,
+`w=160` → 5.606 B, `w=240` → 10.838 B, `w=320` → 17.202 B. Los tres sitios que llaman a
+`miniatura()` usan anchos de esa lista.
+
+**Lección de método:** probé un solo tamaño y una sola calidad antes de subir, y di por
+bueno el resto. Con parámetros que el servidor valida contra una lista blanca hay que
+probar **todas** las combinaciones que el código usa de verdad.

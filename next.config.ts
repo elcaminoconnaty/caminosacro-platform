@@ -33,7 +33,14 @@ const nextConfig: NextConfig = {
       },
     ],
     // Tamaños que de verdad pedimos: miniatura de rejilla, foto elegida, tarjeta de pieza.
+    // Un `w=` que no esté aquí (ni en deviceSizes) devuelve 400.
     imageSizes: [96, 160, 240, 320],
+    // ⚠️ TRAMPA DE NEXT 16 que dejó todas las fotos en blanco: el parámetro `q` SOLO acepta
+    // las calidades declaradas aquí, y por defecto la lista es [75]. Pedir `q=70` devuelve
+    // "400 — q parameter (quality) of 70 is not allowed" y el navegador pinta el icono de
+    // imagen rota. Si algún día se quiere bajar la calidad, hay que añadirla A ESTA LISTA
+    // primero.
+    qualities: [75],
     // Un mes: las fotos del banco no cambian de contenido bajo la misma URL.
     minimumCacheTTL: 2592000,
   },
