@@ -5,9 +5,17 @@ import { Upload, FolderOpen, ImageOff, Check, X, Images, Search, Loader2 } from 
 import { createPublicClient } from "@/lib/supabase/client";
 import { rutaFotoContenido, sinBucket } from "@/lib/storage/paths";
 import { cn } from "@/lib/cn";
-import { TANDA_FOTOS, type FiltroEstado, type FotoBuscada, type FotoDelBanco, type FotoSubida, type RutaDeFotos } from "@/lib/contenido/fotos";
+import type { FiltroEstado, FotoBuscada, FotoDelBanco, FotoSubida, RutaDeFotos } from "@/lib/contenido/fotos";
 import type { FotoSlide } from "@/lib/contenido/tipos";
 import { buscarFotosAccion, registrarSubida, rutasDeFotos } from "./fotoActions";
+
+/**
+ * Tamaño de tanda del buscador. Duplica `TANDA_FOTOS` de `src/lib/contenido/fotos.ts` a
+ * propósito: ese módulo lleva `import "server-only"` y no se puede importar su valor desde
+ * un componente cliente (rompe el build: "server-only cannot be imported from a Client
+ * Component"). Solo se importan tipos de ahí arriba, que el compilador borra.
+ */
+const TANDA_FOTOS = 48;
 
 export type SelectorFotoProps = {
   banco: FotoDelBanco[];
@@ -68,8 +76,19 @@ export default function SelectorFoto({
   const [buscando, setBuscando] = useState(false);
   const rutasPedidas = useRef<Set<"banco" | "subida">>(new Set());
 
+  // Tandas cargadas de más allá de la semilla inicial (T6 paso 3), una por fuente. Sin
+  // filtro activo la rejilla es `banco`/`subidas` + esto; con filtro, pagina `resultado`.
+  const [masBanco, setMasBanco] = useState<FotoBuscada[]>([]);
+  const [masSubidas, setMasSubidas] = useState<FotoBuscada[]>([]);
+  const [hayMasBase, setHayMasBase] = useState<Record<"banco" | "subida", boolean>>(() => ({
+    banco: banco.length >= TANDA_FOTOS,
+    subida: subidasIniciales.length >= TANDA_FOTOS,
+  }));
+  const [cargandoMas, setCargandoMas] = useState(false);
+
   const inputArchivos = useRef<HTMLInputElement>(null);
   const inputCarpeta = useRef<HTMLInputElement>(null);
+  const centinela = useRef<HTMLDivElement>(null);
 
   const fuenteActiva = fuenteDe(pestana);
 
@@ -222,10 +241,67 @@ export default function SelectorFoto({
 
   const esActual = (url: string) => seleccionada?.url === url;
 
-  const listaBase: Array<FotoDelBanco | FotoSubida> =
-    pestana === "banco" ? banco : pestana === "subidas" ? subidas : [];
+  const listaBase: Array<FotoDelBanco | FotoSubida | FotoBuscada> =
+    pestana === "banco" ? [...banco, ...masBanco] : pestana === "subidas" ? [...subidas, ...masSubidas] : [];
   const listaActiva: Array<FotoDelBanco | FotoSubida | FotoBuscada> = resultado ? resultado.fotos : listaBase;
   const chipsRuta = fuenteActiva ? (rutas[fuenteActiva] ?? []) : [];
+  const hayMasActual = resultado ? resultado.hayMas : fuenteActiva ? hayMasBase[fuenteActiva] : false;
+
+  /**
+   * Trae la siguiente tanda: de `resultado` si hay un filtro activo (paginando desde donde
+   * quedó), o de la lista base sin filtro (banco/subidas) desde lo ya cargado + la semilla.
+   */
+  async function verMas() {
+    if (!fuenteActiva || cargandoMas) return;
+
+    if (resultado) {
+      if (!resultado.hayMas) return;
+      setCargandoMas(true);
+      const r = await buscarFotosAccion({
+        fuente: fuenteActiva,
+        texto: textoDebounced || undefined,
+        ruta,
+        estado: fuenteActiva === "banco" ? estado : undefined,
+        desde: resultado.desde,
+        tamano: TANDA_FOTOS,
+      });
+      setCargandoMas(false);
+      if ("ok" in r && r.ok) {
+        setResultado((prev) =>
+          prev ? { fotos: [...prev.fotos, ...r.fotos], total: r.total, hayMas: r.hayMas, desde: prev.desde + r.fotos.length } : prev,
+        );
+      }
+      return;
+    }
+
+    if (!hayMasBase[fuenteActiva]) return;
+    setCargandoMas(true);
+    const r = await buscarFotosAccion({ fuente: fuenteActiva, desde: listaBase.length, tamano: TANDA_FOTOS });
+    setCargandoMas(false);
+    if ("ok" in r && r.ok) {
+      if (fuenteActiva === "banco") setMasBanco((prev) => [...prev, ...r.fotos]);
+      else setMasSubidas((prev) => [...prev, ...r.fotos]);
+      setHayMasBase((prev) => ({ ...prev, [fuenteActiva]: r.hayMas }));
+    }
+  }
+
+  // Scroll infinito: cuando el centinela del final de la rejilla entra en vista, se pide la
+  // siguiente tanda sola. El botón "Ver más" sigue ahí como respaldo (y como lo que dispara
+  // la carga en pantallas donde no llega a haber scroll).
+  useEffect(() => {
+    if (!abierto || !hayMasActual) return;
+    const nodo = centinela.current;
+    if (!nodo) return;
+    const observador = new IntersectionObserver(
+      (entradas) => {
+        if (entradas[0]?.isIntersecting) void verMas();
+      },
+      { rootMargin: "200px" },
+    );
+    observador.observe(nodo);
+    return () => observador.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abierto, hayMasActual, pestana, resultado?.desde, masBanco.length, masSubidas.length]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -475,6 +551,25 @@ export default function SelectorFoto({
                     </li>
                   )}
                 </ul>
+              )}
+
+              {(pestana === "banco" || pestana === "subidas") && hayMasActual && (
+                <div ref={centinela} className="flex justify-center py-5">
+                  <button
+                    type="button"
+                    onClick={() => void verMas()}
+                    disabled={cargandoMas}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-md border border-border text-xs text-muted hover:bg-taupe/40 disabled:opacity-60"
+                  >
+                    {cargandoMas ? (
+                      <>
+                        <Loader2 size={12} className="animate-spin" /> Cargando…
+                      </>
+                    ) : (
+                      "Ver más"
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           </div>
