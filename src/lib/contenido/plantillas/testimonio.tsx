@@ -1,7 +1,8 @@
 // Prueba social. La voz pide un número o una micro-historia con país que haga pensar
 // "ese soy yo" — y prohíbe inventar nombres propios o cifras distintas a "+200".
 
-import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, OVERLAY_FOTO, FONDO_SIN_FOTO, u } from "../marca";
+import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, FONDO_SIN_FOTO, u } from "../marca";
+import { resolverAjustes } from "../ajustes";
 import type { Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Filete } from "./_lockups";
@@ -26,6 +27,11 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
   const v = slide.valores;
   const foto = slide.foto?.url ?? null;
   const zs = f.zonaSegura;
+  const aj = resolverAjustes(f, slide.ajustes);
+  // El texto va directo sobre la foto: por defecto se tapa con un velo plano fuerte (no
+  // el degradado de marca, que deja el tercio de arriba casi sin tapar). Si Nico mueve la
+  // perilla del velo, se respeta `aj.overlay` con su valor.
+  const veloPropio = slide.ajustes?.velo != null;
 
   return (
     <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.bosque }}>
@@ -34,7 +40,16 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
           src={foto}
           width={f.w}
           height={f.h}
-          style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, objectFit: "cover" }}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            objectFit: "cover",
+            objectPosition: aj.posicionFoto,
+            ...(aj.zoomFoto ? { transform: aj.zoomFoto } : {}),
+          }}
         />
       ) : (
         <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: FONDO_SIN_FOTO }} />
@@ -47,7 +62,7 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
           left: 0,
           width: f.w,
           height: f.h,
-          backgroundColor: "rgba(26,58,42,0.72)",
+          ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
         }}
       />
 
@@ -73,7 +88,7 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
             style={{
               fontFamily: TIPO.display,
               fontWeight: 700,
-              fontSize: u(120, w),
+              fontSize: aj.ut(120),
               color: PALETA.dorado,
               lineHeight: 0.7,
               height: u(64, w),
@@ -84,7 +99,7 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
           <span
             style={{
               fontFamily: TIPO.display,
-              fontSize: u(48, w),
+              fontSize: aj.ut(48),
               color: PALETA.blanco,
               lineHeight: 1.25,
             }}
@@ -94,12 +109,12 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
           <Filete w={w} ancho={160} color={PALETA.dorado} />
           <div style={{ display: "flex", flexDirection: "column", gap: u(4, w) }}>
             {v.quien ? (
-              <span style={{ fontFamily: TIPO.cuerpo, fontWeight: 700, fontSize: u(ESCALA.cuerpoS, w), color: PALETA.dorado }}>
+              <span style={{ fontFamily: TIPO.cuerpo, fontWeight: 700, fontSize: aj.ut(ESCALA.cuerpoS), color: PALETA.dorado }}>
                 {v.quien}
               </span>
             ) : null}
             {v.ruta ? (
-              <span style={{ fontFamily: TIPO.cuerpo, fontSize: u(25, w), color: BLANCO.medio }}>{v.ruta}</span>
+              <span style={{ fontFamily: TIPO.cuerpo, fontSize: aj.ut(25), color: BLANCO.medio }}>{v.ruta}</span>
             ) : null}
           </div>
         </div>
