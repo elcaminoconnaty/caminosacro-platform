@@ -3,7 +3,7 @@
 
 import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u } from "../marca";
 import { resolverAjustes } from "../ajustes";
-import type { Formato } from "../formatos";
+import { esApaisado, type Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Eyebrow, Filete } from "./_lockups";
 
@@ -33,7 +33,7 @@ export function DatoGrande({ f, slide }: { f: Formato; slide: Slide }) {
   const m = u(MEDIDAS.margen, w);
   const v = slide.valores;
   const zs = f.zonaSegura;
-  const compacto = f.h < 700;
+  const compacto = esApaisado(f);
   const aj = resolverAjustes(f, slide.ajustes);
   const foto = slide.foto?.url ?? null;
   // Mismo criterio que tip-numerado: el número y la bajada van directo sobre la foto, sin
@@ -83,8 +83,8 @@ export function DatoGrande({ f, slide }: { f: Formato; slide: Slide }) {
           height: f.h,
           paddingLeft: m,
           paddingRight: m,
-          paddingTop: zs ? Math.max(m, zs.arriba) : m,
-          paddingBottom: zs ? Math.max(m, zs.abajo) : m,
+          paddingTop: zs ? Math.max(m, u(zs.arriba, w)) : m,
+          paddingBottom: zs ? Math.max(m, u(zs.abajo, w)) : m,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

@@ -91,3 +91,23 @@ export const FORMATOS_LISTA: Formato[] = [
 export function esFormatoId(v: string): v is FormatoId {
   return v in FORMATOS;
 }
+
+/**
+ * Preguntas sobre la FORMA del lienzo, no sobre su tamaño.
+ *
+ * ⚠️ POR QUÉ EXISTEN: las plantillas decidían la maqueta con `f.h < 700` y `f.h > 1500`,
+ * es decir, con píxeles absolutos. Eso funciona a tamaño real, pero el preview del editor
+ * dibuja a escala 0.35 — y ahí una historia 9:16 mide 378×672, así que `f.h < 700` daba
+ * verdadero y la plantilla se creía el formato apaisado: **quitaba la franja verde entera**.
+ * El resultado era que el preview enseñaba una cosa y el archivo descargado otra, que es
+ * justo lo que este módulo promete que no puede pasar.
+ *
+ * La proporción no cambia con la escala. Toda decisión de maqueta va por aquí.
+ */
+export function esApaisado(f: Formato): boolean {
+  return f.h < f.w * 0.75;
+}
+
+export function esVerticalLargo(f: Formato): boolean {
+  return f.h > f.w * 1.5;
+}

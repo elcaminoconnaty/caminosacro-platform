@@ -2,7 +2,7 @@
 // Es la plantilla que convierte las 281 filas de comercial.route_stages en contenido.
 
 import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u } from "../marca";
-import type { Formato } from "../formatos";
+import { esVerticalLargo, type Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Eyebrow } from "./_lockups";
 import { resolverAjustes } from "../ajustes";
@@ -50,7 +50,7 @@ export function EtapasRuta({ f, slide }: { f: Formato; slide: Slide }) {
   const todas = leerEtapas(v.etapas_json);
   // Con más de ocho etapas los rótulos se apelmazan: se muestran las primeras y se dice
   // cuántas quedan, en vez de encoger todo hasta que no se lea.
-  const tope = f.h > 1500 ? 9 : 7;
+  const tope = esVerticalLargo(f) ? 9 : 7;
   const barras = todas.slice(0, tope);
   const resto = todas.length - barras.length;
 
@@ -98,8 +98,8 @@ export function EtapasRuta({ f, slide }: { f: Formato; slide: Slide }) {
           height: f.h,
           paddingLeft: m,
           paddingRight: m,
-          paddingTop: zs ? Math.max(m, zs.arriba) : m,
-          paddingBottom: zs ? Math.max(m, zs.abajo) : m,
+          paddingTop: zs ? Math.max(m, u(zs.arriba, w)) : m,
+          paddingBottom: zs ? Math.max(m, u(zs.abajo, w)) : m,
         }}
       >
       <div style={{ display: "flex", flexDirection: "column", gap: u(10, w) }}>

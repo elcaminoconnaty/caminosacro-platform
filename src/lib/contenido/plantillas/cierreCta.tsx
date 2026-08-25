@@ -7,7 +7,7 @@
 
 import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u } from "../marca";
 import { resolverAjustes } from "../ajustes";
-import type { Formato } from "../formatos";
+import { esApaisado, type Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Concha, Pie, Eyebrow, Filete } from "./_lockups";
 
@@ -44,7 +44,7 @@ export function CierreCta({ f, slide }: { f: Formato; slide: Slide }) {
   const w = f.w;
   const m = u(MEDIDAS.margen, w);
   const v = slide.valores;
-  const compacto = f.h < 700;
+  const compacto = esApaisado(f);
   const aj = resolverAjustes(f, slide.ajustes);
   const foto = slide.foto?.url ?? null;
   // El titular y el motivo van directo sobre la foto (sin bloque sólido detrás): con el
@@ -53,8 +53,8 @@ export function CierreCta({ f, slide }: { f: Formato; slide: Slide }) {
   const veloPropio = slide.ajustes?.velo != null;
 
   const zs = f.zonaSegura;
-  const padTop = zs ? Math.max(m, zs.arriba) : m;
-  const padBottom = zs ? Math.max(m, zs.abajo) : m;
+  const padTop = zs ? Math.max(m, u(zs.arriba, w)) : m;
+  const padBottom = zs ? Math.max(m, u(zs.abajo, w)) : m;
 
   return (
     <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.bosque }}>

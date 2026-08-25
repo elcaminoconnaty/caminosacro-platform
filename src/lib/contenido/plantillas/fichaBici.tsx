@@ -10,7 +10,7 @@
 
 import { PALETA, TIPO, ESCALA, MEDIDAS, FONDO_SIN_FOTO, u } from "../marca";
 import { resolverAjustes } from "../ajustes";
-import type { Formato } from "../formatos";
+import { esApaisado, type Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Filete, Pill } from "./_lockups";
 
@@ -41,12 +41,12 @@ export function FichaBici({ f, slide }: { f: Formato; slide: Slide }) {
   const foto = slide.foto?.url ?? null;
 
   const aj = resolverAjustes(f, slide.ajustes);
-  const compacto = f.h < 700;
+  const compacto = esApaisado(f);
   const altoBloque = compacto ? 0 : aj.altoBloque;
 
   const zs = f.zonaSegura;
-  const padTop = zs ? Math.max(m, zs.arriba) : m;
-  const padBottom = zs ? Math.max(m, zs.abajo) : m;
+  const padTop = zs ? Math.max(m, u(zs.arriba, w)) : m;
+  const padBottom = zs ? Math.max(m, u(zs.abajo, w)) : m;
 
   return (
     <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.bosque }}>

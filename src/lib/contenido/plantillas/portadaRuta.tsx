@@ -6,7 +6,7 @@
 
 import { PALETA, TIPO, ESCALA, MEDIDAS, FONDO_SIN_FOTO, u } from "../marca";
 import { resolverAjustes } from "../ajustes";
-import type { Formato } from "../formatos";
+import { esApaisado, type Formato } from "../formatos";
 import type { Slide } from "../tipos";
 import type { DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Eyebrow, Pill, Filete } from "./_lockups";
@@ -68,14 +68,14 @@ export function PortadaRuta({ f, slide }: { f: Formato; slide: Slide }) {
   // tamaño de letra ya escalado, y `altoBloque` puede venir bajado a mano para que se vea
   // más foto (que es justo lo que ahogaba a las historias).
   const aj = resolverAjustes(f, slide.ajustes);
-  const compacto = f.h < 700;
+  const compacto = esApaisado(f);
   const altoBloque = compacto ? 0 : aj.altoBloque;
 
   // En la historia y en la portada de reel el contenido tiene que caer dentro de la zona
   // segura, o se lo come la interfaz de Instagram (o el recorte a 1:1 de la grilla).
   const zs = f.zonaSegura;
-  const padTop = zs ? Math.max(m, zs.arriba) : m;
-  const padBottom = zs ? Math.max(m, zs.abajo) : m;
+  const padTop = zs ? Math.max(m, u(zs.arriba, w)) : m;
+  const padBottom = zs ? Math.max(m, u(zs.abajo, w)) : m;
 
   return (
     <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.bosque }}>

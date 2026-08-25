@@ -1134,3 +1134,42 @@ bicicleta real con su foto) y **el precio del alquiler del Francés Bici Ponferr
 - Sin tarifas de alquiler: 2 de las 3 rutas de bici.
 - Plantilla que se echó de menos: una de **lista de precios** — el post del alquiler repite
   siete tarjetas casi iguales porque no hay nada mejor para varias cifras a la vez.
+
+### Bug del 2026-08-25 · el preview enseñaba una cosa y el archivo descargado otra
+
+Nico: *"cuando se renderiza y descargan las piezas la transparencia verde no queda
+transparente"* y *"mientras organizo las imágenes no me sale bien dónde está la franja
+verde, no se ve si está arriba, abajo o en la mitad"*.
+
+**Los dos síntomas eran el mismo bug, y de los feos:** las plantillas decidían la maqueta
+con **píxeles absolutos** en vez de con la proporción del lienzo.
+
+```ts
+const compacto = f.h < 700;   // "esto es el formato apaisado"
+```
+
+Eso funciona a tamaño real. Pero el preview del editor dibuja a **escala 0.35**, y ahí una
+historia 9:16 mide 378×672 — así que `f.h < 700` daba **verdadero** y la plantilla se creía
+el formato apaisado: **quitaba la franja verde entera**. Resultado: el preview enseñaba el
+texto flotando sobre la foto y el archivo descargado traía la franja. Justo la divergencia
+que este módulo promete que no puede pasar, y por segunda vez.
+
+**Dos causas encadenadas, las dos arregladas:**
+1. **`f.h < 700` y `f.h > 1500`** en 7 plantillas → sustituidas por `esApaisado(f)` y
+   `esVerticalLargo(f)` en `formatos.ts`, que miran la **proporción**, que no cambia con la
+   escala. (`comparativaDos` ya lo hacía bien con `f.h > f.w * 1.2`: ese era el patrón
+   correcto y nadie lo había generalizado.)
+2. **La zona segura no se escalaba**: `Math.max(m, zs.arriba)` usaba los 250 px crudos sobre
+   un lienzo de 672 → **37% del alto en el preview contra 13% al exportar**. Ahora pasa por
+   `u(zs.arriba, w)` como el resto de medidas. Corregido en las 14 plantillas.
+
+**Comprobado a ojo** renderizando la MISMA pieza a escala 0.35 y a 1 y comparándolas lado a
+lado: ahora son la misma imagen.
+
+**Regla que queda:** en una plantilla, **ninguna decisión de maqueta puede depender de un
+número de píxeles**. Solo de la proporción o del `id` del formato. El preview dibuja a otra
+escala y cualquier umbral absoluto miente.
+
+*Nota sobre la franja: es verde SÓLIDO por diseño, como la portada del PDF de cotización. Si
+lo que se quiere es ver la foto ahí detrás, la perilla "alto de la franja verde" a 0 la quita
+y el texto queda sobre un degradado.*

@@ -76,8 +76,8 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
           height: f.h,
           paddingLeft: m,
           paddingRight: m,
-          paddingTop: zs ? Math.max(m, zs.arriba) : m,
-          paddingBottom: zs ? Math.max(m, zs.abajo) : m,
+          paddingTop: zs ? Math.max(m, u(zs.arriba, w)) : m,
+          paddingBottom: zs ? Math.max(m, u(zs.abajo, w)) : m,
         }}
       >
         <Cabecera w={w} />

@@ -3,7 +3,7 @@
 
 import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, FONDO_SIN_FOTO, u } from "../marca";
 import { resolverAjustes } from "../ajustes";
-import type { Formato } from "../formatos";
+import { esApaisado, type Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Eyebrow, Filete } from "./_lockups";
 
@@ -38,7 +38,7 @@ export function PreguntaGrande({ f, slide }: { f: Formato; slide: Slide }) {
   // cuerpo: el degradado de marca por defecto deja el tercio de arriba casi sin tapar,
   // y aquí la pregunta ocupa justo esa zona.
   const veloPropio = slide.ajustes?.velo != null;
-  const compacto = f.h < 700;
+  const compacto = esApaisado(f);
 
   return (
     <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.bosque }}>
@@ -82,8 +82,8 @@ export function PreguntaGrande({ f, slide }: { f: Formato; slide: Slide }) {
           height: f.h,
           paddingLeft: m,
           paddingRight: m,
-          paddingTop: zs ? Math.max(m, zs.arriba) : m,
-          paddingBottom: zs ? Math.max(m, zs.abajo) : m,
+          paddingTop: zs ? Math.max(m, u(zs.arriba, w)) : m,
+          paddingBottom: zs ? Math.max(m, u(zs.abajo, w)) : m,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
