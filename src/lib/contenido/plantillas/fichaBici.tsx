@@ -100,8 +100,23 @@ export function FichaBici({ f, slide }: { f: Formato; slide: Slide }) {
           width: f.w - m * 2,
         }}
       >
-        <Cabecera w={w} />
-        {v.tipo ? <Pill w={w}>{v.tipo}</Pill> : <span />}
+        <div style={{ display: "flex", flexShrink: 0 }}>
+          <Cabecera w={w} />
+        </div>
+        {/*
+          "tipo" es texto libre (maxLargo=40): a diferencia del `precio` corto que lleva
+          este mismo Pill en portada-ruta, un valor largo desbordaba el lienzo por la
+          derecha —Satori no encoge el texto de un flex item por debajo de su ancho de
+          contenido si no se le da un tope explícito—. Con `maxWidth` + `minWidth:0` la
+          píldora se encoge y el texto de adentro pasa a dos líneas en vez de salirse.
+        */}
+        {v.tipo ? (
+          <div style={{ display: "flex", flexShrink: 1, minWidth: 0, maxWidth: "58%", justifyContent: "flex-end" }}>
+            <Pill w={w}>{v.tipo}</Pill>
+          </div>
+        ) : (
+          <span />
+        )}
       </div>
 
       <div
