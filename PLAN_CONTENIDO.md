@@ -572,7 +572,7 @@ son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
       está bien en 4:5 y es demasiado en 9:16.
       **Archivos:** `marca.ts`, `plantillas/*`. **Depende de T3.**
 
-- [ ] **T8 — La idea llega con el carrusel entero escrito**
+- [x] **T8 — La idea llega con el carrusel entero escrito**
       Hoy aceptar una idea crea 3 slides con los textos de ejemplo. Que Claude devuelva los
       **5 o 6 slides ya redactados** —titular, cuerpo, dato, cierre— y que la pieza se arme
       completa. Es lo que convierte "una idea" en "un post listo en minutos".
@@ -661,3 +661,45 @@ tres slides de relleno. Las columnas están ahí sin que nada las use todavía.
    plantillas.
 4. **T6 interfaz** — el backend ya espera.
 5. **T5** — la que menos urge: mejora sola a medida que entren métricas.
+
+### T8 — 2026-08-24
+
+**HECHA**, en los tres archivos permitidos (`ideas.ts`, `ideasActions.ts`, `IdeasPanel.tsx`)
+más el único cambio autorizado fuera de ellos (el `select` de `page.tsx`). La migración
+0027 ya estaba aplicada; no hizo falta ninguna nueva.
+
+**Qué cambié:**
+- `RespuestaIdeas` (en `ideas.ts`) gana `slides` (3 a 6, `{plantilla, valores}`) y
+  `fuente_dato` (`metricas|catalogo|cotizaciones|calendario`) por idea.
+- El prompt de `construirEncargoIdeas()` arma el catálogo de plantillas **recorriendo
+  `PLANTILLAS_LISTA`** (nunca a mano): id, rol y campos con su `maxLargo` exacto. Se le
+  dice a Claude que use solo esos ids/campos y que estructure el carrusel como
+  portada → 1-4 de cuerpo → `cierre-cta`.
+- `interpretarIdeas()` valida los slides contra el registry con la nueva función
+  `validarSlides()`: descarta plantillas que no existen, filtra los campos que la
+  plantilla no declara, y si tras filtrar quedan menos de 2 slides deja `slides: []`
+  (mejor vacío que un carrusel roto a medias).
+- `recogerIdeas()` guarda `slides` y `fuente_dato` al insertar. `aceptarIdea()` usa
+  `idea.slides` tal cual (vía `leerSlides()`, que ya valida la forma y rellena `foto:
+  null`) cuando vienen no vacíos; si vienen vacíos —worker viejo, o Claude no dio
+  suficientes slides válidos— cae al relleno de siempre, ahora extraído a la función
+  `slidesDeRelleno()`.
+- `IdeasPanel.tsx` muestra una chapita con `fuente_dato` en español y un `<details>`
+  "Ver los N slides" con plantilla + titular de cada uno (el primer campo de la
+  plantilla que traiga texto, buscado con `plantilla()` del registry).
+
+**Verificación:** `npx tsc --noEmit` limpio en los tres pasos; `npm run build` limpio al
+cierre (compila y prerrenderiza las 15 páginas, incluida `/contenido`). No probé en el
+navegador contra el worker real —el puente sigue sin tocarse, así que no hay forma de
+encolar un encargo real desde este entorno—, así que la primera tanda de ideas que
+Claude devuelva conviene mirarla con el `<details>` antes de confiar del todo en que el
+worker respeta `maxLargo` y la estructura pedida.
+
+**Pendiente / no verificado:**
+- No hay prueba end-to-end con el worker de Nico resolviendo un encargo real de ideas
+  con el prompt nuevo (más largo, con el catálogo completo). Si el worker tiene algún
+  límite de tokens de entrada/salida más estricto que antes, convendría vigilarlo la
+  primera vez que se use.
+- `validarSlides()` descarta campos no declarados en silencio; si Claude insiste en
+  inventar campos, las ideas seguirán llegando pero con menos texto del esperado — no
+  hay aviso visible de cuánto se filtró, solo el resultado final en el `<details>`.
