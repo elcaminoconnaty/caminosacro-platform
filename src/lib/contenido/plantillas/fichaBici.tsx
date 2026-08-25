@@ -72,6 +72,23 @@ export function FichaBici({ f, slide }: { f: Formato; slide: Slide }) {
 
       <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: aj.overlay }} />
 
+      {/*
+        Velo superior, y no es adorno: las fotos de la flota son tomas de producto sobre
+        fondo CLARO, y ahí el "AGENCIA DE PEREGRINACIONES" en oro desaparecía por completo.
+        El degradado de marca oscurece hacia abajo, así que arriba no tapaba nada. Este
+        oscurece solo la banda de la cabecera y se desvanece antes de llegar a la bici.
+      */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: f.w,
+          height: Math.round(f.h * 0.22),
+          backgroundImage: "linear-gradient(180deg, rgba(26,58,42,0.78) 0%, rgba(26,58,42,0) 100%)",
+        }}
+      />
+
       <div
         style={{
           display: "flex",
