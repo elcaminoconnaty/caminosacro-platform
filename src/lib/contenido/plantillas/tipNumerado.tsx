@@ -2,6 +2,7 @@
 // La voz pide que el VALOR vaya primero y que la autoridad se muestre, no se diga.
 
 import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u } from "../marca";
+import { resolverAjustes } from "../ajustes";
 import type { Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Eyebrow } from "./_lockups";
@@ -11,7 +12,7 @@ export const definicion: DefinicionPlantilla = {
   nombre: "Consejo numerado",
   descripcion: "Un consejo práctico del Camino, con su número. El slide de cuerpo más usado.",
   formatos: ["4x5", "1x1", "9x16"],
-  usaFoto: false,
+  usaFoto: true,
   rol: "cuerpo",
   campos: [
     { id: "numero", etiqueta: "Número", tipo: "texto", maxLargo: 2, porDefecto: "1" },
@@ -32,77 +33,104 @@ export function TipNumerado({ f, slide }: { f: Formato; slide: Slide }) {
   const m = u(MEDIDAS.margen, w);
   const v = slide.valores;
   const zs = f.zonaSegura;
+  const aj = resolverAjustes(f, slide.ajustes);
+  const foto = slide.foto?.url ?? null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        width: f.w,
-        height: f.h,
-        backgroundColor: PALETA.crema,
-        paddingLeft: m,
-        paddingRight: m,
-        paddingTop: zs ? Math.max(m, zs.arriba) : m,
-        paddingBottom: zs ? Math.max(m, zs.abajo) : m,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Cabecera w={w} sobreOscuro={false} />
-        <Eyebrow w={w} color={PALETA.doradoOscuro}>Consejo</Eyebrow>
-      </div>
-
-      <div style={{ display: "flex", gap: u(28, w), alignItems: "flex-start" }}>
-        <div
+    <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.crema }}>
+      {/* Fondo claro de siempre. Con foto, esta plantilla pasa a leerse como testimonio:
+          la foto a sangre con el mismo velo verde regulable, y el texto se vuelve claro. */}
+      {foto ? (
+        <img
+          src={foto}
+          width={f.w}
+          height={f.h}
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: u(88, w),
-            height: u(88, w),
-            borderRadius: u(44, w),
-            backgroundColor: PALETA.bosque,
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            objectFit: "cover",
+            objectPosition: aj.posicionFoto,
+            ...(aj.zoomFoto ? { transform: aj.zoomFoto } : {}),
           }}
-        >
-          <span
-            style={{
-              fontFamily: TIPO.display,
-              fontWeight: 700,
-              fontSize: u(48, w),
-              color: PALETA.dorado,
-            }}
-          >
-            {v.numero ?? ""}
-          </span>
+        />
+      ) : null}
+      {foto ? (
+        <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: aj.overlay }} />
+      ) : null}
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          position: "relative",
+          width: f.w,
+          height: f.h,
+          paddingLeft: m,
+          paddingRight: m,
+          paddingTop: zs ? Math.max(m, zs.arriba) : m,
+          paddingBottom: zs ? Math.max(m, zs.abajo) : m,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Cabecera w={w} sobreOscuro={!!foto} />
+          <Eyebrow w={w} color={foto ? undefined : PALETA.doradoOscuro}>Consejo</Eyebrow>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: u(16, w), flex: 1 }}>
-          <span
+        <div style={{ display: "flex", gap: u(28, w), alignItems: "flex-start" }}>
+          <div
             style={{
-              fontFamily: TIPO.display,
-              fontWeight: 700,
-              fontSize: u(ESCALA.subtitulo, w),
-              color: PALETA.bosque,
-              lineHeight: 1.1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: u(88, w),
+              height: u(88, w),
+              borderRadius: u(44, w),
+              backgroundColor: PALETA.bosque,
             }}
           >
-            {v.titular ?? ""}
-          </span>
-          <span
-            style={{
-              fontFamily: TIPO.cuerpo,
-              fontSize: u(ESCALA.cuerpo, w),
-              color: PALETA.tinta,
-              lineHeight: 1.45,
-            }}
-          >
-            {v.cuerpo ?? ""}
-          </span>
+            <span
+              style={{
+                fontFamily: TIPO.display,
+                fontWeight: 700,
+                fontSize: aj.ut(48),
+                color: PALETA.dorado,
+              }}
+            >
+              {v.numero ?? ""}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: u(16, w), flex: 1 }}>
+            <span
+              style={{
+                fontFamily: TIPO.display,
+                fontWeight: 700,
+                fontSize: aj.ut(ESCALA.subtitulo),
+                color: foto ? PALETA.blanco : PALETA.bosque,
+                lineHeight: 1.1,
+              }}
+            >
+              {v.titular ?? ""}
+            </span>
+            <span
+              style={{
+                fontFamily: TIPO.cuerpo,
+                fontSize: aj.ut(ESCALA.cuerpo),
+                color: foto ? BLANCO.alto : PALETA.tinta,
+                lineHeight: 1.45,
+              }}
+            >
+              {v.cuerpo ?? ""}
+            </span>
+          </div>
         </div>
+
+        <Pie w={w} sobreOscuro={!!foto} />
       </div>
-
-      <Pie w={w} sobreOscuro={false} />
     </div>
   );
 }
