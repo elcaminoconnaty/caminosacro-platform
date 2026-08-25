@@ -5,6 +5,7 @@ import { useTransition, useState } from "react";
 import { Copy, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
+import { miniatura } from "@/lib/contenido/miniatura";
 import { FORMATOS } from "@/lib/contenido/formatos";
 import { duplicarPieza, borrarPieza } from "./actions";
 
@@ -68,8 +69,9 @@ export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={
-                      p.miniatura ??
-                      `/api/contenido/piezas/${p.id}/0?v=${encodeURIComponent(p.actualizado)}&escala=0.2`
+                      p.miniatura
+                        ? miniatura(p.miniatura, 320)
+                        : `/api/contenido/piezas/${p.id}/0?v=${encodeURIComponent(p.actualizado)}&escala=0.2`
                     }
                     alt={p.titulo}
                     className="w-full h-full object-contain"

@@ -5,6 +5,7 @@ import { Upload, FolderOpen, ImageOff, Check, X, Images, Search, Loader2 } from 
 import { createPublicClient } from "@/lib/supabase/client";
 import { rutaFotoContenido, sinBucket } from "@/lib/storage/paths";
 import { cn } from "@/lib/cn";
+import { miniatura } from "@/lib/contenido/miniatura";
 import type { FiltroEstado, FotoBuscada, FotoDelBanco, FotoSubida, RutaDeFotos } from "@/lib/contenido/fotos";
 import type { FotoSlide } from "@/lib/contenido/tipos";
 import { buscarFotosAccion, registrarSubida, rutasDeFotos } from "./fotoActions";
@@ -310,7 +311,7 @@ export default function SelectorFoto({
         <div className="w-16 h-16 shrink-0 rounded-md overflow-hidden border border-border bg-taupe/30 flex items-center justify-center">
           {seleccionada ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={seleccionada.url} alt="" className="w-full h-full object-cover" />
+            <img src={miniatura(seleccionada.url, 160)} alt="" className="w-full h-full object-cover" />
           ) : (
             <ImageOff size={18} className="text-muted" />
           )}
@@ -527,7 +528,7 @@ export default function SelectorFoto({
                         title={"ruta_tag" in f && typeof f.ruta_tag === "string" ? f.ruta_tag : undefined}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={f.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                        <img src={miniatura(f.url, 240)} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                         {esActual(f.url) && (
                           <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-bosque text-white flex items-center justify-center">
                             <Check size={12} />
