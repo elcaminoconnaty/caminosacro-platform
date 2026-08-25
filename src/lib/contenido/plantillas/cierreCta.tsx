@@ -6,6 +6,7 @@
 // perdiera esa regla pieza a pieza.
 
 import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u } from "../marca";
+import { resolverAjustes } from "../ajustes";
 import type { Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Concha, Pie, Eyebrow, Filete } from "./_lockups";
@@ -17,7 +18,7 @@ export const definicion: DefinicionPlantilla = {
   nombre: "Cierre con CTA",
   descripcion: "El último slide. Concha grande, titular y la invitación a escribirle a Clara.",
   formatos: ["4x5", "1x1", "1.91x1", "9x16", "reel"],
-  usaFoto: false,
+  usaFoto: true,
   rol: "cierre",
   campos: [
     {
@@ -44,73 +45,113 @@ export function CierreCta({ f, slide }: { f: Formato; slide: Slide }) {
   const m = u(MEDIDAS.margen, w);
   const v = slide.valores;
   const compacto = f.h < 700;
+  const aj = resolverAjustes(f, slide.ajustes);
+  const foto = slide.foto?.url ?? null;
+  // El titular y el motivo van directo sobre la foto (sin bloque sólido detrás): con el
+  // degradado de marca por defecto el tercio de arriba queda casi sin tapar y compite con
+  // el titular. Mientras Nico no toque la perilla del velo, se usa un velo plano fuerte.
+  const veloPropio = slide.ajustes?.velo != null;
 
   const zs = f.zonaSegura;
   const padTop = zs ? Math.max(m, zs.arriba) : m;
   const padBottom = zs ? Math.max(m, zs.abajo) : m;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        width: f.w,
-        height: f.h,
-        backgroundColor: PALETA.bosque,
-        paddingLeft: m,
-        paddingRight: m,
-        paddingTop: padTop,
-        paddingBottom: padBottom,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Eyebrow w={w}>Siguiente paso</Eyebrow>
-        <Concha size={u(compacto ? 54 : 86, w)} color={PALETA.dorado} colorSurcos={PALETA.bosque} />
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: u(22, w) }}>
-        <span
+    <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.bosque }}>
+      {/* El cierre ya vive sobre bosque sólido: con foto, la misma franja se vuelve una
+          foto a sangre con velo verde. El texto ya es claro y no cambia. */}
+      {foto ? (
+        <img
+          src={foto}
+          width={f.w}
+          height={f.h}
           style={{
-            fontFamily: TIPO.display,
-            fontWeight: 700,
-            fontSize: u(compacto ? ESCALA.subtitulo : ESCALA.titular, w),
-            color: PALETA.blanco,
-            lineHeight: 1.06,
-            whiteSpace: "pre-wrap",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            objectFit: "cover",
+            objectPosition: aj.posicionFoto,
+            ...(aj.zoomFoto ? { transform: aj.zoomFoto } : {}),
           }}
-        >
-          {v.titular ?? ""}
-        </span>
-        <Filete w={w} ancho={200} color={PALETA.dorado} />
-        {v.motivo ? (
-          <span
-            style={{
-              fontFamily: TIPO.cuerpo,
-              fontSize: u(compacto ? ESCALA.cuerpoS : ESCALA.cuerpoXL, w),
-              color: BLANCO.alto,
-              lineHeight: 1.35,
-            }}
-          >
-            {v.motivo}
-          </span>
-        ) : null}
-      </div>
+        />
+      ) : null}
+      {foto ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
+          }}
+        />
+      ) : null}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: u(16, w) }}>
-        <div style={{ display: "flex", alignItems: "center", gap: u(12, w) }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          position: "relative",
+          width: f.w,
+          height: f.h,
+          paddingLeft: m,
+          paddingRight: m,
+          paddingTop: padTop,
+          paddingBottom: padBottom,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Eyebrow w={w}>Siguiente paso</Eyebrow>
+          <Concha size={u(compacto ? 54 : 86, w)} color={PALETA.dorado} colorSurcos={PALETA.bosque} />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: u(22, w) }}>
           <span
             style={{
-              fontFamily: TIPO.cuerpo,
+              fontFamily: TIPO.display,
               fontWeight: 700,
-              fontSize: u(compacto ? ESCALA.cuerpoS : ESCALA.cuerpo, w),
-              color: PALETA.dorado,
+              fontSize: aj.ut(compacto ? ESCALA.subtitulo : ESCALA.titular),
+              color: PALETA.blanco,
+              lineHeight: 1.06,
+              whiteSpace: "pre-wrap",
             }}
           >
-            {`Escríbele a Clara · WhatsApp ${WHATSAPP_CLARA}`}
+            {v.titular ?? ""}
           </span>
+          <Filete w={w} ancho={200} color={PALETA.dorado} />
+          {v.motivo ? (
+            <span
+              style={{
+                fontFamily: TIPO.cuerpo,
+                fontSize: aj.ut(compacto ? ESCALA.cuerpoS : ESCALA.cuerpoXL),
+                color: BLANCO.alto,
+                lineHeight: 1.35,
+              }}
+            >
+              {v.motivo}
+            </span>
+          ) : null}
         </div>
-        <Pie w={w} />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: u(16, w) }}>
+          <div style={{ display: "flex", alignItems: "center", gap: u(12, w) }}>
+            <span
+              style={{
+                fontFamily: TIPO.cuerpo,
+                fontWeight: 700,
+                fontSize: aj.ut(compacto ? ESCALA.cuerpoS : ESCALA.cuerpo),
+                color: PALETA.dorado,
+              }}
+            >
+              {`Escríbele a Clara · WhatsApp ${WHATSAPP_CLARA}`}
+            </span>
+          </div>
+          <Pie w={w} />
+        </div>
       </div>
     </div>
   );
