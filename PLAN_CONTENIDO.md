@@ -532,7 +532,7 @@ son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
       **Archivos:** `marca.ts` (`ESCALA`), `plantillas/*`.
       **Terminado:** el smoke redibuja las 34 y se ven a ojo, sin texto cortado.
 
-- [ ] **T3 — Poder ajustar el diseño** *(lo que pidió como "diseñar")*
+- [x] **T3 — Poder ajustar el diseño** *(lo que pidió como "diseñar")*
       **Alcance decidido: controles acotados, NO un lienzo libre.** Ver la nota de abajo.
       Cada slide gana un bloque `ajustes`:
       - `escalaTexto` (0.8 – 1.4): agranda o achica todo el texto del slide.
@@ -544,7 +544,7 @@ son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
       **Terminado:** en una historia 9:16 se puede bajar la franja verde hasta ver la foto
       casi entera, y el texto sigue dentro de la zona segura.
 
-- [ ] **T4 — Fotos en todas las plantillas**
+- [x] **T4 — Fotos en todas las plantillas**
       Hoy solo `portada-ruta` y `testimonio` aceptan foto. Que la acepten también
       `tip-numerado`, `dato-grande`, `mito-realidad`, `cierre-cta` y las de gráfico, con la
       foto de fondo y el velo regulable de T3.
@@ -566,7 +566,7 @@ son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
       **Archivos:** `SelectorFoto.tsx`, `fotos.ts`.
       **Terminado:** se encuentra una foto concreta entre las 177 sin desesperarse.
 
-- [ ] **T7 — Historias que respiren**
+- [x] **T7 — Historias que respiren**
       En 9:16 la franja verde se come casi toda la imagen. Lo resuelve T3 (bajar la franja),
       pero además hay que **cambiar el valor por defecto por formato**: un tercio del alto
       está bien en 4:5 y es demasiado en 9:16.
@@ -762,3 +762,32 @@ pura interfaz, solo tocando `SelectorFoto.tsx`.
   banco: que el `IntersectionObserver` dispare bien dentro de un contenedor con scroll
   propio (no la ventana), y que los chips de ruta no se desborden feo con muchos tags.
 - La chapita de `fuente_dato` en cada idea la dejó el agente de T8.
+
+### T3, T4 y T7 — 2026-08-25 · TERMINADAS (rescatando un agente caído)
+
+Las 8 plantillas aceptan foto de fondo y respetan las cuatro perillas. **La fase 3 queda
+completa: las ocho tareas hechas.**
+
+**Cómo se repartió:** un agente hizo `tip-numerado`, `dato-grande`, `mito-realidad` y
+`cierre-cta` (un commit cada una) y murió por el límite con `testimonio` a medio commitear.
+Se rescató ese archivo —estaba completo y compilando— y se terminaron a mano `etapas-ruta`
+y `comparativa-precio`.
+
+**El hallazgo que obligó a rehacer dos plantillas.** Con foto, el cuerpo de texto se perdía
+sobre las zonas claras de la imagen. El velo por defecto estaba calibrado para
+`portada-ruta`, donde el texto va sobre el bloque verde sólido; en las plantillas de CUERPO
+el texto va directo sobre la foto y necesita mucha más tapa. Regla que quedó:
+
+> Con foto y sin velo elegido por el usuario, las plantillas de cuerpo usan un velo **plano
+> fuerte** (`rgba(26,58,42,0.72)`, y `0.78` en `etapas-ruta`, donde las barras son lo más
+> frágil), no el degradado de marca. Si el usuario mueve la perilla, manda su valor.
+
+Esto **no lo caza `tsc` ni el smoke**: solo se ve abriendo el PNG. Es la razón por la que
+cada plantilla se revisó a ojo antes de commitear.
+
+**Detalle de implementación:** `comparativa-precio` dibuja las tarjetas en un
+sub-componente que no ve los ajustes del slide, así que hay que pasarle `ut` como prop.
+Cualquier plantilla que se parta en sub-componentes tendrá el mismo problema.
+
+**Sin verificar:** nadie ha abierto el editor en un navegador para mover las perillas de
+verdad. El render está comprobado pieza por pieza; la interacción no.

@@ -7,13 +7,14 @@ import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u } from "../marca";
 import type { Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Cabecera, Pie, Eyebrow } from "./_lockups";
+import { resolverAjustes } from "../ajustes";
 
 export const definicion: DefinicionPlantilla = {
   id: "comparativa-precio",
   nombre: "Comparativa de precio",
   descripcion: "Dos precios enfrentados, con la maqueta de las cajas del PDF de cotización.",
   formatos: ["4x5", "1x1", "9x16"],
-  usaFoto: false,
+  usaFoto: true,
   rol: "cuerpo",
   campos: [
     { id: "ruta", etiqueta: "Ruta del catálogo", tipo: "ruta", ayuda: "Trae el nombre y el precio desde. Los dos importes se ajustan a mano." },
@@ -28,11 +29,14 @@ export const definicion: DefinicionPlantilla = {
 
 function Tarjeta({
   w,
+  ut,
   etiqueta,
   precio,
   invertida,
 }: {
   w: number;
+  /** La escala de texto del slide: el sub-componente no ve los ajustes, se le pasan. */
+  ut: (n: number) => number;
   etiqueta: string;
   precio: string;
   invertida?: boolean;
@@ -55,7 +59,7 @@ function Tarjeta({
       <span
         style={{
           fontFamily: TIPO.cuerpo,
-          fontSize: u(23, w),
+          fontSize: ut(23),
           color: invertida ? PALETA.dorado : PALETA.muted,
           textTransform: "uppercase",
           letterSpacing: "0.1em",
@@ -68,7 +72,7 @@ function Tarjeta({
           style={{
             fontFamily: TIPO.display,
             fontWeight: 700,
-            fontSize: u(76, w),
+            fontSize: ut(76),
             color: invertida ? PALETA.blanco : PALETA.bosque,
             lineHeight: 1,
           }}
@@ -79,7 +83,7 @@ function Tarjeta({
           style={{
             fontFamily: TIPO.display,
             fontWeight: 700,
-            fontSize: u(38, w),
+            fontSize: ut(38),
             color: PALETA.dorado,
           }}
         >
@@ -95,24 +99,60 @@ export function ComparativaPrecio({ f, slide }: { f: Formato; slide: Slide }) {
   const m = u(MEDIDAS.margen, w);
   const v = slide.valores;
   const zs = f.zonaSegura;
+  const aj = resolverAjustes(f, slide.ajustes);
+  const foto = slide.foto?.url ?? null;
+  const veloPropio = slide.ajustes?.velo != null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        width: f.w,
-        height: f.h,
-        backgroundColor: PALETA.blanco,
-        paddingLeft: m,
-        paddingRight: m,
-        paddingTop: zs ? Math.max(m, zs.arriba) : m,
-        paddingBottom: zs ? Math.max(m, zs.abajo) : m,
-      }}
-    >
+    <div style={{ display: "flex", position: "relative", width: f.w, height: f.h, backgroundColor: PALETA.blanco }}>
+      {foto ? (
+        <img
+          src={foto}
+          width={f.w}
+          height={f.h}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            objectFit: "cover",
+            objectPosition: aj.posicionFoto,
+            ...(aj.zoomFoto ? { transform: aj.zoomFoto } : {}),
+          }}
+        />
+      ) : null}
+      {foto ? (
+        // Las dos tarjetas de precio ya tapan la foto donde va el número; el velo se ve en
+        // la cabecera, el titular y el pie, que sí van directos sobre la imagen.
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
+          }}
+        />
+      ) : null}
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          position: "relative",
+          width: f.w,
+          height: f.h,
+          paddingLeft: m,
+          paddingRight: m,
+          paddingTop: zs ? Math.max(m, zs.arriba) : m,
+          paddingBottom: zs ? Math.max(m, zs.abajo) : m,
+        }}
+      >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Cabecera w={w} sobreOscuro={false} />
+        <Cabecera w={w} sobreOscuro={!!foto} />
         {v.ruta_nombre ? <Eyebrow w={w} color={PALETA.doradoOscuro}>{v.ruta_nombre}</Eyebrow> : <span />}
       </div>
 
@@ -121,23 +161,24 @@ export function ComparativaPrecio({ f, slide }: { f: Formato; slide: Slide }) {
           style={{
             fontFamily: TIPO.display,
             fontWeight: 700,
-            fontSize: u(ESCALA.subtitulo, w),
-            color: PALETA.bosque,
+            fontSize: aj.ut(ESCALA.subtitulo),
+            color: foto ? PALETA.blanco : PALETA.bosque,
             lineHeight: 1.1,
           }}
         >
           {v.titular ?? ""}
         </span>
         <div style={{ display: "flex", gap: u(18, w), width: "100%" }}>
-          <Tarjeta w={w} etiqueta={v.etiqueta_a ?? ""} precio={v.precio_a ?? ""} />
-          <Tarjeta w={w} etiqueta={v.etiqueta_b ?? ""} precio={v.precio_b ?? ""} invertida />
+          <Tarjeta w={w} ut={aj.ut} etiqueta={v.etiqueta_a ?? ""} precio={v.precio_a ?? ""} />
+          <Tarjeta w={w} ut={aj.ut} etiqueta={v.etiqueta_b ?? ""} precio={v.precio_b ?? ""} invertida />
         </div>
         {v.nota ? (
-          <span style={{ fontFamily: TIPO.cuerpo, fontSize: u(25, w), color: PALETA.muted }}>{v.nota}</span>
+          <span style={{ fontFamily: TIPO.cuerpo, fontSize: aj.ut(25), color: foto ? "rgba(255,255,255,0.7)" : PALETA.muted }}>{v.nota}</span>
         ) : null}
       </div>
 
-      <Pie w={w} sobreOscuro={false} />
+        <Pie w={w} sobreOscuro={!!foto} />
+      </div>
     </div>
   );
 }
