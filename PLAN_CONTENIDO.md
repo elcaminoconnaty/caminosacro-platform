@@ -791,3 +791,42 @@ Cualquier plantilla que se parta en sub-componentes tendrá el mismo problema.
 
 **Sin verificar:** nadie ha abierto el editor en un navegador para mover las perillas de
 verdad. El render está comprobado pieza por pieza; la interacción no.
+
+### Ajustes del 2026-08-25 · velocidad del selector y garantía de 4-6 slides
+
+**1. El selector de fotos seguía lento: cargaba 15 MB para mostrar miniaturas.**
+Pedía cada foto **a tamaño completo** (320 KB) para pintarla en un cuadrito. Con 48 en
+pantalla, ~15 MB por abrir el modal.
+Ahora pasan por el **optimizador de imágenes de Next**, que redimensiona con `sharp` —ya
+estaba instalado, lo trae Next— y devuelve WebP. **Medido: 319.957 → 9.485 bytes (34×
+menos)**, y 9 ms cuando ya está cacheada. Hizo falta declarar el host de Supabase en
+`images.remotePatterns` de `next.config.ts`; sin eso el optimizador rechaza las URLs
+remotas.
+El helper es `src/lib/contenido/miniatura.ts`. Construye la URL de `/_next/image` a mano en
+vez de usar el componente `next/image` a propósito: el componente exige `fill` o medidas y
+cambiaría la maqueta de las rejillas que ya funcionan.
+*Recordatorio: las transformaciones de Supabase (`/render/image/`) dan **403**, son de plan
+pago. No volver a intentarlo.*
+
+**2. Las ideas garantizan entre 4 y 6 slides, siempre.**
+Nico: *"mínimo 4 slides, máximo 6, nunca menos de 4, y que entregue bien la idea"*.
+
+El cambio de fondo no es el número, es **dónde se impone la regla**. Antes el esquema zod
+exigía `.min(3)` y `validarSlides()` devolvía vacío si la validación tumbaba slides: o sea
+que una desviación pequeña del modelo tiraba **toda** la respuesta, o abría una pieza de
+relleno. Eso es lo que hacía sentir que la idea "no venía bien entregada".
+
+Ahora:
+- **El esquema es tolerante al recibir** (`slides` 1-8, `ideas` 1-8): nunca se pierde una
+  respuesta entera por un slide de más o de menos.
+- **`completarSlides()` garantiza al entregar**: siempre 4-6, siempre portada primero y
+  `cierre-cta` último, y si faltan intermedios los completa rotando plantillas de cuerpo.
+  Descarta plantillas inventadas y campos vacíos o que la plantilla no declara.
+- El prompt además lo pide explícito y exige que **cada slide intermedio diga algo
+  distinto y concreto**, sin textos de ejemplo ni marcadores.
+
+**Probado con cinco casos límite** (2 slides, plantillas inventadas, 8 slides, sin portada
+ni cierre, campos vacíos): los cinco salen con 4-6 slides y estructura correcta.
+
+*Nota para quien pruebe módulos `server-only` desde un script: hay que crear un stub de
+`server-only` en `node_modules`. Se usó y se borró; no queda en el repo.*
