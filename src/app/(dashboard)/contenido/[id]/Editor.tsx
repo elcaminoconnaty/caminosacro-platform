@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { FORMATOS_LISTA, type FormatoId } from "@/lib/contenido/formatos";
-import { hashSlide } from "@/lib/contenido/hashSlide";
 import type { DefinicionPlantilla, Slide, FotoSlide } from "@/lib/contenido/tipos";
 import type { FotoDelBanco, FotoSubida } from "@/lib/contenido/fotos";
 import type { RutaLista } from "@/lib/contenido/datos";
@@ -29,7 +28,8 @@ export type EditorProps = {
   rutas: RutaLista[];
 };
 
-const DEBOUNCE_MS = 600;
+// El guardado ya no está en el camino del preview, así que puede esperar tranquilo.
+const DEBOUNCE_MS = 800;
 
 export default function Editor({
   piezaId,
@@ -49,10 +49,10 @@ export default function Editor({
   const [aviso, setAviso] = useState<string | null>(null);
   const [guardando, iniciarGuardado] = useTransition();
 
-  // `version` es la huella de lo GUARDADO, no de lo que se está escribiendo: el preview
-  // pinta lo que hay en la base, y por eso solo se refresca cuando el guardado termina.
-  const [version, setVersion] = useState(() => hashSlide(slidesIniciales[0] ?? null, formatoInicial));
-
+  // El preview ya NO depende del guardado: `Lienzo` dibuja el slide tal como está en
+  // pantalla, contra un endpoint que no toca la base. El guardado sigue ocurriendo, pero
+  // por su cuenta y sin que nadie lo espere — antes ese ida y vuelta era lo que hacía que
+  // cada tecla costara uno o dos segundos.
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendiente = useRef<Slide[] | null>(null);
 
@@ -61,7 +61,7 @@ export default function Editor({
   const defActiva = slideActivo ? porId.get(slideActivo.plantilla) ?? null : null;
 
   const guardar = useCallback(
-    (nuevos: Slide[], indiceParaPreview: number) => {
+    (nuevos: Slide[]) => {
       iniciarGuardado(async () => {
         const r = await guardarSlides(piezaId, nuevos);
         if ("error" in r && r.error) {
@@ -69,21 +69,20 @@ export default function Editor({
           return;
         }
         setAviso(null);
-        setVersion(hashSlide(nuevos[indiceParaPreview] ?? null, formato));
       });
     },
-    [piezaId, formato],
+    [piezaId],
   );
 
   /** Programa el guardado. Si el usuario sigue escribiendo, se reinicia la cuenta. */
   const programarGuardado = useCallback(
-    (nuevos: Slide[], indice: number) => {
+    (nuevos: Slide[]) => {
       pendiente.current = nuevos;
       if (temporizador.current) clearTimeout(temporizador.current);
       temporizador.current = setTimeout(() => {
         const aGuardar = pendiente.current;
         pendiente.current = null;
-        if (aGuardar) guardar(aGuardar, indice);
+        if (aGuardar) guardar(aGuardar);
       }, DEBOUNCE_MS);
     },
     [guardar],
@@ -101,11 +100,12 @@ export default function Editor({
 
   // Al cambiar de slide se guarda ya lo que estuviera pendiente, para no perderlo.
   const seleccionar = (i: number) => {
+    // Se fuerza el guardado pendiente para no perderlo al cambiar de slide. El preview no
+    // espera a nada: cambia solo al cambiar `activo`.
     if (temporizador.current) clearTimeout(temporizador.current);
     const aGuardar = pendiente.current;
     pendiente.current = null;
-    if (aGuardar) guardar(aGuardar, i);
-    else setVersion(hashSlide(slides[i] ?? null, formato));
+    if (aGuardar) guardar(aGuardar);
     setActivo(i);
   };
 
@@ -124,7 +124,6 @@ export default function Editor({
       setSlides(nuevos);
       const guardado = await guardarSlides(piezaId, nuevos);
       if ("error" in guardado && guardado.error) setAviso(guardado.error);
-      else setVersion(hashSlide(nuevos[activo] ?? null, formato));
     });
   };
 
@@ -139,7 +138,7 @@ export default function Editor({
       i === activo ? { ...s, valores: { ...s.valores, [campoId]: valor } } : s,
     );
     setSlides(nuevos);
-    programarGuardado(nuevos, activo);
+    programarGuardado(nuevos);
   };
 
   const aplicarYGuardar = (nuevos: Slide[], indice: number) => {
@@ -147,7 +146,7 @@ export default function Editor({
     pendiente.current = null;
     setSlides(nuevos);
     setActivo(indice);
-    guardar(nuevos, indice);
+    guardar(nuevos);
   };
 
   const agregar = (plantillaId: string) => {
@@ -182,7 +181,6 @@ export default function Editor({
 
   const cambiarElFormato = (nuevo: FormatoId) => {
     setFormato(nuevo);
-    setVersion(hashSlide(slides[activo] ?? null, nuevo));
     iniciarGuardado(async () => {
       const r = await cambiarFormato(piezaId, nuevo);
       if ("error" in r && r.error) setAviso(r.error);
@@ -243,11 +241,9 @@ export default function Editor({
 
         <div className="flex flex-col items-center gap-3">
           <Lienzo
-            piezaId={piezaId}
             formato={formato}
+            slide={slideActivo}
             indice={activo}
-            version={version}
-            guardando={guardando}
             mostrarGuias={mostrarGuias}
           />
           {FORMATOS_LISTA.find((f) => f.id === formato)?.zonaSegura && (

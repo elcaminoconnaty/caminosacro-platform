@@ -512,7 +512,7 @@ son de plan pago. Esa vía está cerrada, hay que resolverlo en el servidor.
 
 ## Las ocho tareas
 
-- [ ] **T1 — Rendimiento del preview** *(la que más se nota)*
+- [x] **T1 — Rendimiento del preview** *(la que más se nota)*
       **Objetivo:** que escribir y ver el cambio sea instantáneo.
       1. **Sacar el guardado del camino del preview.** Endpoint `POST /api/contenido/render`
          que recibe el slide tal como está en pantalla y devuelve el PNG. Sin base de datos,
@@ -594,3 +594,70 @@ se puede "romper" ni salirse de la marca.
 
 Si después de usar T3 se echa de menos mover cosas píxel a píxel, eso sí es una fase 4 y
 conviene decidirlo con el módulo ya rodado.
+
+### T1 — 2026-08-24 · HECHA. Y el estado de las demás tras un corte de límite
+
+**Resultado medido del preview** (portada 4:5 con foto del banco):
+
+| | Antes | Ahora |
+|---|---|---|
+| Render | 823 ms (1ª) · 582 ms | **2281 ms la 1ª · 223-231 ms el resto** |
+| Peso | 588 KB (a 0.5) | **312 KB** (a 0.35) |
+| ¿Espera al guardado? | **Sí**, ida y vuelta a Supabase | **No** |
+| Percibido por tecla | 1,5 – 2 s | **~0,5 s** (250 ms de espera + 230 de dibujo) |
+
+La primera vez sigue costando 2,3 s porque baja la foto; a partir de ahí está en caché.
+
+**Los cuatro cambios:**
+1. **`POST /api/contenido/render`** dibuja el slide que viene en el cuerpo, sin tocar la
+   base. El preview dejó de pasar por "guardar y luego leer". El endpoint por id sigue
+   existiendo y sigue mandando para exportar y para las miniaturas: ahí sí queremos lo
+   guardado de verdad.
+2. **`fotoCache.ts`**: Satori vuelve a descargar la foto en CADA render y no cachea nada.
+   Ahora se baja una vez y se le pasa como data URI. Es el ahorro grande (250-320 ms).
+   *La vía obvia estaba cerrada:* las transformaciones de imagen de Supabase
+   (`/render/image/`) devuelven **403**, son de plan pago. Comprobado.
+3. **Preview a 0.35 y espera de 250 ms** (antes 0.5 y 600 ms). Además el dibujo anterior se
+   queda visible mientras redibuja —un punto dorado avisa— en vez de parpadear en blanco,
+   y las peticiones que quedan viejas se cancelan con `AbortController`.
+4. **Miniaturas de la bandeja desde el JPG exportado.** Antes, abrir la lista con diez
+   piezas disparaba diez renders completos en el servidor. Ahora sale de Storage; sin
+   exportar todavía, cae al render pero a escala 0.2.
+
+**Detalle que costó una vuelta:** `fotoCache.ts` llevaba `import "server-only"`, y eso rompe
+`contenido_smoke.tsx` y `contenido_verifica_pieza.tsx`, que importan `render.tsx` desde Node
+pelado. Se quitó: ahí no aporta —solo hay `fetch` y `Buffer`— y sí rompe la verificación.
+
+---
+
+## ⚠️ ESTADO REAL TRAS EL CORTE DE LÍMITE (leer antes de seguir)
+
+Los dos subagentes lanzados en paralelo **murieron a mitad** por el tope de gasto. Su
+trabajo NO se perdió: se rescató, se dejó compilando y va commiteado. Pero está **a medias**.
+
+**T6 (buscador de fotos) — BACKEND HECHO, INTERFAZ PENDIENTE.**
+`src/lib/contenido/fotos.ts` ya tiene `buscarFotos()` con paginación y filtros,
+`listarRutasDeFotos()` para los chips, `TANDA_FOTOS`, y los tipos `FotoBuscada`,
+`ConsultaFotos`, `PaginaFotos`, `FiltroEstado`. `fotoActions.ts` ya expone
+`buscarFotosAccion()` y `rutasDeFotos()`.
+**Falta:** reescribir `SelectorFoto.tsx` para que use todo eso (modal grande, buscador,
+chips, scroll infinito). Hoy sigue con la rejilla apretada de 3 columnas y **no llama a las
+funciones nuevas**. Quien retome: la parte difícil ya está, es puro trabajo de interfaz.
+
+**T8 (carrusel entero) — SOLO LA MIGRACIÓN.**
+`0027_contenido_ideas_slides.sql` está escrita **y aplicada**: `contenido_ideas` ya tiene
+las columnas `slides` (jsonb) y `fuente_dato` (con su check).
+**Falta todo lo demás:** el esquema de respuesta en `ideas.ts` no pide slides, el prompt no
+le pasa a Claude el catálogo de plantillas con sus campos, y `aceptarIdea()` sigue armando
+tres slides de relleno. Las columnas están ahí sin que nada las use todavía.
+
+**T2, T3, T4, T5, T7 — SIN EMPEZAR.**
+
+**Orden recomendado para retomar** (de más a menos valor por esfuerzo):
+1. **T8** — es lo que convierte "una idea" en "un post en minutos". La base ya está lista.
+2. **T2** (letra más grande) — media hora, se nota en cada pieza.
+3. **T3 + T7 + T4** — van juntas: los `ajustes` por slide resuelven de un golpe el
+   "quiero diseñar", la franja verde que ahoga las historias, y las fotos en todas las
+   plantillas.
+4. **T6 interfaz** — el backend ya espera.
+5. **T5** — la que menos urge: mejora sola a medida que entren métricas.

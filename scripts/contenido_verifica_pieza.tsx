@@ -34,14 +34,14 @@ async function main() {
   if (errSlides) throw new Error("slides no validan: " + errSlides);
 
   for (let i = 0; i < slides.length; i++) {
-    const res = renderSlide(formato, slides[i], {});
+    const res = await renderSlide(formato, slides[i], {});
     const bytes = Buffer.from(await res.arrayBuffer());
     const f = `/tmp/pieza-slide-${i}.png`;
     writeFileSync(f, bytes);
     console.log(`  slide ${i} (${slides[i].plantilla}) → ${f}  ${Math.round(bytes.length / 1024)} KB`);
   }
   // Y el caso de índice fuera de rango, que el endpoint debe resolver con pieza de error.
-  const fuera = renderSlide(formato, null, {});
+  const fuera = await renderSlide(formato, null, {});
   writeFileSync("/tmp/pieza-slide-fuera.png", Buffer.from(await fuera.arrayBuffer()));
   console.log("  slide fuera de rango → /tmp/pieza-slide-fuera.png (pieza de error)");
 }

@@ -192,7 +192,7 @@ export default function SelectorFoto({
                   esActual(f.url) ? "border-bosque" : "border-transparent hover:border-taupe",
                 )}
                 style={{ aspectRatio: "1 / 1" }}
-                title={"ruta_tag" in f && f.ruta_tag ? f.ruta_tag : undefined}
+                title={"ruta_tag" in f && typeof f.ruta_tag === "string" ? f.ruta_tag : undefined}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={f.url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -201,7 +201,7 @@ export default function SelectorFoto({
                     <Check size={10} />
                   </span>
                 )}
-                {"usada" in f && f.usada && (
+                {"usada" in f && f.usada === true && (
                   <span className="absolute bottom-0 inset-x-0 bg-tinta/60 text-white text-[9px] py-0.5">
                     ya publicada
                   </span>

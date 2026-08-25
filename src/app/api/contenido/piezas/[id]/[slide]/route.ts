@@ -51,7 +51,7 @@ export async function GET(
   // sin tocar nada más. Lo guardado en el slide queda solo de respaldo.
   const [elSlide] = guardado ? await refrescarDesdeCatalogo([guardado]) : [null];
 
-  const respuesta = renderSlide(formato, elSlide, { escala });
+  const respuesta = await renderSlide(formato, elSlide, { escala });
 
   // `immutable` + el ?v=<hash> de la URL: navegar entre slides ya vistos no cuesta un
   // solo byte, y basta con que cambie el hash para que el navegador pida el nuevo.

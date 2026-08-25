@@ -2,7 +2,13 @@
 
 import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
-import { listarSubidas, type FotoSubida } from "@/lib/contenido/fotos";
+import {
+  buscarFotos,
+  listarRutasDeFotos,
+  listarSubidas,
+  type ConsultaFotos,
+  type FotoSubida,
+} from "@/lib/contenido/fotos";
 
 /**
  * Registra en la base una foto que el navegador ya subió a Storage.
@@ -47,5 +53,29 @@ export async function refrescarSubidas() {
     return { ok: true as const, fotos: await listarSubidas() };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "No se pudieron leer las fotos subidas." };
+  }
+}
+
+/**
+ * Una tanda del buscador de fotos. El navegador la llama al abrir el selector, al
+ * escribir y al llegar al final de la rejilla; nunca se traen las 177 de golpe.
+ */
+export async function buscarFotosAccion(consulta: ConsultaFotos) {
+  try {
+    const pagina = await buscarFotos(consulta);
+    return { ok: true as const, ...pagina };
+  } catch (e) {
+    // Acá llega un `unknown` de un catch, no un error de Supabase: mensajeError espera
+    // lo segundo, así que se traduce a mano.
+    return { error: e instanceof Error ? e.message : "No se pudieron buscar las fotos." };
+  }
+}
+
+/** Los chips de ruta: salen de los `ruta_tag` reales de cada fuente, sin lista fija. */
+export async function rutasDeFotos(fuente: "banco" | "subida") {
+  try {
+    return { ok: true as const, rutas: await listarRutasDeFotos(fuente) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudieron leer las rutas." };
   }
 }

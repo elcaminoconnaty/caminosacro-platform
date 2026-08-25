@@ -15,6 +15,8 @@ export type FilaPieza = {
   estado: string;
   n_slides: number;
   actualizado: string;
+  /** URL pública del primer JPG exportado, si la pieza ya se exportó alguna vez. */
+  miniatura: string | null;
 };
 
 const COLOR_ESTADO: Record<string, string> = {
@@ -55,9 +57,20 @@ export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
                   className="bg-crema border-b border-border"
                   style={{ aspectRatio: f ? `${f.w} / ${f.h}` : "4 / 5", maxHeight: 240 }}
                 >
+                  {/*
+                    La miniatura sale del JPG ya exportado cuando existe: un archivo
+                    estático que Storage sirve directo. Antes cada tarjeta de esta lista
+                    disparaba un render completo en el servidor, así que abrir la bandeja
+                    con diez piezas eran diez renders — de ahí buena parte de la lentitud.
+                    Sin exportar todavía, se cae al render pero a escala 0.2, que basta
+                    para una tarjeta.
+                  */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={`/api/contenido/piezas/${p.id}/0?v=${encodeURIComponent(p.actualizado)}&escala=0.35`}
+                    src={
+                      p.miniatura ??
+                      `/api/contenido/piezas/${p.id}/0?v=${encodeURIComponent(p.actualizado)}&escala=0.2`
+                    }
                     alt={p.titulo}
                     className="w-full h-full object-contain"
                     loading="lazy"

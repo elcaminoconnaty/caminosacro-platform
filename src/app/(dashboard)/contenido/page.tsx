@@ -16,7 +16,7 @@ export default async function ContenidoPage() {
   const [{ data, error }, { data: ideasData }, worker] = await Promise.all([
     supabase
       .from("contenido_piezas")
-      .select("id,titulo,formato,estado,slides,updated_at")
+      .select("id,titulo,formato,estado,slides,updated_at,export_paths")
       .neq("estado", "archivado")
       .order("updated_at", { ascending: false })
       .limit(60),
@@ -29,14 +29,22 @@ export default async function ContenidoPage() {
     estadoDelWorker(),
   ]);
 
-  const filas: FilaPieza[] = (data ?? []).map((p) => ({
-    id: p.id,
-    titulo: p.titulo,
-    formato: p.formato,
-    estado: p.estado,
-    n_slides: leerSlides(p.slides).slides.length,
-    actualizado: p.updated_at,
-  }));
+  // El bucket `contenido-piezas` es público, así que la miniatura es una URL directa: no
+  // hay que firmar nada ni pasar por el servidor.
+  const base = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/`;
+
+  const filas: FilaPieza[] = (data ?? []).map((p) => {
+    const rutas = Array.isArray(p.export_paths) ? (p.export_paths as string[]) : [];
+    return {
+      id: p.id,
+      titulo: p.titulo,
+      formato: p.formato,
+      estado: p.estado,
+      n_slides: leerSlides(p.slides).slides.length,
+      actualizado: p.updated_at,
+      miniatura: rutas[0] ? `${base}${rutas[0]}` : null,
+    };
+  });
 
   return (
     <div className="flex flex-col gap-6">

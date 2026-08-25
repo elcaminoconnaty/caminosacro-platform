@@ -11,6 +11,7 @@ import { FORMATOS, type Formato, type FormatoId } from "./formatos";
 import type { Slide } from "./tipos";
 import { plantilla } from "./plantillas/registry";
 import { fuentesDeMarca } from "./fuentes";
+import { comoDataUri } from "./fotoCache";
 
 /**
  * Pieza de error: cuando la plantilla no existe o el slide está corrupto, devolvemos una
@@ -54,12 +55,18 @@ export type OpcionesRender = {
   escala?: number;
 };
 
-/** Renderiza un slide al formato dado y devuelve la respuesta PNG. */
-export function renderSlide(
+/**
+ * Renderiza un slide al formato dado y devuelve la respuesta PNG.
+ *
+ * Es `async` por una sola razón: antes de dibujar mete la foto en la caché del proceso y
+ * se la pasa a Satori como data URI. Sin eso, Satori la vuelve a descargar en CADA render
+ * —250-320 ms regalados por cada tecla— porque no cachea nada. Ver `fotoCache.ts`.
+ */
+export async function renderSlide(
   formatoId: FormatoId,
   slide: Slide | null,
   opciones: OpcionesRender = {},
-): ImageResponse {
+): Promise<ImageResponse> {
   const base = FORMATOS[formatoId] ?? FORMATOS["4x5"];
   const escala = opciones.escala && opciones.escala > 0 && opciones.escala <= 1 ? opciones.escala : 1;
   const f: Formato = {
@@ -77,7 +84,11 @@ export function renderSlide(
       elemento = <Error f={f} mensaje={`La plantilla "${slide.plantilla}" ya no existe en el catálogo.`} />;
     } else {
       const { Componente } = entrada;
-      elemento = <Componente f={f} slide={slide} />;
+      // La foto se resuelve a data URI ANTES de dibujar: es el ahorro grande.
+      const conFoto: Slide = slide.foto?.url
+        ? { ...slide, foto: { ...slide.foto, url: await comoDataUri(slide.foto.url) } }
+        : slide;
+      elemento = <Componente f={f} slide={conFoto} />;
     }
   }
 
