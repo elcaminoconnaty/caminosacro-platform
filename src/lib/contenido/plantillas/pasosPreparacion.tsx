@@ -181,7 +181,7 @@ export function PasosPreparacion({ f, slide }: { f: Formato; slide: Slide }) {
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Cabecera w={w} sobreOscuro={!!foto} />
-          <Eyebrow w={w} color={foto ? undefined : PALETA.doradoOscuro}>Paso a paso</Eyebrow>
+          <Eyebrow w={w} color={foto ? undefined : PALETA.bosqueMedio}>Paso a paso</Eyebrow>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: u(28, w), width: "100%" }}>

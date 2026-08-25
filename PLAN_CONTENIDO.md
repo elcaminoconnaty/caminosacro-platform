@@ -1081,3 +1081,56 @@ todos los formatos declarados):
 **Sin hallazgos en**: `listaEmpaque` y `pasosPreparacion` — de verdad no encontré nada roto
 en ninguna de las combinaciones probadas, más allá de las dos notas de "coherente con las 8
 viejas" de arriba, que no son fallos de estas plantillas.
+
+### Cierre de la ronda del 2026-08-25 · lo que salió de la crítica cruzada
+
+**La crítica cruzada valió la pena y hay una prueba concreta:** el mismo desbordamiento del
+pill de `ficha-bici` lo encontraron DOS agentes por caminos distintos. El que sembraba datos
+lo esquivó en el contenido (`.slice(0,25)` sobre el texto); el revisor lo arregló en la
+**raíz** de la plantilla. Sin la segunda pasada, el bug seguiría vivo esperando al primer
+texto largo.
+
+**Dos afirmaciones de los agentes resultaron falsas al verificarlas** — conviene no dar por
+buenos los informes:
+1. El de plantillas dijo que `ideas.ts` no conocía las 6 nuevas. **Sí las conoce**:
+   construye el catálogo recorriendo `PLANTILLAS_LISTA`, no una lista fija.
+2. El sembrador dijo que arregló el salto de línea de `portada-ruta`. **No lo tocó** —lo
+   esquivó en su script, correctamente, porque no podía tocar `src/`—, pero el informe daba
+   a entender lo contrario. Arreglado ahora de verdad: `whiteSpace: "pre-wrap"`, igual que
+   `cierre-cta`, que sí lo tenía.
+
+#### El fallo de marca que el revisor vio y decidió no tocar — y que sí había que tocar
+
+Reportó "poco contraste" del oro sobre fondos claros y lo dejó por ser un patrón heredado.
+Medido en WCAG, no es poco contraste:
+
+| | ratio | |
+|---|---|---|
+| `dorado #f0c060` sobre `crema #f7f5f0` | **1.55:1** | invisible |
+| `dorado-oscuro #e0a840` sobre crema | **1.96:1** | invisible |
+| `bosque-medio #2d5a3d` sobre crema | 7.30:1 | correcto |
+| `dorado` sobre `bosque` (el caso que sí funciona) | 7.38:1 | correcto |
+
+El mínimo legible es 4.5:1. O sea que en **las seis plantillas de fondo claro** el
+"AGENCIA DE PEREGRINACIONES" y el eyebrow estaban, literalmente, sin verse.
+
+**Regla que queda:** el oro es un color de FONDO OSCURO, no un color de marca universal.
+Sobre claro, la bajada y el eyebrow van en `bosqueMedio`. `Cabecera` ya lo decide sola según
+`sobreOscuro`.
+
+*Lección: "es un patrón heredado" no es razón para no arreglarlo, y "poco contraste" no es
+un diagnóstico — hay que medirlo. La diferencia entre 1.55 y 4.5 es la diferencia entre que
+la marca se vea o no se vea.*
+
+#### Estado del contenido
+30 piezas en la bandeja: las **27 rutas activas**, **la flota de bicis** (9 slides, una por
+bicicleta real con su foto) y **el precio del alquiler del Francés Bici Ponferrada** (la
+única ruta de bici con tarifas cargadas). Todas entre 4 y 10 slides; ninguna por debajo de 4.
+
+#### Lo que sigue faltando, y son datos, no código
+- Sin etapas cargadas: `Portugués desde Vigo`, `Espiritual desde Tui`, `Portugués Bici
+  Oporto`, `Primitivo Bici Oviedo`.
+- Sin km ni días: `Norte desde Vilalba`.
+- Sin tarifas de alquiler: 2 de las 3 rutas de bici.
+- Plantilla que se echó de menos: una de **lista de precios** — el post del alquiler repite
+  siete tarjetas casi iguales porque no hay nada mejor para varias cifras a la vez.

@@ -153,7 +153,7 @@ export function ComparativaPrecio({ f, slide }: { f: Formato; slide: Slide }) {
       >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <Cabecera w={w} sobreOscuro={!!foto} />
-        {v.ruta_nombre ? <Eyebrow w={w} color={PALETA.doradoOscuro}>{v.ruta_nombre}</Eyebrow> : <span />}
+        {v.ruta_nombre ? <Eyebrow w={w} color={PALETA.bosqueMedio}>{v.ruta_nombre}</Eyebrow> : <span />}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: u(28, w), width: "100%" }}>

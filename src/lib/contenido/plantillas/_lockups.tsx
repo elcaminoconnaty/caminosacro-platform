@@ -114,7 +114,11 @@ export function Concha({
 export function Cabecera({ w, sobreOscuro = true }: { w: number; sobreOscuro?: boolean }) {
   const d = MEDIDAS.conchaCirculo;
   const colorNombre = sobreOscuro ? PALETA.blanco : PALETA.bosque;
-  const colorBajada = PALETA.dorado;
+  // El oro es un color de FONDO OSCURO, no un color de marca universal. Medido en WCAG:
+  // #f0c060 sobre bosque da 7.38:1 (perfecto), pero sobre crema da **1.55:1** — es decir,
+  // invisible; el mínimo legible es 4.5:1. Y el dorado oscuro tampoco salva: 1.96:1.
+  // Sobre claro, la bajada va en verde de marca (7.30:1), que conserva el carácter.
+  const colorBajada = sobreOscuro ? PALETA.dorado : PALETA.bosqueMedio;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: u(18, w) }}>
       <div

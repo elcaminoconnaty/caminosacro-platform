@@ -165,7 +165,7 @@ export function ComparativaDos({ f, slide }: { f: Formato; slide: Slide }) {
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Cabecera w={w} sobreOscuro={!!foto} />
-          <Eyebrow w={w} color={foto ? undefined : PALETA.doradoOscuro}>Dos formas de vivirlo</Eyebrow>
+          <Eyebrow w={w} color={foto ? undefined : PALETA.bosqueMedio}>Dos formas de vivirlo</Eyebrow>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: u(24, w), width: "100%" }}>

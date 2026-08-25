@@ -160,6 +160,9 @@ export function PortadaRuta({ f, slide }: { f: Formato; slide: Slide }) {
             fontSize: aj.ut(compacto ? ESCALA.subtitulo : ESCALA.titular),
             color: PALETA.blanco,
             lineHeight: 1.06,
+            // El titular del cierre sí respetaba los saltos de línea y este no: escribir un
+            // Enter en el campo no hacía nada. Unificado.
+            whiteSpace: "pre-wrap",
           }}
         >
           {v.titular ?? ""}

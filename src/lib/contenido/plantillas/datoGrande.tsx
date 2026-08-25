@@ -90,7 +90,7 @@ export function DatoGrande({ f, slide }: { f: Formato; slide: Slide }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Cabecera w={w} sobreOscuro={!!foto} />
           {v.eyebrow ? (
-            <Eyebrow w={w} color={foto ? undefined : PALETA.doradoOscuro}>
+            <Eyebrow w={w} color={foto ? undefined : PALETA.bosqueMedio}>
               {v.eyebrow}
             </Eyebrow>
           ) : (

@@ -145,7 +145,7 @@ export function MitoRealidad({ f, slide }: { f: Formato; slide: Slide }) {
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Cabecera w={w} sobreOscuro={!!foto} />
-          <Eyebrow w={w} color={foto ? undefined : PALETA.doradoOscuro}>Se dice por ahí</Eyebrow>
+          <Eyebrow w={w} color={foto ? undefined : PALETA.bosqueMedio}>Se dice por ahí</Eyebrow>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: u(20, w), width: "100%" }}>
