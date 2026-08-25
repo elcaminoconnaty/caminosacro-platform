@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { FORMATOS_LISTA, FORMATO_POR_DEFECTO } from "@/lib/contenido/formatos";
-import { crearPieza, ARRANQUES, type ArranqueId } from "./actions";
+import { crearPieza } from "./actions";
+import { ARRANQUES, type ArranqueId } from "@/lib/contenido/arranques";
 
 /**
  * El alta va por componente cliente y no por `<form action={serverAction}>` porque la
