@@ -1214,3 +1214,38 @@ carrera que se arreglara reintentando: era permanente.
 venía del cliente y el contenido del servidor: dos fuentes distintas bajo una misma
 promesa de inmutabilidad. Si las dos puntas no comparten la misma fuente, no se puede
 prometer inmutable.
+
+### 2026-08-26 · "en los slides que no son portada no puedo cambiar el tamaño de la foto"
+
+Reportado por Nico sobre la pieza de la flota de bicis. **Tenía razón, y la causa era una
+deducción que no se sostenía.**
+
+El editor decidía si mostrar la perilla del bloque verde así:
+
+```tsx
+tieneFranja={defActiva.rol === "portada"}
+```
+
+Pero el `rol` dice **dónde va el slide en el carrusel** (portada / cuerpo / cierre), no
+**qué dibuja la plantilla**. `ficha-bici` tiene su bloque verde ajustable y es de rol
+`"cuerpo"`, así que la perilla quedaba oculta: en los siete slides de la flota no había
+manera de dar más sitio a la bicicleta. Dos cosas distintas atadas por conveniencia.
+
+**Arreglado:** la plantilla ahora **declara** `franjaAjustable: true`, y el editor lee esa
+declaración. `portada-ruta` y `ficha-bici` la llevan.
+
+#### Y un segundo fondo que salió al probarlo
+
+Con la perilla ya visible, apenas hacía efecto: el alto del bloque lo mandaba el CONTENIDO
+(`minHeight`), y el modelo + la descripción + el pie ya ocupan casi un tercio.
+
+Se probó con `height` fijo: **la perilla manda del todo** y se gana mucha foto… pero al
+bajarla por debajo de lo que ocupa el texto, el título se encima sobre la descripción. Y
+`overflow: "hidden"` **no lo corta: Satori lo ignora**.
+
+**Decisión, y el porqué:** se vuelve a `minHeight`. Subir la perilla sí encoge la foto —que
+es el ajuste que se pide casi siempre— y bajarla nunca rompe nada: deja de tener efecto
+cuando el texto ya no cabe. Entre control total que se rompe y control parcial que nunca se
+rompe, gana el segundo: un texto encimado se lee como "esto está roto", no como una decisión
+del usuario, y este módulo existe justamente para no tener que resolver nada.
+Para ganar más foto se baja el tamaño del texto, que es la otra perilla.

@@ -53,6 +53,16 @@ export const DefinicionPlantillaSchema = z.object({
   usaFoto: z.boolean(),
   /** Dónde suele ir dentro de un carrusel: portada, cuerpo o cierre. */
   rol: z.enum(["portada", "cuerpo", "cierre"]).default("cuerpo"),
+  /**
+   * Si la plantilla dibuja el bloque verde inferior cuyo alto se puede regular.
+   *
+   * ⚠️ Lo DECLARA la plantilla, y no se deduce del `rol`. Antes el editor mostraba la
+   * perilla solo cuando `rol === "portada"`, y eso dejó a `ficha-bici` —que sí tiene el
+   * bloque— sin poder ajustarlo: en los slides de la flota no se podía cambiar cuánto
+   * espacio ocupaba la foto. Un papel dentro del carrusel no dice nada sobre qué dibuja
+   * la plantilla; eran dos cosas distintas atadas por conveniencia.
+   */
+  franjaAjustable: z.boolean().optional(),
 });
 export type DefinicionPlantilla = z.infer<typeof DefinicionPlantillaSchema>;
 

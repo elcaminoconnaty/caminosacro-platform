@@ -347,7 +347,7 @@ export default function Editor({
                 <PanelAjustes
                   ajustes={slideActivo?.ajustes}
                   usaFoto={defActiva.usaFoto && Boolean(slideActivo?.foto)}
-                  tieneFranja={defActiva.rol === "portada"}
+                  tieneFranja={Boolean(defActiva.franjaAjustable)}
                   onCambio={cambiarAjustes}
                 />
               </div>

@@ -21,6 +21,7 @@ export const definicion: DefinicionPlantilla = {
   formatos: ["4x5", "1x1", "1.91x1", "9x16", "reel"],
   usaFoto: true,
   rol: "cuerpo",
+  franjaAjustable: true,
   campos: [
     { id: "modelo", etiqueta: "Modelo", tipo: "texto", requerido: true, maxLargo: 40, porDefecto: "Ridley Ignite A" },
     { id: "tipo", etiqueta: "Tipo", tipo: "texto", maxLargo: 40, porDefecto: "MTB · Bicicleta de montaña" },
@@ -129,6 +130,18 @@ export function FichaBici({ f, slide }: { f: Formato; slide: Slide }) {
           left: 0,
           bottom: 0,
           width: f.w,
+          // `minHeight` y no `height`, decidido probando las dos.
+          //
+          // Con `height` la perilla manda del todo y se puede dar mucho más sitio a la
+          // bicicleta — pero al bajarla por debajo de lo que ocupa el texto, el título se
+          // encima sobre la descripción. Y `overflow: "hidden"` NO lo corta: Satori lo
+          // ignora. Un texto encimado se lee como "esto está roto", no como una decisión
+          // del usuario, y este módulo existe para no tener que resolver nada.
+          //
+          // Con `minHeight`, subir la perilla sí encoge la foto (que es el ajuste que se
+          // pide casi siempre) y bajarla nunca rompe nada: simplemente deja de tener
+          // efecto cuando el texto ya no cabe. Para ganar más foto se baja el tamaño del
+          // texto, que es la otra perilla.
           minHeight: altoBloque,
           backgroundColor: compacto || altoBloque === 0 ? "transparent" : PALETA.bosque,
           ...(!compacto && altoBloque === 0

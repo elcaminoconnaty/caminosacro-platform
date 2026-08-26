@@ -19,6 +19,7 @@ export const definicion: DefinicionPlantilla = {
   formatos: ["4x5", "1x1", "1.91x1", "9x16", "reel"],
   usaFoto: true,
   rol: "portada",
+  franjaAjustable: true,
   campos: [
     {
       id: "eyebrow",
