@@ -75,6 +75,10 @@ export default function SelectorFoto({
   const [rutas, setRutas] = useState<Partial<Record<"banco" | "subida", RutaDeFotos[]>>>({});
   const [resultado, setResultado] = useState<Resultado>(null);
   const [buscando, setBuscando] = useState(false);
+  // Antes, si `buscarFotosAccion` fallaba (red, servidor caído), se guardaba como un
+  // resultado de "0 fotos" y el usuario veía "Ninguna foto cumple esa búsqueda" — un fallo
+  // real disfrazado de búsqueda legítima sin coincidencias. Ahora se distingue.
+  const [errorBusqueda, setErrorBusqueda] = useState<string | null>(null);
   const rutasPedidas = useRef<Set<"banco" | "subida">>(new Set());
 
   // Tandas cargadas de más allá de la semilla inicial (T6 paso 3), una por fuente. Sin
@@ -86,6 +90,12 @@ export default function SelectorFoto({
     subida: subidasIniciales.length >= TANDA_FOTOS,
   }));
   const [cargandoMas, setCargandoMas] = useState(false);
+
+  // Si el archivo de la foto elegida ya no existe en Storage (se borró aparte, o era una
+  // subida suelta que se movió), el <img> de acá abajo rompía en silencio: un ícono roto
+  // de 64×64 sin texto, indistinguible de "está cargando". Con esto se avisa de verdad.
+  const [miniaturaRota, setMiniaturaRota] = useState(false);
+  useEffect(() => setMiniaturaRota(false), [seleccionada?.url]);
 
   const inputArchivos = useRef<HTMLInputElement>(null);
   const inputCarpeta = useRef<HTMLInputElement>(null);
@@ -107,6 +117,7 @@ export default function SelectorFoto({
     setRuta(null);
     setEstado("todas");
     setResultado(null);
+    setErrorBusqueda(null);
   }, [pestana]);
 
   // Chips de ruta: se piden una vez por fuente y se cachean, no hay lista fija en ningún lado.
@@ -136,6 +147,7 @@ export default function SelectorFoto({
     }
     let cancelado = false;
     setBuscando(true);
+    setErrorBusqueda(null);
     buscarFotosAccion({
       fuente: fuenteActiva,
       texto: textoDebounced || undefined,
@@ -149,7 +161,10 @@ export default function SelectorFoto({
       if ("ok" in r && r.ok) {
         setResultado({ fotos: r.fotos, total: r.total, hayMas: r.hayMas, desde: r.fotos.length });
       } else {
-        setResultado({ fotos: [], total: 0, hayMas: false, desde: 0 });
+        // No se inventa un resultado vacío: eso se ve idéntico a "no hay coincidencias" y
+        // esconde que la búsqueda de verdad falló.
+        setResultado(null);
+        setErrorBusqueda("error" in r && r.error ? r.error : "No se pudo buscar.");
       }
     });
     return () => {
@@ -271,6 +286,11 @@ export default function SelectorFoto({
         setResultado((prev) =>
           prev ? { fotos: [...prev.fotos, ...r.fotos], total: r.total, hayMas: r.hayMas, desde: prev.desde + r.fotos.length } : prev,
         );
+      } else {
+        // Antes esto no avisaba nada: el botón "Ver más" volvía a su estado normal como
+        // si no hubiera pasado nada, y quien lo pedía se quedaba sin saber si ya no había
+        // más fotos o si la petición se cayó.
+        setErrorBusqueda("error" in r && r.error ? r.error : "No se pudo traer más fotos.");
       }
       return;
     }
@@ -283,6 +303,8 @@ export default function SelectorFoto({
       if (fuenteActiva === "banco") setMasBanco((prev) => [...prev, ...r.fotos]);
       else setMasSubidas((prev) => [...prev, ...r.fotos]);
       setHayMasBase((prev) => ({ ...prev, [fuenteActiva]: r.hayMas }));
+    } else {
+      setErrorBusqueda("error" in r && r.error ? r.error : "No se pudo traer más fotos.");
     }
   }
 
@@ -309,9 +331,14 @@ export default function SelectorFoto({
       {/* Fuera del modal: solo la miniatura elegida y el botón para cambiarla. */}
       <div className="flex items-center gap-3">
         <div className="w-16 h-16 shrink-0 rounded-md overflow-hidden border border-border bg-taupe/30 flex items-center justify-center">
-          {seleccionada ? (
+          {seleccionada && !miniaturaRota ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={miniatura(seleccionada.url, 160)} alt="" className="w-full h-full object-cover" />
+            <img
+              src={miniatura(seleccionada.url, 160)}
+              alt=""
+              className="w-full h-full object-cover"
+              onError={() => setMiniaturaRota(true)}
+            />
           ) : (
             <ImageOff size={18} className="text-muted" />
           )}
@@ -326,9 +353,11 @@ export default function SelectorFoto({
           </button>
           <span className="text-[11px] text-muted truncate">
             {seleccionada
-              ? seleccionada.origen === "banco"
-                ? "Del banco"
-                : "Foto subida"
+              ? miniaturaRota
+                ? "Esa foto ya no está disponible — elige otra"
+                : seleccionada.origen === "banco"
+                  ? "Del banco"
+                  : "Foto subida"
               : "Sin foto — fondo verde de marca"}
           </span>
         </div>
@@ -508,6 +537,13 @@ export default function SelectorFoto({
                       ) : null}
                     </span>
                   </div>
+
+                  {errorBusqueda && (
+                    <p className="text-[11px] text-dorado-oscuro leading-snug">
+                      No se pudo buscar: {errorBusqueda}. Se muestra la lista sin filtrar
+                      mientras tanto.
+                    </p>
+                  )}
                 </div>
               )}
 

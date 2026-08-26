@@ -51,7 +51,7 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
     <div className="flex flex-col gap-5">
       <Editor
       piezaId={pieza.id}
-      titulo={pieza.titulo}
+      tituloInicial={pieza.titulo}
       formatoInicial={formato}
       slidesIniciales={slides}
       definiciones={definiciones}

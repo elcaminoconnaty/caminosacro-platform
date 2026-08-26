@@ -114,7 +114,13 @@ export default function Lienzo({ formato, slide, indice, mostrarGuias }: LienzoP
           <img src={src} alt={`Slide ${indice + 1}`} className="w-full h-full object-contain" />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs text-muted">{fallo ? "" : "Dibujando…"}</span>
+            {/*
+              Sin slide (pieza con 0 slides) esto decía "Dibujando…" para siempre — daba
+              la impresión de que algo se había quedado colgado cuando en realidad no hay
+              nada que dibujar. `fallo` tiene su propio mensaje aparte, así que acá solo
+              falta cubrir el caso de "no hay slide".
+            */}
+            <span className="text-xs text-muted">{fallo ? "" : slide ? "Dibujando…" : "Sin slide"}</span>
           </div>
         )}
 
@@ -139,10 +145,16 @@ export default function Lienzo({ formato, slide, indice, mostrarGuias }: LienzoP
         )}
 
         {fallo && (
-          <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
-            <span className="text-xs text-muted">
-              No se pudo dibujar el slide. Revisa que la foto siga disponible.
-            </span>
+          <div className="absolute inset-0 flex items-center justify-center p-6 text-center bg-bg-card/90">
+            {/*
+              Antes acá iba un texto fijo ("Revisa que la foto siga disponible") sin
+              importar qué hubiera fallado de verdad — el endpoint puede rechazar el
+              slide por muchas otras razones (cuerpo inválido, plantilla desconocida,
+              un campo corrupto) y decirle al usuario que mire la foto cuando el
+              problema es otro es peor que no decir nada. Ahora se muestra el mensaje
+              real que devolvió el servidor.
+            */}
+            <span className="text-xs text-muted leading-snug">No se pudo dibujar el slide: {fallo}</span>
           </div>
         )}
       </div>

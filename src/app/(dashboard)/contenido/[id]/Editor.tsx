@@ -9,6 +9,7 @@ import { AJUSTES_POR_DEFECTO, type AjustesSlide } from "@/lib/contenido/ajustes"
 import type { FotoDelBanco, FotoSubida } from "@/lib/contenido/fotos";
 import type { RutaLista } from "@/lib/contenido/datos";
 import { guardarSlides, cambiarFormato } from "./actions";
+import { renombrarPieza } from "../actions";
 import { aplicarRuta } from "./rutaActions";
 import Lienzo from "./Lienzo";
 import PanelCampos from "./PanelCampos";
@@ -19,7 +20,7 @@ import Exportar from "./Exportar";
 
 export type EditorProps = {
   piezaId: string;
-  titulo: string;
+  tituloInicial: string;
   formatoInicial: FormatoId;
   slidesIniciales: Slide[];
   /** El registry serializado: el servidor no puede mandar componentes al cliente. */
@@ -35,7 +36,7 @@ const DEBOUNCE_MS = 800;
 
 export default function Editor({
   piezaId,
-  titulo,
+  tituloInicial,
   formatoInicial,
   slidesIniciales,
   definiciones,
@@ -50,6 +51,27 @@ export default function Editor({
   const [mostrarGuias, setMostrarGuias] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
   const [guardando, iniciarGuardado] = useTransition();
+
+  // El título. Antes era un <h1> fijo: `renombrarPieza` existía en `../actions.ts` pero
+  // ninguna pantalla la llamaba, así que una pieza creada con el título en blanco (o con
+  // un typo) se quedaba así para siempre — la única salida era borrarla y empezar de
+  // cero. Ahora es un campo más, con el mismo patrón de guardado con espera que el resto.
+  const [titulo, setTitulo] = useState(tituloInicial);
+  const temporizadorTitulo = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (temporizadorTitulo.current) clearTimeout(temporizadorTitulo.current);
+    if (titulo === tituloInicial) return;
+    temporizadorTitulo.current = setTimeout(() => {
+      void (async () => {
+        const r = await renombrarPieza(piezaId, titulo);
+        if ("error" in r && r.error) setAviso(r.error);
+      })();
+    }, DEBOUNCE_MS);
+    return () => {
+      if (temporizadorTitulo.current) clearTimeout(temporizadorTitulo.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [titulo, piezaId]);
 
   // El preview ya NO depende del guardado: `Lienzo` dibuja el slide tal como está en
   // pantalla, contra un endpoint que no toca la base. El guardado sigue ocurriendo, pero
@@ -91,10 +113,12 @@ export default function Editor({
   );
 
   // Si el usuario cierra la pestaña con un guardado pendiente, se pierde lo último escrito.
-  // Avisarlo es más honesto que fingir que ya estaba guardado.
+  // Avisarlo es más honesto que fingir que ya estaba guardado. Cubre los slides Y el
+  // título: antes solo miraba `pendiente.current`, así que escribir un título nuevo y
+  // cerrar la pestaña antes de los 800 ms no avisaba nada.
   useEffect(() => {
     const alSalir = (e: BeforeUnloadEvent) => {
-      if (pendiente.current) e.preventDefault();
+      if (pendiente.current || temporizadorTitulo.current) e.preventDefault();
     };
     window.addEventListener("beforeunload", alSalir);
     return () => window.removeEventListener("beforeunload", alSalir);
@@ -113,6 +137,14 @@ export default function Editor({
 
   /** Elegir una ruta no cambia un campo: trae del catálogo varios de una sola vez. */
   const elegirRuta = (rutaId: string) => {
+    // Se cancela el guardado con debounce que hubiera quedado programado por un campo de
+    // texto (igual que `aplicarYGuardar`). Sin esto: escribes en un campo, cambias de
+    // ruta antes de que pasen los 800 ms, el guardado de la ruta corre primero y guarda
+    // bien — pero el temporizador viejo sigue vivo y dispara después con la foto vieja de
+    // `slides` (de antes de aplicar la ruta), pisando el precio/km recién traídos con
+    // datos desactualizados.
+    if (temporizador.current) clearTimeout(temporizador.current);
+    pendiente.current = null;
     iniciarGuardado(async () => {
       const r = await aplicarRuta(rutaId);
       if ("error" in r && r.error) {
@@ -208,11 +240,17 @@ export default function Editor({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <Link href="/contenido" className="text-muted hover:text-fg shrink-0">
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="font-display text-2xl text-bosque truncate">{titulo}</h1>
+          <input
+            value={titulo}
+            onChange={(e) => setTitulo(e.target.value)}
+            aria-label="Título de la pieza"
+            placeholder="Pieza sin título"
+            className="font-display text-2xl text-bosque bg-transparent border border-transparent rounded-md px-1.5 -mx-1.5 py-0.5 min-w-0 flex-1 max-w-lg truncate focus:outline-none focus:border-bosque focus:bg-bg-card"
+          />
         </div>
 
         <div className="flex items-center gap-3">
@@ -310,6 +348,15 @@ export default function Editor({
                 </div>
               )}
             </>
+          ) : slides.length === 0 ? (
+            // Caso de verdad excepcional (no debería pasar desde el editor: `borrar()`
+            // nunca deja una pieza en cero), pero una pieza vieja o sembrada por un
+            // guion puede llegar así, y el mensaje de "esta plantilla ya no existe" era
+            // directamente falso acá: no hay slide ninguno que borrar o cambiar.
+            <p className="text-xs text-muted">
+              Esta pieza no tiene ningún slide todavía. Agrega el primero desde
+              &quot;Agregar slide&quot;, en la columna de la izquierda.
+            </p>
           ) : (
             <p className="text-xs text-muted">
               Este slide usa una plantilla que ya no existe en el catálogo. Bórralo o

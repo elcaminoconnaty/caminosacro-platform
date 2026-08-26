@@ -61,9 +61,20 @@ export async function duplicarPieza(id: string) {
   return { ok: true as const, id: data.id as string };
 }
 
+/**
+ * "Borrar" desde la bandeja archiva, no hace un DELETE de verdad.
+ *
+ * Antes era un `.delete()` sin ningún `confirm()` delante, disparado por un botón que
+ * solo aparece al pasar el mouse por la tarjeta (`opacity-0 group-hover:opacity-100` en
+ * `PiezasGrid`): un clic de más al mover el mouse por la bandeja bastaba para perder una
+ * pieza para siempre, sin forma de deshacerlo. La bandeja ya filtra `estado != archivado`
+ * (ver `page.tsx`), así que archivar produce el mismo efecto visible —la pieza desaparece
+ * de la lista— sin el riesgo de borrar algo por accidente. Sigue viviendo en la base por
+ * si hace falta recuperarla a mano.
+ */
 export async function borrarPieza(id: string) {
   const supabase = await createPublicSchemaClient();
-  const { error } = await supabase.from("contenido_piezas").delete().eq("id", id);
+  const { error } = await supabase.from("contenido_piezas").update({ estado: "archivado" }).eq("id", id);
   if (error) return { error: mensajeError(error) };
   revalidatePath("/contenido");
   return { ok: true as const };

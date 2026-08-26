@@ -43,7 +43,12 @@ export default function BarraCopy({ piezaId, captionInicial, hashtagsIniciales, 
       void (async () => {
         const r = await revisarCopy(caption, hashtags);
         setHallazgos(r.hallazgos);
-        await guardarCopyPieza(piezaId, caption, hashtags);
+        // El resultado se ignoraba: si el guardado fallaba (RLS, red, lo que sea), el
+        // caption se quedaba sin persistir y nadie se enteraba — se seguía viendo
+        // "escrito" en la pantalla pero un F5 lo perdía. Igual que `guardarSlides` en el
+        // editor, el error se muestra en vez de tragárselo.
+        const g = await guardarCopyPieza(piezaId, caption, hashtags);
+        if ("error" in g && g.error) setAviso(g.error);
       })();
     }, 600);
     return () => {

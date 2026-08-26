@@ -13,19 +13,26 @@ import { datosDeRuta } from "@/lib/contenido/datos";
 export async function aplicarRuta(rutaId: string) {
   if (!rutaId) return { ok: true as const, valores: {} as Record<string, string> };
 
-  const d = await datosDeRuta(rutaId);
-  if (!d) return { error: "No se encontró esa ruta en el catálogo." };
+  // `datosDeRuta` puede lanzar si el catálogo no responde. Esta acción la llama el
+  // <select> de ruta dentro de una transición, no un `<form>`: sin atrapar, un fallo acá
+  // tumbaría el editor entero en vez de mostrarse como aviso junto al campo.
+  try {
+    const d = await datosDeRuta(rutaId);
+    if (!d) return { error: "No se encontró esa ruta en el catálogo." };
 
-  const valores: Record<string, string> = {
-    ruta: rutaId,
-    ruta_nombre: d.nombre,
-    eyebrow: d.eyebrow,
-    datos: d.datos,
-    etapas_json: d.etapas_json,
-  };
-  // Sin precio cargado no se inventa nada: se deja el campo vacío y el pill no se dibuja.
-  if (d.precio) valores.precio = d.precio;
+    const valores: Record<string, string> = {
+      ruta: rutaId,
+      ruta_nombre: d.nombre,
+      eyebrow: d.eyebrow,
+      datos: d.datos,
+      etapas_json: d.etapas_json,
+    };
+    // Sin precio cargado no se inventa nada: se deja el campo vacío y el pill no se dibuja.
+    if (d.precio) valores.precio = d.precio;
 
-  const aviso = d.precio ? undefined : "Esa ruta no tiene precio cargado en el catálogo para el año vigente.";
-  return { ok: true as const, valores, aviso };
+    const aviso = d.precio ? undefined : "Esa ruta no tiene precio cargado en el catálogo para el año vigente.";
+    return { ok: true as const, valores, aviso };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudieron traer los datos de esa ruta." };
+  }
 }

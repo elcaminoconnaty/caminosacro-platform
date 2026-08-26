@@ -29,38 +29,46 @@ export async function encargarIdeas() {
 
 /** Pregunta si el encargo ya está. Si lo está, guarda las ideas en la bandeja. */
 export async function recogerIdeas(trabajoId: number, contexto: ContextoIdeas) {
-  const t = await consultarTrabajo(trabajoId);
+  // Igual que `encargarIdeas`: esta acción la llama un `setTimeout` en el cliente para
+  // sondear, no un `<form>`. Sin atrapar, un fallo de `consultarTrabajo` o
+  // `interpretarIdeas` (JSON mal formado, etc.) tumbaría toda la pantalla de `/contenido`
+  // en vez de avisar en la barra de "Qué publicar".
+  try {
+    const t = await consultarTrabajo(trabajoId);
 
-  if (t.estado === "pendiente" || t.estado === "tomado") {
-    return { esperando: true as const, posicion: t.posicion };
+    if (t.estado === "pendiente" || t.estado === "tomado") {
+      return { esperando: true as const, posicion: t.posicion };
+    }
+    if (t.estado === "error") return { error: t.error };
+    if (t.estado !== "listo") return { error: "Ese encargo ya no existe." };
+
+    const r = interpretarIdeas(t.resultado, contexto);
+    if (!("ok" in r) || !r.ideas) return { error: "error" in r ? r.error : "Respuesta inesperada." };
+    const ideas = r.ideas;
+
+    const supabase = await createPublicSchemaClient();
+    const { error } = await supabase.from("contenido_ideas").insert(
+      ideas.map((i) => ({
+        titular: i.titular,
+        pilar: i.pilar,
+        formato: i.formato,
+        plantilla_sugerida: i.plantilla_sugerida,
+        angulo: i.angulo,
+        razon: i.razon,
+        evidencia: i.evidencia,
+        ruta_nombre: i.ruta_nombre,
+        slides: i.slides,
+        fuente_dato: i.fuente_dato,
+      })),
+    );
+    if (error) return { error: mensajeError(error) };
+
+    await marcarConsumido(trabajoId);
+    revalidatePath("/contenido");
+    return { ok: true as const, cuantas: ideas.length };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudieron recoger las ideas." };
   }
-  if (t.estado === "error") return { error: t.error };
-  if (t.estado !== "listo") return { error: "Ese encargo ya no existe." };
-
-  const r = interpretarIdeas(t.resultado, contexto);
-  if (!("ok" in r) || !r.ideas) return { error: "error" in r ? r.error : "Respuesta inesperada." };
-  const ideas = r.ideas;
-
-  const supabase = await createPublicSchemaClient();
-  const { error } = await supabase.from("contenido_ideas").insert(
-    ideas.map((i) => ({
-      titular: i.titular,
-      pilar: i.pilar,
-      formato: i.formato,
-      plantilla_sugerida: i.plantilla_sugerida,
-      angulo: i.angulo,
-      razon: i.razon,
-      evidencia: i.evidencia,
-      ruta_nombre: i.ruta_nombre,
-      slides: i.slides,
-      fuente_dato: i.fuente_dato,
-    })),
-  );
-  if (error) return { error: mensajeError(error) };
-
-  await marcarConsumido(trabajoId);
-  revalidatePath("/contenido");
-  return { ok: true as const, cuantas: ideas.length };
 }
 
 /**

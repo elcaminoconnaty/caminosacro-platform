@@ -55,7 +55,7 @@ Archivos: `src/lib/contenido/plantillas/**`, `graficos/**`, `marca.ts`, `ajustes
   grep, no solo a ojo). Tres bugs reales encontrados y arreglados; detalle en Hallazgos.
 - **A2. Texto largo en todas las plantillas.** Prueba cada campo con el texto más largo que
   permite su `maxLargo`. Busca desbordes y solapamientos.
-  `Estado: en curso` — renderizando cada plantilla × sus formatos × 3 fotos (oscura, clara,
+  `Estado: pendiente — el agente murió justo al lanzar el lote de renders. Empezar de cero esta tarea.`
   sin foto) con todos los campos al maxLargo exacto, en hojas de contacto a escala 1.
 - **A3. Contraste medido, no opinado.** Todo texto sobre todo fondo (claro, oscuro, foto
   clara, foto oscura). Mínimo 4.5:1. Ya se corrigió el oro sobre crema (daba 1.55:1);
@@ -74,7 +74,7 @@ Archivos: `src/app/(dashboard)/contenido/**`.
 - **B1. Estados de error y de vacío.** ¿Qué se ve si falla el guardado, si la foto ya no
   existe, si la pieza no tiene slides, si el catálogo no responde? Que nunca haya una
   pantalla muda ni un error críptico.
-  `Estado: en curso — revisando actions.ts, Editor.tsx, PanelCampos.tsx, SelectorFoto.tsx,
+  `Estado: hecho — pantalla de error propia para todo /contenido, not-found de pieza, y estados de error/vacío en las acciones. Rescatado tras caerse el agente por el límite; el recorrido a ojo quedó sin hacer.`
   Exportar.tsx, PiezasGrid.tsx y los page.tsx del bloque B en busca de catch mudos, estados
   vacíos sin mensaje y pantallas en blanco.`
 - **B2. Carreras del autoguardado.** Editar y cambiar de slide, editar y exportar, editar y
@@ -106,7 +106,7 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 - **C2. La cola y el puente.** ¿Qué pasa si el worker muere a mitad, si hay dos trabajos a
   la vez, si el trabajo tarda más de 5 minutos, si el JSON de vuelta viene mal? Verifica el
   rescate de trabajos colgados.
-  `Estado: en curso — probando contra la base real: dos trabajos a la vez, un trabajo
+  `Estado: pendiente — el agente alcanzó a insertar dos trabajos colgados (ids 7 y 8) para probar el rescate y murió antes de comprobarlo. Revisar que la cola quedó limpia antes de seguir.`
   'tomado' con tomado_at viejo (contenido_rescatar_trabajos), JSON de vuelta inválido, y
   revisando el log del puente en ~/Library/Logs/caminosacro-puente.log.`
 - **C3. `vozLint` contra la estrategia.** ¿Cubre TODAS las reglas duras del bloque `TONO` de
