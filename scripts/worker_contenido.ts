@@ -45,9 +45,34 @@ const ESPERA_MS = 3000;
 // El latido tiene que ser más frecuente que el umbral de "encendido" de la plataforma (90 s).
 const LATIDO_MS = 30000;
 
+/**
+ * Tope de reintentos, aplicado POR EL WORKER.
+ *
+ * ⚠️ ESTO NO ESTABA Y COSTÓ CARO. El código devolvía el trabajo a 'pendiente' en cada
+ * fallo, confiando en que `contenido_rescatar_trabajos()` lo cortaría a los 3 intentos.
+ * Falso: esa función solo rescata trabajos atascados en 'tomado' más de 5 minutos. Un
+ * trabajo devuelto a 'pendiente' lo recoge el propio worker a los 3 segundos, así que
+ * nunca llegaba a estar 'tomado' el tiempo suficiente. Resultado real, medido en la base:
+ * un encargo con **4.647 intentos** — el worker llamó a Claude toda la noche en bucle y se
+ * llevó por delante el límite de gasto de la semana.
+ */
+const MAX_INTENTOS = 3;
+
+/**
+ * Errores que NO tiene sentido reintentar: reintentarlos es exactamente lo que quema el
+ * límite. Un tope de gasto o una sesión caducada no se arreglan insistiendo.
+ */
+function esDefinitivo(msg: string): boolean {
+  return /spend limit|usage limit|l[ií]mite|quota|credit|rate.?limit|authenticat|credential|not logged|login|no es un JSON Schema|not a valid JSON Schema/i.test(
+    msg,
+  );
+}
+
 type Trabajo = {
   id: number;
   tipo: string;
+  /** Ya viene incrementado por `contenido_tomar_trabajo`: la primera vez vale 1. */
+  intentos: number;
   entrada: { system: string; user: string; schema: Record<string, unknown> };
 };
 
@@ -133,19 +158,34 @@ async function unaVuelta() {
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    // Vuelve a 'pendiente' para que se reintente; a los 3 intentos la función de rescate
-    // lo marca como error definitivo.
+    // El tope lo aplica el worker, no el rescate: ver MAX_INTENTOS arriba.
+    // Si el error es de los que no se arreglan insistiendo (tope de gasto, sesión caducada),
+    // se corta a la primera: reintentar es justo lo que quema el límite.
+    const rendirse = esDefinitivo(msg) || t.intentos >= MAX_INTENTOS;
+
     const { error: errMarcar } = await sb
       .from("contenido_trabajos")
-      .update({ estado: "pendiente", error: msg })
+      .update({
+        estado: rendirse ? "error" : "pendiente",
+        error: rendirse ? `${msg} (se dejó de reintentar tras ${t.intentos} intento(s))` : msg,
+        terminado_at: rendirse ? new Date().toISOString() : null,
+      })
       .eq("id", t.id);
+
+    if (rendirse) {
+      console.error(`[puente] encargo #${t.id} ABANDONADO tras ${t.intentos} intento(s): ${msg}`);
+    } else {
+      // Espera creciente antes de que el bucle vuelva a mirar la cola: sin esto, un fallo
+      // reproducible se reintenta cada 3 segundos.
+      const espera = ESPERA_MS * Math.pow(3, t.intentos);
+      console.error(`[puente] encargo #${t.id} falló (intento ${t.intentos}), reintento en ${espera / 1000}s: ${msg}`);
+      await new Promise((r) => setTimeout(r, espera));
+    }
     if (errMarcar) {
       // El peor de los casos: el encargo falló Y no se pudo dejar constancia. Se queda
       // 'tomado' hasta que el rescate lo note a los 5 minutos, así que al menos no se
       // pierde para siempre — pero vale la pena que aparezca fuerte en el log.
-      console.error(`[puente] encargo #${t.id} falló (${msg}) Y no se pudo registrar el error: ${errMarcar.message}`);
-    } else {
-      console.error(`[puente] encargo #${t.id} falló: ${msg}`);
+      console.error(`[puente] encargo #${t.id} falló (${msg}) Y no se pudo registrar: ${errMarcar.message}`);
     }
   }
   return true;

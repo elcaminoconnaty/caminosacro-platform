@@ -124,6 +124,41 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 
 ## Hallazgos
 
+### 🔴 EL BUG MÁS CARO DE TODOS — el puente reintentaba en bucle infinito (2026-08-26)
+
+Encontrado revisando la cola después de que los tres auditores murieran por el límite
+**semanal**. En `public.contenido_trabajos` había un encargo con **4.647 intentos**.
+
+**El worker llamó a Claude en bucle toda la noche.** Con toda probabilidad es lo que se
+llevó por delante el límite de gasto de la semana — no los agentes.
+
+**La causa, y el bug es mío.** El worker devolvía el trabajo a `'pendiente'` en cada fallo,
+con este comentario al lado:
+
+> *"a los 3 intentos la función de rescate lo marca como error definitivo"*
+
+**Falso.** `contenido_rescatar_trabajos()` solo rescata trabajos atascados en `'tomado'` más
+de 5 minutos. Un trabajo devuelto a `'pendiente'` lo recoge el propio worker a los 3
+segundos, así que **nunca llegaba a estar `'tomado'` el tiempo suficiente** y el tope no se
+aplicaba jamás. Un fallo reproducible = reintentos infinitos a ~1 cada 3 segundos.
+
+Peor todavía: el error que lo hacía fallar era el propio tope de gasto. O sea que
+reintentaba precisamente aquello que no se arregla insistiendo, alimentando el problema.
+
+**Arreglado, en tres capas:**
+1. **El tope lo aplica el worker**, no el rescate: a los 3 intentos marca `error` y para.
+2. **Errores definitivos se cortan a la primera**: tope de gasto, sesión caducada, esquema
+   inválido. Reintentarlos es justo lo que quema el límite.
+3. **Espera creciente** entre reintentos (3s, 9s, 27s) en vez de volver a la carga de
+   inmediato.
+
+Cola limpiada y puente reiniciado con el arreglo.
+
+**Lección de método:** un comentario que afirma una garantía ("a los 3 intentos se corta")
+sin que el código de al lado la implemente es peor que no tener comentario — me lo creí al
+releerlo. **La garantía y quien la aplica tienen que estar en el mismo sitio.**
+
+
 *(Cada agente añade aquí lo que encuentra: qué estaba mal, cómo se destapó, qué se arregló y
 qué se decidió dejar y por qué. Si una tarea no dio hallazgos, dilo — un informe donde todo
 está bien es sospechoso.)*
