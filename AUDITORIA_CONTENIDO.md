@@ -105,7 +105,9 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 - **C2. La cola y el puente.** ¿Qué pasa si el worker muere a mitad, si hay dos trabajos a
   la vez, si el trabajo tarda más de 5 minutos, si el JSON de vuelta viene mal? Verifica el
   rescate de trabajos colgados.
-  `Estado: pendiente`
+  `Estado: en curso — probando contra la base real: dos trabajos a la vez, un trabajo
+  'tomado' con tomado_at viejo (contenido_rescatar_trabajos), JSON de vuelta inválido, y
+  revisando el log del puente en ~/Library/Logs/caminosacro-puente.log.`
 - **C3. `vozLint` contra la estrategia.** ¿Cubre TODAS las reglas duras del bloque `TONO` de
   `estrategia.ts`? Lista las que falten y añádelas. Prueba con copys reales.
   `Estado: pendiente`
@@ -124,6 +126,55 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 *(Cada agente añade aquí lo que encuentra: qué estaba mal, cómo se destapó, qué se arregló y
 qué se decidió dejar y por qué. Si una tarea no dio hallazgos, dilo — un informe donde todo
 está bien es sospechoso.)*
+
+### A1 — 2026-08-25
+
+Método: hoja de contactos (`sharp`) de las 14 plantillas en 4x5, con y sin foto, abierta con
+Read; luego muestreo de píxeles con Python en vez de fiarme de la impresión visual del
+contacto reducido (dos veces creí ver una diferencia de tono a ojo entre plantillas y las dos
+veces el muestreo demostró que eran el mismo color — la "diferencia" era un efecto óptico del
+texto/cajas alrededor, no del velo).
+
+**Margen, Cabecera y Pie sí son consistentes en las 14** — confirmado por grep, no solo a
+ojo: las 14 usan `u(MEDIDAS.margen, w)` para el margen y comparten `<Cabecera>`/`<Pie>` de
+`_lockups.tsx`. `cierre-cta` no lleva `<Cabecera>` (usa solo la Concha + "Siguiente paso") a
+propósito: es el slide de cierre, no repite el lockup completo. Los fondos "sin foto" se
+dividen a propósito entre bosque oscuro (8 plantillas) y claro (6): las que llevan cajas de
+color (`comparativa-precio`, `comparativa-dos`, `mito-realidad`) van sobre BLANCO puro,
+imitando la página 2 del PDF de cotización de la que copian la maqueta; las de texto plano
+sin cajas (`dato-grande`, `pasos-preparacion`, `tip-numerado`) van sobre CREMA. Decidido
+dejarlo así: no es azar, es coherente con su propio precedente (el PDF también pone tarjetas
+claras sobre página blanca) y cambiarlo forzaría un blanco/crema uniforme sin necesidad.
+
+**Tres bugs reales, arreglados en la raíz:**
+1. **El WhatsApp de Clara estaba duplicado.** `cierreCta.tsx` tenía su propio
+   `WHATSAPP_CLARA = "+57 304 663 7964"` en vez de leer `MARCA.whatsapp` de `estrategia.ts`
+   (la fuente de verdad vendorizada). Dos copias del mismo dato solo pueden desincronizarse
+   — el mismo riesgo que ya vigila el smoke para HASHTAGS/RUTAS/PILARES, pero nadie lo vigilaba
+   acá. Ahora importa `MARCA as MARCA_VOZ` de `../estrategia` y usa `.whatsapp` y
+   `.asistente` ("Clara"), así que si el número cambia en la fuente de verdad, el cierre lo
+   hereda solo.
+2. **La perilla "tamaño del texto" no llegaba a los rótulos del gráfico de barras.**
+   `graficos/barras.tsx` calculaba su tipografía con `u(25, w)` directo, ignorando
+   `escalaTexto`; `etapasRuta.tsx` nunca le pasaba `aj.ut`. Con la perilla al mínimo o al
+   máximo, todo el slide de "Etapas de la ruta" cambiaba de tamaño MENOS los nombres de
+   etapa y los km. Arreglado: `Barras` acepta `ut` opcional (con `u(·,w)` de respaldo) y
+   `etapasRuta.tsx` se lo pasa. Verificado renderizando `escalaTexto` 0.75 y 1.5 uno junto
+   al otro.
+3. **El degradado de marca "sin foto" quedaba invisible en `testimonio` y `pregunta-grande`.**
+   Las dos aplicaban el velo verde plano (0.72) SIEMPRE, incluso sin foto — a diferencia de
+   `portada-ruta`/`cierre-cta`/`ficha-bici`, que solo lo aplican `{foto ? ... : null}`. Medido:
+   dos esquinas opuestas del degradado `FONDO_SIN_FOTO` daban (27,61,44) y (28,62,45) —
+   prácticamente el mismo color, el degradado se leía como bosque sólido. Arreglado
+   condicionando el velo a que haya foto; verificado que ahora las esquinas dan (34,71,50) y
+   (37,77,53), un contraste real entre ellas.
+
+No se tocó la duplicación de `ROSA_FONDO`/`ROSA_TEXTO`/`VERDE_FONDO`/`VERDE_TEXTO` entre
+`mitoRealidad.tsx` y `comparativaDos.tsx` (cuatro constantes hex idénticas, copiadas dos
+veces con el mismo comentario "los mismos valores que quotePdf.tsx"): es duplicación real,
+pero moverla a un tercer archivo (¿`marca.ts`? ¿un archivo nuevo?) es una decisión de
+alcance mayor a esta tarea y ninguna de las dos copias ha derivado todavía. Queda anotado
+para quien toque estas dos plantillas otra vez.
 
 ### C1 — Fallos silenciosos (Bloque C) — 2026-08-25
 
