@@ -48,12 +48,6 @@ export async function cambiarFormato(id: string, formato: string) {
   return { ok: true as const };
 }
 
-export async function guardarCopy(id: string, caption: string, hashtags: string) {
-  const supabase = await createPublicSchemaClient();
-  const { error } = await supabase.from("contenido_piezas").update({ caption, hashtags }).eq("id", id);
-  if (error) return { error: mensajeError(error) };
-  return { ok: true as const };
-}
 
 export async function cambiarEstado(id: string, estado: string) {
   if (!["borrador", "listo", "publicado", "archivado"].includes(estado)) {

@@ -1249,3 +1249,51 @@ cuando el texto ya no cabe. Entre control total que se rompe y control parcial q
 rompe, gana el segundo: un texto encimado se lee como "esto está roto", no como una decisión
 del usuario, y este módulo existe justamente para no tener que resolver nada.
 Para ganar más foto se baja el tamaño del texto, que es la otra perilla.
+
+### 2026-08-26 · "no hay forma de cambiar el estado de borrador a publicada"
+
+Reportado por Nico. **La acción `cambiarEstado` existía desde la etapa 3 y nunca se conectó
+a ninguna pantalla.** Se podía *filtrar* la bandeja por estado —eso sí se construyó— pero no
+había manera de cambiarlo: las 30 piezas se quedaban en "borrador" para siempre. Código
+escrito, probado por el compilador, y muerto.
+
+**Conectado en los dos sitios donde hace falta, que no son el mismo:**
+- **En el editor**, botones para los cuatro estados: se marca al terminar la pieza.
+- **En la tarjeta de la bandeja**, un desplegable: es donde uno marca varias como publicadas
+  de golpe después de subirlas a Instagram, sin abrir ninguna.
+
+Los estados y sus etiquetas viven ahora en `src/lib/contenido/estados.ts`, **fuera de los
+archivos de acciones** — un `"use server"` solo puede exportar funciones async, y exportar
+una constante desde ahí ya tumbó esta pantalla una vez.
+
+El cambio en el editor es **optimista**: se ve al instante y se revierte si falla, en vez de
+dejar el botón muerto mientras viaja la petición.
+
+Comprobado contra la base que el `check` de la tabla acepta los cuatro estados y que el
+cambio persiste.
+
+**Lección, y es la tercera vez que aparece en este módulo:** una acción de servidor que
+compila y nadie llama es indistinguible de una que funciona, hasta que alguien la busca en
+la pantalla y no está. Conviene revisar si queda alguna más así.
+
+
+#### Lo que salió de tirar de ese hilo
+
+Revisar si quedaban más acciones escritas y nunca llamadas encontró **tres**: `guardarCopy`
+(duplicada de `guardarCopyPieza`), `refrescarSubidas` y `consultarWorker`. Retiradas — y no
+es solo limpieza: **cada acción de servidor exportada es un endpoint invocable**, así que
+código muerto ahí es superficie de ataque muerta.
+
+Y pasar el lint por el módulo destapó **cuatro errores de React** que nadie había mirado,
+todos del tipo "cambiar estado dentro de un efecto", que encadenan renders de más — justo lo
+que penaliza la sensación de lentitud:
+- `Lienzo`: ponía el `src` a null en el efecto. Ahora el render decide no pintar.
+- `SelectorFoto` ×3: limpiar filtros al cambiar de pestaña (movido al manejador del clic),
+  olvidar el fallo de miniatura (comparación en el render), y borrar el resultado al quitar
+  el filtro (ahora se **deriva**: se ignora `resultado` en vez de borrarlo).
+
+Además del render de más, dos de esos dejaban un instante con el estado equivocado en
+pantalla: la pestaña nueva con los filtros de la vieja, y "foto rota" sobre una foto que aún
+no había fallado.
+
+Lint del módulo: **0 errores, 0 avisos**.

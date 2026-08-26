@@ -8,6 +8,8 @@ import { cn } from "@/lib/cn";
 import { miniatura } from "@/lib/contenido/miniatura";
 import { FORMATOS } from "@/lib/contenido/formatos";
 import { duplicarPieza, borrarPieza } from "./actions";
+import { cambiarEstadoPieza } from "./actions";
+import { ESTADOS_PIEZA, ESTADO, type EstadoPiezaId } from "@/lib/contenido/estados";
 
 export type FilaPieza = {
   id: string;
@@ -18,13 +20,6 @@ export type FilaPieza = {
   actualizado: string;
   /** URL pública del primer JPG exportado, si la pieza ya se exportó alguna vez. */
   miniatura: string | null;
-};
-
-const COLOR_ESTADO: Record<string, string> = {
-  borrador: "bg-taupe text-muted",
-  listo: "bg-dorado text-bosque",
-  publicado: "bg-bosque text-white",
-  archivado: "bg-taupe/50 text-muted",
 };
 
 /** Quita tildes y baja a minúsculas: buscar "frances" tiene que encontrar "Francés". */
@@ -143,8 +138,8 @@ export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
                 <div className="px-3.5 py-3">
                   <span className="block text-sm text-fg truncate">{p.titulo}</span>
                   <span className="mt-1.5 flex items-center gap-2 text-[11px] text-muted">
-                    <span className={cn("px-1.5 py-0.5 rounded", COLOR_ESTADO[p.estado] ?? "bg-taupe text-muted")}>
-                      {p.estado}
+                    <span className={cn("px-1.5 py-0.5 rounded", ESTADO[p.estado as EstadoPiezaId]?.clase ?? "bg-taupe text-muted")}>
+                      {ESTADO[p.estado as EstadoPiezaId]?.etiqueta ?? p.estado}
                     </span>
                     <span>{f?.etiqueta ?? p.formato}</span>
                     <span>· {p.n_slides} {p.n_slides === 1 ? "slide" : "slides"}</span>
@@ -153,6 +148,26 @@ export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
               </Link>
 
               <div className="px-3.5 pb-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                <select
+                  value={p.estado}
+                  disabled={pendiente}
+                  aria-label={`Estado de ${p.titulo}`}
+                  onChange={(e) =>
+                    iniciar(async () => {
+                      const r = await cambiarEstadoPieza(p.id, e.target.value);
+                      if ("error" in r && r.error) setAviso(r.error);
+                      else router.refresh();
+                    })
+                  }
+                  className="px-1.5 py-1 rounded border border-border bg-bg-card text-[11px] text-muted"
+                >
+                  {ESTADOS_PIEZA.map((e) => (
+                    <option key={e} value={e}>
+                      {ESTADO[e].etiqueta}
+                    </option>
+                  ))}
+                </select>
+
                 <button
                   type="button"
                   disabled={pendiente}

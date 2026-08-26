@@ -95,7 +95,14 @@ export default function SelectorFoto({
   // subida suelta que se movió), el <img> de acá abajo rompía en silencio: un ícono roto
   // de 64×64 sin texto, indistinguible de "está cargando". Con esto se avisa de verdad.
   const [miniaturaRota, setMiniaturaRota] = useState(false);
-  useEffect(() => setMiniaturaRota(false), [seleccionada?.url]);
+  // Al cambiar de foto se olvida el fallo anterior. Se compara en el render con la url
+  // previa en vez de usar un efecto: un efecto que solo llama a setState renderiza dos
+  // veces y deja un instante mostrando "foto rota" sobre la foto nueva, que aún no falló.
+  const urlPrevia = useRef(seleccionada?.url);
+  if (urlPrevia.current !== seleccionada?.url) {
+    urlPrevia.current = seleccionada?.url;
+    if (miniaturaRota) setMiniaturaRota(false);
+  }
 
   const inputArchivos = useRef<HTMLInputElement>(null);
   const inputCarpeta = useRef<HTMLInputElement>(null);
@@ -109,16 +116,25 @@ export default function SelectorFoto({
     return () => clearTimeout(t);
   }, [texto]);
 
-  // Al cambiar de pestaña se limpian los filtros: los chips de ruta y el estado son propios
-  // de cada fuente, y arrastrar un filtro de una a otra confunde más de lo que ayuda.
-  useEffect(() => {
+  /**
+   * Cambiar de pestaña limpia los filtros: los chips de ruta y el estado son propios de cada
+   * fuente, y arrastrar un filtro de una a otra confunde más de lo que ayuda.
+   *
+   * Se hace AQUÍ y no en un efecto que reaccione a `pestana`. Un efecto que solo llama a
+   * setState se ejecuta DESPUÉS del render, así que provoca un segundo render en cascada
+   * —lo marca `react-hooks/set-state-in-effect`— y durante un instante se pinta la pestaña
+   * nueva con los filtros de la vieja. Limpiar en el manejador es un solo render y no hay
+   * estado intermedio que se vea.
+   */
+  function cambiarPestana(p: Pestana) {
+    setPestana(p);
     setTexto("");
     setTextoDebounced("");
     setRuta(null);
     setEstado("todas");
     setResultado(null);
     setErrorBusqueda(null);
-  }, [pestana]);
+  }
 
   // Chips de ruta: se piden una vez por fuente y se cachean, no hay lista fija en ningún lado.
   useEffect(() => {
@@ -134,20 +150,30 @@ export default function SelectorFoto({
     };
   }, [fuenteActiva]);
 
+  /**
+   * ¿Hay algún filtro puesto? Se deriva en cada render en vez de guardarse: depende solo de
+   * cosas que ya son estado, y guardarla obligaría a mantenerla sincronizada a mano.
+   */
+  const filtrando =
+    textoDebounced.trim() !== "" || ruta !== null || (fuenteActiva === "banco" && estado !== "todas");
+
   // La búsqueda de verdad: solo se dispara si hay algún filtro activo. Sin filtro se ven las
   // listas base (banco/subidas) que ya trajo el editor, para que abrir el modal sea instantáneo.
   useEffect(() => {
-    if (!fuenteActiva) return;
-    const filtrando =
-      textoDebounced.trim() !== "" || ruta !== null || (fuenteActiva === "banco" && estado !== "todas");
-    if (!filtrando) {
-      setResultado(null);
-      setBuscando(false);
-      return;
-    }
+    // `filtrando` se calcula en el render (ver arriba) y aquí solo se lee: si no hay filtro
+    // no se pide nada Y NO SE LIMPIA EL ESTADO. Limpiarlo aquí era un setState dentro del
+    // efecto, o sea un render de más; ahora el render simplemente ignora `resultado`
+    // cuando no se está filtrando, que es la forma derivada del mismo comportamiento.
+    if (!fuenteActiva || !filtrando) return;
     let cancelado = false;
-    setBuscando(true);
-    setErrorBusqueda(null);
+    // El "buscando" se marca en un microtask, no en el cuerpo del efecto: un setState
+    // síncrono ahí encadena un render extra en cada pulsación (react-hooks lo marca), y
+    // esta ruta se dispara mientras el usuario escribe.
+    queueMicrotask(() => {
+      if (cancelado) return;
+      setBuscando(true);
+      setErrorBusqueda(null);
+    });
     buscarFotosAccion({
       fuente: fuenteActiva,
       texto: textoDebounced || undefined,
@@ -170,7 +196,7 @@ export default function SelectorFoto({
     return () => {
       cancelado = true;
     };
-  }, [fuenteActiva, textoDebounced, ruta, estado]);
+  }, [fuenteActiva, textoDebounced, ruta, estado, filtrando]);
 
   // Escape cierra el modal.
   useEffect(() => {
@@ -259,9 +285,12 @@ export default function SelectorFoto({
 
   const listaBase: Array<FotoDelBanco | FotoSubida | FotoBuscada> =
     pestana === "banco" ? [...banco, ...masBanco] : pestana === "subidas" ? [...subidas, ...masSubidas] : [];
-  const listaActiva: Array<FotoDelBanco | FotoSubida | FotoBuscada> = resultado ? resultado.fotos : listaBase;
+  // Con filtro manda la búsqueda; sin filtro, las listas base. Se ignora `resultado` en vez
+  // de borrarlo, para no tocar estado dentro de un efecto.
+  const resultadoVisible = filtrando ? resultado : null;
+  const listaActiva: Array<FotoDelBanco | FotoSubida | FotoBuscada> = resultadoVisible ? resultadoVisible.fotos : listaBase;
   const chipsRuta = fuenteActiva ? (rutas[fuenteActiva] ?? []) : [];
-  const hayMasActual = resultado ? resultado.hayMas : fuenteActiva ? hayMasBase[fuenteActiva] : false;
+  const hayMasActual = resultadoVisible ? resultadoVisible.hayMas : fuenteActiva ? hayMasBase[fuenteActiva] : false;
 
   /**
    * Trae la siguiente tanda: de `resultado` si hay un filtro activo (paginando desde donde
@@ -270,15 +299,15 @@ export default function SelectorFoto({
   async function verMas() {
     if (!fuenteActiva || cargandoMas) return;
 
-    if (resultado) {
-      if (!resultado.hayMas) return;
+    if (resultadoVisible) {
+      if (!resultadoVisible.hayMas) return;
       setCargandoMas(true);
       const r = await buscarFotosAccion({
         fuente: fuenteActiva,
         texto: textoDebounced || undefined,
         ruta,
         estado: fuenteActiva === "banco" ? estado : undefined,
-        desde: resultado.desde,
+        desde: resultadoVisible.desde,
         tamano: TANDA_FOTOS,
       });
       setCargandoMas(false);
@@ -324,7 +353,7 @@ export default function SelectorFoto({
     observador.observe(nodo);
     return () => observador.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [abierto, hayMasActual, pestana, resultado?.desde, masBanco.length, masSubidas.length]);
+  }, [abierto, hayMasActual, pestana, resultadoVisible?.desde, masBanco.length, masSubidas.length]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -388,7 +417,7 @@ export default function SelectorFoto({
                   <button
                     key={id}
                     type="button"
-                    onClick={() => setPestana(id)}
+                    onClick={() => cambiarPestana(id)}
                     className={cn(
                       "px-3 py-1.5 text-xs rounded-md whitespace-nowrap transition",
                       pestana === id ? "bg-bosque text-white" : "text-muted hover:bg-taupe/40 hover:text-fg",
@@ -532,8 +561,8 @@ export default function SelectorFoto({
                         <>
                           <Loader2 size={11} className="animate-spin" /> Buscando…
                         </>
-                      ) : resultado ? (
-                        `${resultado.total} resultado${resultado.total === 1 ? "" : "s"}`
+                      ) : resultadoVisible ? (
+                        `${resultadoVisible.total} resultado${resultadoVisible.total === 1 ? "" : "s"}`
                       ) : null}
                     </span>
                   </div>

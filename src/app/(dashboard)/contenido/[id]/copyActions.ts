@@ -96,6 +96,3 @@ export async function recogerCopy(piezaId: string, trabajoId: number) {
   }
 }
 
-export async function consultarWorker() {
-  return estadoDelWorker();
-}

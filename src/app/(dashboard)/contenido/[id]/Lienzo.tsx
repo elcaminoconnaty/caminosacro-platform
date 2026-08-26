@@ -46,10 +46,10 @@ export default function Lienzo({ formato, slide, indice, mostrarGuias }: LienzoP
   const huella = JSON.stringify({ slide, formato });
 
   useEffect(() => {
-    if (!slide) {
-      setSrc(null);
-      return;
-    }
+    // Sin slide no hay nada que pedir. No se toca el estado aquí: poner el src a null
+    // dentro del efecto dispara un render en cascada (lo marca react-hooks). El propio
+    // render ya decide no pintar cuando no hay slide.
+    if (!slide) return;
 
     if (temporizador.current) clearTimeout(temporizador.current);
     temporizador.current = setTimeout(() => {
@@ -109,7 +109,7 @@ export default function Lienzo({ formato, slide, indice, mostrarGuias }: LienzoP
         className="relative bg-bg-card border border-border rounded-xl overflow-hidden shadow-sm"
         style={{ aspectRatio: `${f.w} / ${f.h}`, width: "100%", maxWidth: 460 }}
       >
-        {src ? (
+        {slide && src ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={src} alt={`Slide ${indice + 1}`} className="w-full h-full object-contain" />
         ) : (

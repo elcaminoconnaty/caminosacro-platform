@@ -15,7 +15,6 @@ export type ExportarProps = {
   hayPendiente: boolean;
 };
 
-const BUCKET = "contenido-piezas";
 const CALIDAD_JPEG = 0.92;
 
 /**

@@ -17,6 +17,8 @@ import TiraSlides from "./TiraSlides";
 import SelectorFoto from "./SelectorFoto";
 import PanelAjustes from "./PanelAjustes";
 import Exportar from "./Exportar";
+import SelectorEstado from "./SelectorEstado";
+import type { EstadoPiezaId } from "@/lib/contenido/estados";
 
 export type EditorProps = {
   piezaId: string;
@@ -29,6 +31,7 @@ export type EditorProps = {
   banco: FotoDelBanco[];
   subidas: FotoSubida[];
   rutas: RutaLista[];
+  estadoInicial: EstadoPiezaId;
 };
 
 // El guardado ya no está en el camino del preview, así que puede esperar tranquilo.
@@ -44,6 +47,7 @@ export default function Editor({
   banco,
   subidas,
   rutas,
+  estadoInicial,
 }: EditorProps) {
   const [slides, setSlides] = useState<Slide[]>(slidesIniciales);
   const [formato, setFormato] = useState<FormatoId>(formatoInicial);
@@ -283,6 +287,7 @@ export default function Editor({
               </option>
             ))}
           </select>
+          <SelectorEstado piezaId={piezaId} estadoInicial={estadoInicial} />
           <Exportar
             piezaId={piezaId}
             titulo={titulo}

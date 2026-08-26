@@ -5,7 +5,6 @@ import { mensajeError } from "@/lib/errors";
 import {
   buscarFotos,
   listarRutasDeFotos,
-  listarSubidas,
   type ConsultaFotos,
   type FotoSubida,
 } from "@/lib/contenido/fotos";
@@ -47,14 +46,6 @@ export async function registrarSubida(datos: {
   return { ok: true as const, foto };
 }
 
-/** Relee las subidas: lo usa el selector tras subir, para verlas sin recargar la página. */
-export async function refrescarSubidas() {
-  try {
-    return { ok: true as const, fotos: await listarSubidas() };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "No se pudieron leer las fotos subidas." };
-  }
-}
 
 /**
  * Una tanda del buscador de fotos. El navegador la llama al abrir el selector, al

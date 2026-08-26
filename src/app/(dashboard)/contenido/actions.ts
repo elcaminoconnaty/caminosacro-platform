@@ -7,6 +7,7 @@ import { mensajeError } from "@/lib/errors";
 import { FORMATO_POR_DEFECTO, esFormatoId } from "@/lib/contenido/formatos";
 import { valoresPorDefecto, plantilla } from "@/lib/contenido/plantillas/registry";
 import type { Slide } from "@/lib/contenido/tipos";
+import { esEstadoPieza } from "@/lib/contenido/estados";
 import { ARRANQUES, type ArranqueId } from "@/lib/contenido/arranques";
 
 function slidesDeArranque(id: ArranqueId): Slide[] {
@@ -87,6 +88,22 @@ export async function renombrarPieza(id: string, titulo: string) {
   const supabase = await createPublicSchemaClient();
   const { error } = await supabase.from("contenido_piezas").update({ titulo: limpio }).eq("id", id);
   if (error) return { error: mensajeError(error) };
+  revalidatePath("/contenido");
+  revalidatePath(`/contenido/${id}`);
+  return { ok: true as const };
+}
+
+/**
+ * Cambiar el estado desde la bandeja, sin abrir la pieza: es donde uno marca varias como
+ * publicadas después de subirlas a Instagram.
+ */
+export async function cambiarEstadoPieza(id: string, estado: string) {
+  if (!esEstadoPieza(estado)) return { error: "Ese estado no existe." };
+
+  const supabase = await createPublicSchemaClient();
+  const { error } = await supabase.from("contenido_piezas").update({ estado }).eq("id", id);
+  if (error) return { error: mensajeError(error) };
+
   revalidatePath("/contenido");
   revalidatePath(`/contenido/${id}`);
   return { ok: true as const };
