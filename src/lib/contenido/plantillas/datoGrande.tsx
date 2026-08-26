@@ -1,7 +1,7 @@
 // Un número que para el scroll. La forma correcta para un solo dato no es un gráfico:
 // es el número escrito grande (lo que la skill dataviz llama "hero number").
 
-import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u } from "../marca";
+import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u, tamanoQueQuepa } from "../marca";
 import { resolverAjustes } from "../ajustes";
 import { esApaisado, type Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
@@ -99,12 +99,15 @@ export function DatoGrande({ f, slide }: { f: Formato; slide: Slide }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: u(18, w) }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: u(14, w) }}>
+          {/* `flexWrap` + `nowrap` en la cifra: el campo es texto libre, no un número
+            garantizado, y al envolver dejaba la unidad flotando encima. Mismo arreglo que
+            ya se hizo en cifra-contexto. */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: u(14, w), flexWrap: "wrap" }}>
             <span
               style={{
                 fontFamily: TIPO.display,
                 fontWeight: 700,
-                fontSize: aj.ut(compacto ? 150 : ESCALA.numeroGigante),
+                fontSize: aj.ut(tamanoQueQuepa(v.numero ?? "", compacto ? 150 : ESCALA.numeroGigante, MEDIDAS.columna / aj.escalaTexto)),
                 color: foto ? PALETA.blanco : PALETA.bosque,
                 lineHeight: 0.86,
               }}
@@ -117,7 +120,10 @@ export function DatoGrande({ f, slide }: { f: Formato; slide: Slide }) {
                   fontFamily: TIPO.display,
                   fontWeight: 700,
                   fontSize: aj.ut(compacto ? 46 : 66),
-                  color: foto ? PALETA.dorado : PALETA.doradoOscuro,
+                  // Medido: el dorado oscuro sobre crema da 1.96:1, ilegible (el mínimo
+                  // es 4.5). Sobre foto velada el oro sí funciona; sobre claro va el verde
+                  // de marca, que da 7.30:1. Misma regla que la bajada de la cabecera.
+                  color: foto ? PALETA.dorado : PALETA.bosqueMedio,
                 }}
               >
                 {v.unidad}

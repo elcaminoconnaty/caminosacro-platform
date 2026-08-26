@@ -4,7 +4,7 @@
 // depende del catálogo de rutas: la comparación es libre, para cualquier cifra del
 // Camino (km, días, peregrinos, años).
 
-import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u } from "../marca";
+import { PALETA, BLANCO, TIPO, ESCALA, MEDIDAS, u, tamanoQueQuepa } from "../marca";
 import { resolverAjustes } from "../ajustes";
 import { esApaisado, type Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
@@ -114,7 +114,7 @@ export function CifraContexto({ f, slide }: { f: Formato; slide: Slide }) {
               style={{
                 fontFamily: TIPO.display,
                 fontWeight: 700,
-                fontSize: aj.ut(compacto ? 140 : 190),
+                fontSize: aj.ut(tamanoQueQuepa(v.cifra ?? "", compacto ? 140 : 190, MEDIDAS.columna / aj.escalaTexto)),
                 color: PALETA.dorado,
                 lineHeight: 0.86,
                 whiteSpace: "nowrap",

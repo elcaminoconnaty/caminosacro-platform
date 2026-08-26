@@ -120,7 +120,7 @@ export function Cabecera({ w, sobreOscuro = true }: { w: number; sobreOscuro?: b
   // Sobre claro, la bajada va en verde de marca (7.30:1), que conserva el carácter.
   const colorBajada = sobreOscuro ? PALETA.dorado : PALETA.bosqueMedio;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: u(18, w) }}>
+    <div style={{ display: "flex", alignItems: "center", gap: u(18, w), flexShrink: 0 }}>
       <div
         style={{
           display: "flex",
@@ -197,6 +197,18 @@ export function Pie({ w, sobreOscuro = true }: { w: number; sobreOscuro?: boolea
   );
 }
 
+/**
+ * Antetítulo en versalitas doradas.
+ *
+ * ⚠️ El envoltorio con `maxWidth` no es decoración. El antetítulo vive en una fila con
+ * `justify-content: space-between` junto a la cabecera, y un texto largo —el nombre de una
+ * ruta, por ejemplo— **se salía por el borde derecho del lienzo** y quedaba cortado. Es el
+ * mismo fallo que ya apareció en el pill de `ficha-bici`, pero allí se arregló solo en esa
+ * plantilla; aquí queda resuelto para las catorce.
+ *
+ * `flexShrink: 1` + `minWidth: 0` es lo que permite que ceda espacio en vez de desbordar;
+ * sin `minWidth: 0` un hijo flex no baja de su ancho de contenido.
+ */
 export function Eyebrow({
   children,
   w,
@@ -207,17 +219,21 @@ export function Eyebrow({
   color?: string;
 }) {
   return (
-    <span
-      style={{
-        fontFamily: TIPO.cuerpo,
-        fontSize: u(ESCALA.eyebrow, w),
-        color,
-        textTransform: "uppercase",
-        letterSpacing: TRACKING_EYEBROW,
-      }}
-    >
-      {children}
-    </span>
+    <div style={{ display: "flex", maxWidth: "48%", flexShrink: 1, minWidth: 0, justifyContent: "flex-end" }}>
+      <span
+        style={{
+          fontFamily: TIPO.cuerpo,
+          fontSize: u(ESCALA.eyebrow, w),
+          color,
+          textTransform: "uppercase",
+          letterSpacing: TRACKING_EYEBROW,
+          textAlign: "right",
+          lineHeight: 1.3,
+        }}
+      >
+        {children}
+      </span>
+    </div>
   );
 }
 

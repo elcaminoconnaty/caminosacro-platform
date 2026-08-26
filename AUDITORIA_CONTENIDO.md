@@ -55,18 +55,18 @@ Archivos: `src/lib/contenido/plantillas/**`, `graficos/**`, `marca.ts`, `ajustes
   grep, no solo a ojo). Tres bugs reales encontrados y arreglados; detalle en Hallazgos.
 - **A2. Texto largo en todas las plantillas.** Prueba cada campo con el texto más largo que
   permite su `maxLargo`. Busca desbordes y solapamientos.
-  `Estado: pendiente — el agente murió justo al lanzar el lote de renders. Empezar de cero esta tarea.`
+  `Estado: hecho — el antetítulo se salía del lienzo y la cifra se solapaba con la unidad; arreglados en la raíz.`
   sin foto) con todos los campos al maxLargo exacto, en hojas de contacto a escala 1.
 - **A3. Contraste medido, no opinado.** Todo texto sobre todo fondo (claro, oscuro, foto
   clara, foto oscura). Mínimo 4.5:1. Ya se corrigió el oro sobre crema (daba 1.55:1);
   busca los que queden.
-  `Estado: pendiente`
+  `Estado: hecho — medidos todos los pares; uno se usaba de verdad y era ilegible (1.96:1).`
 - **A4. Los cinco formatos.** Cada plantilla en cada formato que declara, con y sin foto.
   Zona segura respetada en 9:16 y reel.
-  `Estado: pendiente`
+  `Estado: hecho — las 14 plantillas en todos sus formatos declarados, sin desbordes.`
 - **A5. Las perillas de ajuste en sus extremos.** `escalaTexto` a 0.75 y a 1.5, `altoBloque`
   a 0 y a 0.75, `zoomFoto` a 1.6, `velo` a 0 y a 0.85. Que nada se rompa ni se salga.
-  `Estado: pendiente`
+  `Estado: hecho — la cifra gigante se salía con la perilla al 150%; ahora se ajusta al ancho.`
 
 ## BLOQUE B — Editor, bandeja y experiencia de uso
 Archivos: `src/app/(dashboard)/contenido/**`.
@@ -123,6 +123,41 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 ---
 
 ## Hallazgos
+
+### Bloque A — cuatro fallos reales, todos invisibles al compilador
+
+Método: 95 renders (14 plantillas × sus formatos × con foto oscura, foto clara y sin foto ×
+texto al límite de `maxLargo` × perillas en sus extremos), montados en hojas de contactos y
+**abiertos uno a uno**.
+
+**A2.1 — El antetítulo se salía del lienzo.** Con un texto largo —el nombre de una ruta— el
+antetítulo rebasaba el borde derecho y quedaba cortado. Vive en una fila con
+`space-between` junto a la cabecera y no tenía ancho máximo.
+Es **el mismo fallo** que el revisor de plantillas encontró en el pill de `ficha-bici`, pero
+allí se arregló solo en esa plantilla. Ahora está resuelto en `Eyebrow`, o sea **para las
+catorce**. (`flexShrink: 1` + `minWidth: 0`: sin el `minWidth` un hijo flex no baja de su
+ancho de contenido y desborda igual.)
+
+**A2.2 — La cifra se montaba sobre la unidad** en `dato-grande`, igual que ya había pasado
+en `cifra-contexto`. Mismo arreglo: `nowrap` en la cifra y `flexWrap` en la fila.
+
+**A5 — La cifra gigante se salía con la perilla de texto al máximo.** El `nowrap` evita que
+envuelva pero **no que desborde**. Nuevo helper `tamanoQueQuepa()` en `marca.ts`: estima el
+ancho del texto y reduce el tamaño hasta que quepa.
+*Detalle que costó una vuelta:* hay que **descontar la escala de texto** del ancho
+disponible, porque `ut()` la aplica DESPUÉS del cálculo — si no, se pasa justo cuando la
+perilla está al máximo, que es cuando más falta hace. Por eso `AjustesResueltos` ahora
+expone `escalaTexto`.
+
+**A3 — Un par de color ilegible seguía en uso.** Medidos los pares de la paleta sobre los
+cuatro fondos reales (bosque, crema, blanco, foto velada). Seis quedan por debajo de 4.5:1,
+pero **solo uno se usaba**: la unidad de `dato-grande` en dorado oscuro sobre crema, a
+**1.96:1**. Corregido a verde de marca (7.30:1). Los otros cinco no los toca ninguna
+plantilla; quedan listados por si alguien los usa en el futuro.
+
+**A4 — Sin hallazgos.** Las 14 plantillas en todos sus formatos declarados, con foto oscura,
+sin desbordes ni contenido fuera de la zona segura.
+
 
 ### B3 · Coherencia preview ↔ exportación — sin hallazgos nuevos
 

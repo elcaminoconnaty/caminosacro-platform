@@ -107,3 +107,24 @@ export const MARCA = {
 
 // El tracking amplio del eyebrow y de la bajada de marca, en em.
 export const TRACKING_EYEBROW = "0.12em";
+
+/**
+ * Encoge una cifra gigante para que quepa a lo ancho.
+ *
+ * ⚠️ POR QUÉ HACE FALTA: los campos "cifra" y "número" son texto libre, no números
+ * garantizados. Con `whiteSpace:"nowrap"` —puesto para que la unidad no se monte encima—
+ * una cifra larga **no envuelve, pero tampoco cabe: se sale por el borde del lienzo**. Y con
+ * la perilla de tamaño de texto al máximo (1.5) pasa incluso con cifras cortas.
+ *
+ * Satori no tiene nada tipo "ajustar al ancho", así que se calcula: se estima el ancho de
+ * la cifra (una Caladea Bold ocupa ~0.58 del tamaño por carácter) y, si no cabe en el
+ * espacio disponible, se reduce el tamaño hasta que quepa.
+ */
+export function tamanoQueQuepa(texto: string, tamanoIdeal: number, anchoDisponible: number): number {
+  const chars = Math.max(1, texto.trim().length);
+  const anchoEstimado = chars * tamanoIdeal * 0.58;
+  if (anchoEstimado <= anchoDisponible) return tamanoIdeal;
+  // Nunca por debajo del 40% del ideal: si a ese tamaño sigue sin caber, es que el campo
+  // se está usando para algo que no es una cifra y ahí ya no hay nada que salvar.
+  return Math.max(Math.round(tamanoIdeal * 0.4), Math.floor(anchoDisponible / (chars * 0.58)));
+}

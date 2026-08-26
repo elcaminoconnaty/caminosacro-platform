@@ -58,6 +58,13 @@ const ALTO_BLOQUE_POR_FORMATO: Record<FormatoId, number> = {
 export type AjustesResueltos = {
   /** Tamaño de letra ya escalado. Las plantillas usan esto para todo el texto. */
   ut: (n: number) => number;
+  /**
+   * La escala de texto elegida por el usuario, expuesta a propósito.
+   * Quien calcula un tamaño "que quepa" tiene que DESCONTARLA del ancho disponible: `ut`
+   * la aplica después, así que un cálculo hecho sin tenerla en cuenta se pasa de largo
+   * justo cuando la perilla está al máximo, que es cuando más falta hace que quepa.
+   */
+  escalaTexto: number;
   /** Alto en píxeles de la franja verde. 0 = no dibujarla. */
   altoBloque: number;
   /** Para el `objectPosition` de la foto. */
@@ -86,6 +93,7 @@ export function resolverAjustes(f: Formato, ajustes?: Partial<AjustesSlide> | nu
   return {
     // Se redondea al final para que no se acumulen medios píxeles entre escalas.
     ut: (n: number) => Math.round((n * f.w * a.escalaTexto) / MEDIDAS.anchoBase),
+    escalaTexto: a.escalaTexto,
     altoBloque: Math.round(f.h * fraccion),
     posicionFoto: a.encuadreFoto === "arriba" ? "50% 0%" : a.encuadreFoto === "abajo" ? "50% 100%" : "50% 50%",
     zoomFoto: a.zoomFoto > 1 ? `scale(${a.zoomFoto})` : undefined,
