@@ -125,9 +125,19 @@ async function rendimientoPorPilar(): Promise<{ texto: string; evidencias: Evide
     porPilar.set(p.pilar, acc);
   }
 
-  const filas = [...porPilar.entries()]
+  // Los posts históricos traen pilares que la estrategia YA RETIRÓ: `inspiracion` y
+  // `permiso` son del marco viejo de "permiso emocional", que estrategia.ts prohíbe
+  // expresamente desde entonces. Y el aprendizaje vigente que destiló el bot dice, tal
+  // cual, "prioriza el pilar inspiración" — o sea que el motor le estaba pidiendo a Claude
+  // un pilar que ya no existe en el catálogo.
+  // Se separan: los vigentes guían, los retirados se muestran solo como contexto histórico
+  // y con la advertencia de que no se pueden usar.
+  const vigentes = new Set(PILARES.map((p) => p.id));
+  const todas = [...porPilar.entries()]
     .map(([pilar, a]) => ({ pilar, ...a, porPost: a.n ? a.comercial / a.n : 0 }))
     .sort((a, b) => b.porPost - a.porPost);
+  const filas = todas.filter((f) => vigentes.has(f.pilar));
+  const retirados = todas.filter((f) => !vigentes.has(f.pilar));
 
   const evidencias: Evidencia[] = filas.map((f) => ({
     fuente: "instagram",
@@ -136,15 +146,23 @@ async function rendimientoPorPilar(): Promise<{ texto: string; evidencias: Evide
     senal_debil: f.n < UMBRAL_SENAL,
   }));
 
-  const texto = filas.length
-    ? filas
-        .map(
-          (f) =>
-            `- ${f.pilar}: ${f.porPost.toFixed(1)} acciones comerciales por post sobre n=${f.n}` +
-            (f.n < UMBRAL_SENAL ? " ⚠️ SEÑAL DÉBIL, no afirmes nada con esto" : ""),
-        )
-        .join("\n")
-    : "- todavía no hay posts con métricas";
+  const lineas = filas.map(
+    (f) =>
+      `- ${f.pilar}: ${f.porPost.toFixed(1)} acciones comerciales por post sobre n=${f.n}` +
+      (f.n < UMBRAL_SENAL ? " ⚠️ SEÑAL DÉBIL, no afirmes nada con esto" : ""),
+  );
+
+  if (retirados.length) {
+    lineas.push(
+      "",
+      "PILARES RETIRADOS — aparecen en los posts viejos pero YA NO EXISTEN en la estrategia.",
+      "NO los propongas ni los cites como recomendación, aunque el aprendizaje de abajo los",
+      "nombre: ese aprendizaje se destiló cuando todavía estaban vivos.",
+      ...retirados.map((f) => `- ${f.pilar} (retirado): ${f.porPost.toFixed(1)} por post sobre n=${f.n}`),
+    );
+  }
+
+  const texto = lineas.length ? lineas.join("\n") : "- todavía no hay posts con métricas";
 
   // Cuántos posts tienen métricas de verdad: es el número que decide cuánto pesa Instagram.
   const medidos = filas.reduce((a, f) => a + f.n, 0);
