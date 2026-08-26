@@ -79,7 +79,7 @@ Archivos: `src/app/(dashboard)/contenido/**`.
   vacíos sin mensaje y pantallas en blanco.`
 - **B2. Carreras del autoguardado.** Editar y cambiar de slide, editar y exportar, editar y
   salir, dos pestañas abiertas. Busca pérdidas de datos.
-  `Estado: pendiente`
+  `Estado: hecho — el indicador mentía durante la espera del guardado; arreglado con la carrera incluida.`
 - **B3. Coherencia preview ↔ exportación.** Ya se arreglaron dos divergencias (decisiones
   por píxeles, y la caché envenenada al exportar). Busca las que queden: cualquier cosa que
   el preview enseñe distinto del archivo final.
@@ -123,6 +123,31 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 ---
 
 ## Hallazgos
+
+### B2 · Carreras del autoguardado — el indicador mentía
+
+**El hallazgo:** el rótulo decía **"Guardado" teniendo cambios sin guardar**. El flag que lo
+gobernaba (`guardando`, de `useTransition`) solo es verdadero mientras la petición está EN
+VUELO, no durante los 800 ms de espera previos. En esa ventana el usuario leía "Guardado"
+sobre un texto que aún no había salido hacia la base — y el botón de exportar quedaba
+habilitado.
+
+Ahora hay tres estados honestos: **Guardado · Sin guardar · Guardando…**, y exportar se
+bloquea también con cambios en el aire.
+
+**Y una carrera dentro del propio arreglo**, que conviene dejar escrita porque es fácil de
+introducir: si el usuario sigue escribiendo mientras una petición viaja, al volver esa
+petición marcaría "guardado" pisando los cambios nuevos. Se comprueba `pendiente.current`
+antes de limpiar la marca.
+
+**Lo que ya estaba bien**, comprobado leyendo: cambiar de slide fuerza el guardado
+pendiente; `beforeunload` avisa (y cubre también el título, que otro agente ya había
+arreglado); añadir, duplicar, borrar y mover guardan de inmediato sin pasar por la espera.
+
+**Lo que se deja como está y por qué:** dos pestañas abiertas sobre la misma pieza siguen
+siendo "gana el último que escribe". Detectar conflictos exige versionado optimista y aquí
+hay un solo usuario editando; el coste no se justifica.
+
 
 ### C2 · La cola y el puente — probados contra la base real, no leídos
 

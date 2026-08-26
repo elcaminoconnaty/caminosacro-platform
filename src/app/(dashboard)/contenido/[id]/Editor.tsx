@@ -51,6 +51,15 @@ export default function Editor({
   const [mostrarGuias, setMostrarGuias] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
   const [guardando, iniciarGuardado] = useTransition();
+  /**
+   * Hay cambios escritos que todavía no han salido hacia la base.
+   *
+   * Existe porque `guardando` (el de `useTransition`) solo es verdadero mientras la
+   * petición está EN VUELO, no durante los 800 ms de espera previos. Con solo ese flag, el
+   * indicador decía "Guardado" teniendo cambios sin guardar —le mentía al usuario— y el
+   * botón de exportar quedaba habilitado en esa ventana.
+   */
+  const [sinGuardar, setSinGuardar] = useState(false);
 
   // El título. Antes era un <h1> fijo: `renombrarPieza` existía en `../actions.ts` pero
   // ninguna pantalla la llamaba, así que una pieza creada con el título en blanco (o con
@@ -93,6 +102,10 @@ export default function Editor({
           return;
         }
         setAviso(null);
+        // Solo se da por guardado si NO quedó nada nuevo en el aire mientras esta petición
+        // viajaba: si el usuario siguió escribiendo, marcarlo como guardado sería mentir
+        // otra vez, y esta vez de forma más difícil de ver.
+        if (!pendiente.current) setSinGuardar(false);
       });
     },
     [piezaId],
@@ -102,6 +115,7 @@ export default function Editor({
   const programarGuardado = useCallback(
     (nuevos: Slide[]) => {
       pendiente.current = nuevos;
+      setSinGuardar(true);
       if (temporizador.current) clearTimeout(temporizador.current);
       temporizador.current = setTimeout(() => {
         const aGuardar = pendiente.current;
@@ -255,7 +269,9 @@ export default function Editor({
 
         <div className="flex items-center gap-3">
           {aviso && <span className="text-xs text-dorado-oscuro">{aviso}</span>}
-          <span className="text-xs text-muted">{guardando ? "Guardando…" : "Guardado"}</span>
+          <span className={sinGuardar || guardando ? "text-xs text-dorado-oscuro" : "text-xs text-muted"}>
+            {guardando ? "Guardando…" : sinGuardar ? "Sin guardar" : "Guardado"}
+          </span>
           <select
             value={formato}
             onChange={(e) => cambiarElFormato(e.target.value as FormatoId)}
@@ -272,7 +288,7 @@ export default function Editor({
             titulo={titulo}
             formato={formato}
             slides={slides}
-            hayPendiente={guardando}
+            hayPendiente={guardando || sinGuardar}
           />
         </div>
       </div>
