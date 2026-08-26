@@ -64,6 +64,7 @@ export default function TiraSlides({
                 <button
                   type="button"
                   title="Subir"
+                  aria-label="Subir este slide"
                   disabled={i === 0}
                   onClick={() => onMover(i, -1)}
                   className="p-1 rounded hover:bg-white/20 disabled:opacity-25"
@@ -73,6 +74,7 @@ export default function TiraSlides({
                 <button
                   type="button"
                   title="Bajar"
+                  aria-label="Bajar este slide"
                   disabled={i === slides.length - 1}
                   onClick={() => onMover(i, 1)}
                   className="p-1 rounded hover:bg-white/20 disabled:opacity-25"
@@ -82,6 +84,7 @@ export default function TiraSlides({
                 <button
                   type="button"
                   title="Duplicar"
+                  aria-label="Duplicar este slide"
                   onClick={() => onDuplicar(i)}
                   className="p-1 rounded hover:bg-white/20"
                 >
@@ -90,6 +93,7 @@ export default function TiraSlides({
                 <button
                   type="button"
                   title="Borrar"
+                  aria-label="Borrar este slide"
                   disabled={slides.length === 1}
                   onClick={() => onBorrar(i)}
                   className="p-1 rounded hover:bg-white/20 disabled:opacity-25"

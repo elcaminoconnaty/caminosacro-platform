@@ -87,10 +87,10 @@ Archivos: `src/app/(dashboard)/contenido/**`.
 - **B4. Recorrido completo de uso.** Crear desde cada uno de los 6 arranques, editar, poner
   foto, ajustar, exportar. Anota cada fricción: clics de más, cosas que no se entienden,
   esperas sin aviso.
-  `Estado: pendiente`
+  `Estado: parcial — fricciones anotadas leyendo el flujo; el recorrido a golpe de clic sigue sin hacerse porque exige iniciar sesión.`
 - **B5. Accesibilidad y teclado.** Foco visible, Escape cierra el modal, botones con nombre
   legible, nada que solo se pueda hacer con el ratón.
-  `Estado: pendiente`
+  `Estado: hecho — faltaban los nombres accesibles de los botones de icono; el modal ya estaba bien.`
 
 ## BLOQUE C — Datos, cola, puente y guiones
 Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,tipos,encargo,hashSlide,miniatura}.ts`,
@@ -123,6 +123,51 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 ---
 
 ## Hallazgos
+
+### B5 · Accesibilidad — un hueco, y el resto estaba bien
+
+Los cuatro botones de la tira de slides (subir, bajar, duplicar, borrar) llevaban `title`
+pero no `aria-label`. El `title` da un tooltip al pasar el ratón; **el nombre que lee un
+lector de pantalla es `aria-label`**, así que para alguien navegando con teclado o lector
+eran cuatro botones sin nombre. Añadidos.
+
+Lo demás ya estaba resuelto y conviene reconocerlo: el modal de fotos tiene `role="dialog"`,
+`aria-modal="true"`, cierra con Escape y con clic fuera, y su botón de cerrar tiene nombre.
+
+### B4 · Recorrido de uso — parcial, y digo por qué
+
+Las fricciones que se ven leyendo el flujo están anotadas y varias ya se corrigieron en esta
+misma auditoría (el indicador que mentía, el buscador de la bandeja, el menú de slides
+agrupado, los seis puntos de partida). **El recorrido a golpe de clic no está hecho**:
+exige iniciar sesión con magic link en un navegador y eso no lo puedo hacer yo. Es la única
+tarea del tablero que queda genuinamente sin cubrir, y le corresponde a Nico.
+
+---
+
+## Cierre de la auditoría — 2026-08-26
+
+**14 de 15 tareas cerradas.** La única que queda es el recorrido a clic (B4), que necesita
+sesión de navegador.
+
+**Los hallazgos por gravedad:**
+
+1. 🔴 **El puente reintentaba en bucle infinito** — 4.647 intentos en un solo encargo.
+   Probablemente lo que agotó el límite semanal. Era un bug mío con un comentario que
+   afirmaba una garantía que el código no implementaba.
+2. 🔴 **El archivado de exportaciones no funcionaba** y nadie se enteraba, porque la
+   descarga sí. El bucket estaba vacío; la fase 2 se habría quedado sin archivos.
+3. 🟠 **El editor decía "Guardado" con cambios sin guardar.**
+4. 🟠 **El antetítulo se salía del lienzo** con textos largos — en las 14 plantillas.
+5. 🟠 **La cifra gigante se salía** con la perilla de texto al máximo.
+6. 🟠 **`vozLint` no comprobaba cuatro reglas duras**, entre ellas la de no describir la foto.
+7. 🟡 Un par de color ilegible en uso (1.96:1), la cifra montada sobre la unidad, y cuatro
+   botones sin nombre accesible.
+
+**El patrón que se repite en casi todos:** ninguno lo detecta `tsc`, ni la prueba de humo, ni
+el build. Se encontraron **midiendo** (contraste, ratios), **mirando la imagen** (desbordes,
+legibilidad) o **probando contra la base real** (la cola, el archivado). Un módulo que
+compila y renderiza sin errores puede estar mintiéndole al usuario en cinco sitios a la vez.
+
 
 ### B2 · Carreras del autoguardado — el indicador mentía
 
