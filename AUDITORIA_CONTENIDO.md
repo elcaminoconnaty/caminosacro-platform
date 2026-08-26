@@ -106,7 +106,7 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 - **C2. La cola y el puente.** ¿Qué pasa si el worker muere a mitad, si hay dos trabajos a
   la vez, si el trabajo tarda más de 5 minutos, si el JSON de vuelta viene mal? Verifica el
   rescate de trabajos colgados.
-  `Estado: pendiente — el agente alcanzó a insertar dos trabajos colgados (ids 7 y 8) para probar el rescate y murió antes de comprobarlo. Revisar que la cola quedó limpia antes de seguir.`
+  `Estado: hecho — el bucle infinito era el hallazgo; probados el rescate y el tope contra la base real.`
   'tomado' con tomado_at viejo (contenido_rescatar_trabajos), JSON de vuelta inválido, y
   revisando el log del puente en ~/Library/Logs/caminosacro-puente.log.`
 - **C3. `vozLint` contra la estrategia.** ¿Cubre TODAS las reglas duras del bloque `TONO` de
@@ -123,6 +123,26 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 ---
 
 ## Hallazgos
+
+### C2 · La cola y el puente — probados contra la base real, no leídos
+
+El hallazgo grande de esta tarea fue **el bucle infinito de reintentos** (arriba, en rojo).
+Con el arreglo puesto, se probaron los tres escenarios de verdad:
+
+| Escenario | Cómo se probó | Resultado |
+|---|---|---|
+| Worker caído a mitad | Trabajo `tomado` con fecha de hace 10 min | `contenido_rescatar_trabajos()` lo devolvió a `pendiente` ✓ |
+| Respuesta inválida | Encargo con `schema: {}` | Falló y **el puente se rindió tras 3 intentos** ✓ |
+| Reintento inmediato | El mismo | Espera creciente: *"intento 2, reintento en 27s"* ✓ |
+
+Traza real del log, que es lo que antes no existía:
+```
+[puente] encargo #9 falló (intento 2), reintento en 27s: API Error 400 …
+[puente] encargo #9 ABANDONADO tras 3 intento(s): API Error 400 …
+```
+Antes de esta auditoría, ese mismo encargo habría reintentado **para siempre**, cada 3
+segundos, gastando límite en cada vuelta. Cola limpia después de la prueba.
+
 
 ### C4 · El archivado de exportaciones no funcionaba, y nadie se enteraba
 
