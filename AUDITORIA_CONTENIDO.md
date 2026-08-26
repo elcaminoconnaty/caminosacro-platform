@@ -55,7 +55,8 @@ Archivos: `src/lib/contenido/plantillas/**`, `graficos/**`, `marca.ts`, `ajustes
   grep, no solo a ojo). Tres bugs reales encontrados y arreglados; detalle en Hallazgos.
 - **A2. Texto largo en todas las plantillas.** Prueba cada campo con el texto más largo que
   permite su `maxLargo`. Busca desbordes y solapamientos.
-  `Estado: pendiente`
+  `Estado: en curso` — renderizando cada plantilla × sus formatos × 3 fotos (oscura, clara,
+  sin foto) con todos los campos al maxLargo exacto, en hojas de contacto a escala 1.
 - **A3. Contraste medido, no opinado.** Todo texto sobre todo fondo (claro, oscuro, foto
   clara, foto oscura). Mínimo 4.5:1. Ya se corrigió el oro sobre crema (daba 1.55:1);
   busca los que queden.
