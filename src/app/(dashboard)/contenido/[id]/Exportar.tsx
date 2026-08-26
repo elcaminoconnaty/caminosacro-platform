@@ -5,7 +5,6 @@ import { Download } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase/client";
 import { rutaPiezaJpg, sinBucket } from "@/lib/storage/paths";
 import { FORMATOS, type FormatoId } from "@/lib/contenido/formatos";
-import { hashSlide } from "@/lib/contenido/hashSlide";
 import type { Slide } from "@/lib/contenido/tipos";
 import { registrarExport } from "./exportActions";
 
@@ -22,38 +21,61 @@ const BUCKET = "contenido-piezas";
 const CALIDAD_JPEG = 0.92;
 
 /**
- * Convierte el PNG del endpoint a JPEG usando un <canvas> del navegador.
+ * Pide el PNG del slide y lo devuelve como JPEG.
  *
- * Por qué acá y no en el servidor: `ImageResponse` solo sabe emitir PNG, y una pieza con
- * foto pesa 2.6 MB. El canvas la deja en ~250 KB sin instalar `sharp` ni ningún binario
- * nativo. Y JPEG es además lo único que acepta la Graph API de Instagram, así que la
- * fase 2 ya queda resuelta de paso.
+ * DOS DECISIONES, LAS DOS POR UN BUG REAL:
  *
- * El <img> es del mismo origen, así que el canvas no queda "contaminado" y toBlob puede
- * leerlo.
+ * 1. **Se dibuja desde el estado que hay en pantalla, no desde la base de datos.**
+ *    Antes esto pedía `/api/contenido/piezas/<id>/<n>`, que LEE DE LA BASE, con una URL
+ *    cacheada `immutable` y un hash calculado del estado del CLIENTE. Si el guardado
+ *    automático (800 ms) todavía no había llegado, el servidor devolvía la versión ANTERIOR
+ *    y el navegador la guardaba **para siempre** bajo el hash nuevo. Resultado: editabas,
+ *    exportabas otra vez y bajaba la exportación vieja, para siempre. Ahora se manda el
+ *    slide en el cuerpo al endpoint que no toca la base: lo exportado es, por construcción,
+ *    lo que hay en pantalla.
+ *
+ * 2. **Se descarga el blob y se convierte con `createImageBitmap`, sin pasar por una URL.**
+ *    Un `<img src=...>` vuelve a meter la caché del navegador en la ecuación, que es de
+ *    donde venía el problema. Sin URL no hay nada que cachear.
+ *
+ * La conversión a JPEG sigue haciéndose aquí y no en el servidor porque `ImageResponse`
+ * solo emite PNG y una pieza con foto pesa 1,5 MB; el canvas la deja en unos 250 KB. Y
+ * JPEG es además lo único que acepta la Graph API de Instagram para la fase 2.
  */
-function pngAJpeg(url: string, w: number, h: number): Promise<Blob> {
-  return new Promise((resolver, rechazar) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return rechazar(new Error("El navegador no dio contexto de canvas."));
-      // Fondo blanco: el JPEG no tiene transparencia y sin esto los bordes salen negros.
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob(
-        (blob) => (blob ? resolver(blob) : rechazar(new Error("El canvas no devolvió imagen."))),
-        "image/jpeg",
-        CALIDAD_JPEG,
-      );
-    };
-    img.onerror = () => rechazar(new Error("No se pudo cargar el slide desde el servidor."));
-    img.src = url;
+async function pngAJpeg(
+  cuerpo: { slide: Slide; formato: FormatoId },
+  w: number,
+  h: number,
+): Promise<Blob> {
+  const res = await fetch("/api/contenido/render", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...cuerpo, escala: 1 }),
+    cache: "no-store",
   });
+  if (!res.ok) throw new Error(await res.text());
+
+  const png = await res.blob();
+  const bitmap = await createImageBitmap(png);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("El navegador no dio contexto de canvas.");
+  // Fondo blanco: el JPEG no tiene transparencia y sin esto los bordes salen negros.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+
+  return await new Promise<Blob>((resolver, rechazar) =>
+    canvas.toBlob(
+      (blob) => (blob ? resolver(blob) : rechazar(new Error("El canvas no devolvió imagen."))),
+      "image/jpeg",
+      CALIDAD_JPEG,
+    ),
+  );
 }
 
 function descargar(blob: Blob, nombre: string) {
@@ -95,9 +117,8 @@ export default function Exportar({ piezaId, titulo, formato, slides, hayPendient
 
     try {
       for (let i = 0; i < slides.length; i++) {
-        // Tamaño real, no el 0.5 del preview: esto es el archivo que va a Instagram.
-        const url = `/api/contenido/piezas/${piezaId}/${i}?v=${hashSlide(slides[i], formato)}`;
-        const jpeg = await pngAJpeg(url, f.w, f.h);
+        // Tamaño real, no el del preview: esto es el archivo que va a Instagram.
+        const jpeg = await pngAJpeg({ slide: slides[i], formato }, f.w, f.h);
 
         descargar(jpeg, nombreArchivo(titulo, i));
 

@@ -1173,3 +1173,44 @@ escala y cualquier umbral absoluto miente.
 *Nota sobre la franja: es verde SÓLIDO por diseño, como la portada del PDF de cotización. Si
 lo que se quiere es ver la foto ahí detrás, la perilla "alto de la franja verde" a 0 la quita
 y el texto queda sobre un degradado.*
+
+### 2026-08-25 (tarde) · degradado en la portada y el bug de "exporta la versión vieja"
+
+**1. La franja verde pasa a ser degradado.**
+Nico: *"quisiera que fuera más una franja degradada que abajo sea 100 oscuro y arriba sea
+0%, y que yo pueda subir o bajar eso"*. Era un rectángulo de verde macizo con corte recto,
+heredado de la portada del PDF; en pantalla ese corte parte la foto en dos.
+Ahora es `linear-gradient(180deg, rgba(26,58,42,0) 0%, …0.72 50%, …1 100%)`. El punto
+intermedio no es decorativo: un 0→100 perfectamente lineal deja el titular sobre un 55-65%
+de opacidad y contra una foto clara se lee mal; llegando a 0.72 en la mitad, el texto —que
+vive abajo— siempre cae sobre verde casi macizo y arriba sigue empezando en cero.
+La perilla pasó a llamarse **"Hasta dónde sube el verde"** y su tope subió de 0.5 a **0.75**:
+ahora que se funde con la foto, cubrir más no ensucia la imagen.
+
+**2. El bug de exportar: "si edito y vuelvo a exportar, me baja la exportación inicial".**
+
+Causa, y es de manual: la exportación pedía `/api/contenido/piezas/<id>/<n>`, que **lee de la
+base de datos**, con la cabecera `Cache-Control: immutable` y un `?v=<hash>` calculado del
+estado del **cliente**. Si el guardado automático (800 ms de espera) todavía no había
+llegado cuando se pulsaba Exportar:
+
+1. el hash ya reflejaba lo editado → URL nueva;
+2. el servidor leía la base → devolvía la versión **anterior**;
+3. el navegador guardaba esa versión vieja **bajo el hash nuevo, y `immutable`** → un año.
+
+A partir de ahí, esa combinación de contenido quedaba envenenada para siempre. No era una
+carrera que se arreglara reintentando: era permanente.
+
+**Arreglado por construcción**, no parcheando la caché:
+- La exportación ahora **manda el slide en el cuerpo** al endpoint que NO toca la base
+  (el mismo del preview). Lo exportado es, por definición, lo que hay en pantalla.
+- Se descarga el **blob** y se convierte con `createImageBitmap`, **sin pasar por una URL**:
+  sin URL no hay caché que envenenar. (Antes iba por `new Image()`.)
+- La **miniatura de la bandeja** tenía el mismo bug por el otro lado: el JPG se sube siempre
+  a la misma ruta con `upsert`, así que su URL no cambia aunque el contenido sí, y el
+  optimizador de imágenes la cachea un mes. Ahora lleva `?v=<exportado_at>`.
+
+**Lección:** `immutable` solo es seguro si la URL identifica el CONTENIDO. Aquí el hash
+venía del cliente y el contenido del servidor: dos fuentes distintas bajo una misma
+promesa de inmutabilidad. Si las dos puntas no comparten la misma fuente, no se puede
+prometer inmutable.

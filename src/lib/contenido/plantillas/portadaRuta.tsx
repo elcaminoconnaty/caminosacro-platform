@@ -138,14 +138,22 @@ export function PortadaRuta({ f, slide }: { f: Formato; slide: Slide }) {
           bottom: 0,
           width: f.w,
           minHeight: altoBloque,
-          // Con la franja bajada a cero el texto queda sobre la foto: el degradado de
-          // abajo es lo único que lo mantiene legible.
-          backgroundColor: compacto || altoBloque === 0 ? "transparent" : PALETA.bosque,
-          // Misma regla que con `transform`: Satori revienta si la propiedad existe con
-          // valor `undefined`. Hay que omitirla con spread condicional.
-          ...(!compacto && altoBloque === 0
-            ? { backgroundImage: "linear-gradient(180deg, rgba(26,58,42,0) 0%, rgba(26,58,42,0.85) 55%)" }
-            : {}),
+          // DEGRADADO, no franja sólida (cambiado el 2026-08-25 a petición de Nico:
+          // "que abajo sea 100 oscuro y arriba sea 0%").
+          //
+          // Antes era un rectángulo de verde macizo con un corte recto, heredado de la
+          // portada del PDF. En pantalla ese corte se ve duro y parte la foto en dos. Con
+          // el degradado la imagen se funde en el verde y se ve más foto.
+          //
+          // El punto intermedio al 50% no es decorativo: un 0→100 perfectamente lineal deja
+          // el titular sobre un 55-65% de opacidad y, contra una foto clara, se lee mal.
+          // Llegando a 0.72 en la mitad, el texto —que vive en la parte baja— siempre cae
+          // sobre verde casi macizo, y arriba sigue empezando en cero.
+          //
+          // El ALTO lo manda la perilla "alto del degradado": súbela y el verde trepa,
+          // bájala a cero y prácticamente desaparece.
+          backgroundImage:
+            "linear-gradient(180deg, rgba(26,58,42,0) 0%, rgba(26,58,42,0.72) 50%, rgba(26,58,42,1) 100%)",
           paddingLeft: m,
           paddingRight: m,
           paddingTop: u(compacto ? 0 : 40, w),

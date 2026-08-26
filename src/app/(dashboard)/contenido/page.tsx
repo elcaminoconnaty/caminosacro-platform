@@ -16,7 +16,7 @@ export default async function ContenidoPage() {
   const [{ data, error }, { data: ideasData }, worker] = await Promise.all([
     supabase
       .from("contenido_piezas")
-      .select("id,titulo,formato,estado,slides,updated_at,export_paths")
+      .select("id,titulo,formato,estado,slides,updated_at,export_paths,exportado_at")
       .neq("estado", "archivado")
       .order("updated_at", { ascending: false })
       // 27 rutas + bicis + lo que se cree a mano: 60 se quedaba corto y cortaba la lista
@@ -44,7 +44,14 @@ export default async function ContenidoPage() {
       estado: p.estado,
       n_slides: leerSlides(p.slides).slides.length,
       actualizado: p.updated_at,
-      miniatura: rutas[0] ? `${base}${rutas[0]}` : null,
+      // El archivo exportado se sube SIEMPRE a la misma ruta (upsert), así que su URL no
+      // cambia aunque el contenido sí. Sin este sufijo, la miniatura se quedaba mostrando
+      // la primera exportación durante un mes entero, que es lo que dura la caché del
+      // optimizador de imágenes. Es el mismo bug que hacía descargar la exportación vieja,
+      // pero por el otro lado.
+      miniatura: rutas[0]
+        ? `${base}${rutas[0]}${p.exportado_at ? `?v=${Date.parse(p.exportado_at)}` : ""}`
+        : null,
     };
   });
 

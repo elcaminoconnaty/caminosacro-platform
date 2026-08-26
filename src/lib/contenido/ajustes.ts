@@ -19,10 +19,12 @@ export const AjustesSlideSchema = z.object({
   /** Multiplica el tamaño de TODO el texto del slide. */
   escalaTexto: z.number().min(0.75).max(1.5).default(1),
   /**
-   * Alto de la franja verde, como fracción del alto del lienzo. `null` = el valor por
-   * defecto del formato. 0 = sin franja, se ve la foto entera.
+   * Hasta dónde sube el degradado verde, como fracción del alto del lienzo. `null` = el
+   * valor por defecto del formato. 0 = casi nada de verde, se ve la foto entera.
+   * El tope subió de 0.5 a 0.75 al pasar de franja sólida a degradado: ahora que se funde
+   * con la foto, cubrir más no ensucia la imagen.
    */
-  altoBloque: z.number().min(0).max(0.5).nullable().default(null),
+  altoBloque: z.number().min(0).max(0.75).nullable().default(null),
   /** Qué parte de la foto se ve cuando no cabe entera. */
   encuadreFoto: z.enum(["arriba", "centro", "abajo"]).default("centro"),
   /** Acercar la foto, de 1 (entera) a 1.6. */
@@ -106,11 +108,11 @@ export const CONTROLES_AJUSTE = [
   },
   {
     id: "altoBloque" as const,
-    etiqueta: "Alto de la franja verde",
+    etiqueta: "Hasta dónde sube el verde",
     min: 0,
-    max: 0.5,
+    max: 0.75,
     paso: 0.01,
-    formato: (v: number) => (v === 0 ? "sin franja" : `${Math.round(v * 100)}% del alto`),
+    formato: (v: number) => (v === 0 ? "casi nada" : `${Math.round(v * 100)}% del alto`),
     soloConFranja: true,
   },
   {
