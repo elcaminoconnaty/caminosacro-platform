@@ -115,14 +115,44 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 - **C4. Integridad de datos.** Piezas con `ruta_id` de rutas desactivadas, `export_paths`
   apuntando a archivos que ya no existen, fotos en `contenido_fotos` sin archivo detrás,
   trabajos viejos acumulándose. Limpia lo que sobre.
-  `Estado: pendiente`
+  `Estado: hecho — el bucket de exportaciones estaba VACÍO pese a haberse exportado; el resto, íntegro.`
 - **C5. Los guiones sembradores.** ¿Siguen siendo idempotentes? Córrelos dos veces y
   comprueba que no duplican ni ensucian.
-  `Estado: pendiente`
+  `Estado: hecho — los dos sembradores son idempotentes de verdad, comprobado corriéndolos otra vez.`
 
 ---
 
 ## Hallazgos
+
+### C4 · El archivado de exportaciones no funcionaba, y nadie se enteraba
+
+**El bucket `contenido-piezas` estaba VACÍO** pese a que ya se habían exportado piezas —los
+JPG descargados están en la carpeta de Descargas—. Y las 30 piezas tenían `exportado_at` en
+`null`.
+
+**Por qué pasaba desapercibido, que es lo importante:** la exportación hace dos cosas —
+descargar y archivar—. La descarga funcionaba, así que todo *parecía* bien; el fallo del
+archivado se iba a un aviso lateral que se pierde entre el resto. Dos consecuencias calladas:
+las miniaturas de la bandeja **nunca** usaban el JPG (siempre volvían a renderizar, que es
+justo lo que se había optimizado) y la **fase 2 se habría encontrado sin archivos que
+publicar** en Instagram.
+
+**Arreglado quitando la causa de raíz**, no diagnosticándola: el archivado pasa a hacerlo el
+**servidor** con la service_role, en vez del navegador con la sesión del usuario. Así no
+depende de las políticas de Storage ni de que la sesión llegue bien. Se puede hacer aquí y
+no con las fotos porque un JPG exportado ronda los 250 KB y cabe de sobra en el
+`bodySizeLimit` de 15 MB — que es exactamente lo que NO permitía subir así una carpeta de
+fotos de cámara.
+
+Resto de la integridad, limpio: 0 piezas apuntando a rutas desactivadas, 0 títulos
+duplicados, 7 fotos del estudio todas con su archivo, ideas y cola sin basura.
+
+### C5 · Los sembradores son idempotentes — comprobado, no supuesto
+
+Corridos por segunda vez sobre la base real: **"0 piezas creadas, 27 actualizadas"** y el de
+bicis actualizó las suyas en vez de duplicarlas. Después: 30 piezas, 0 títulos duplicados,
+todas entre 4 y 10 slides.
+
 
 ### Bloque A — cuatro fallos reales, todos invisibles al compilador
 

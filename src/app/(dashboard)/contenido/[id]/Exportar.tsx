@@ -2,11 +2,9 @@
 
 import { useState } from "react";
 import { Download } from "lucide-react";
-import { createPublicClient } from "@/lib/supabase/client";
-import { rutaPiezaJpg, sinBucket } from "@/lib/storage/paths";
 import { FORMATOS, type FormatoId } from "@/lib/contenido/formatos";
 import type { Slide } from "@/lib/contenido/tipos";
-import { registrarExport } from "./exportActions";
+import { archivarSlide, registrarExport } from "./exportActions";
 
 export type ExportarProps = {
   piezaId: string;
@@ -78,6 +76,20 @@ async function pngAJpeg(
   );
 }
 
+/** El JPEG viaja a la Server Action como base64: es lo que acepta un argumento serializable. */
+function blobABase64(blob: Blob): Promise<string> {
+  return new Promise((resolver, rechazar) => {
+    const lector = new FileReader();
+    lector.onload = () => {
+      const s = String(lector.result);
+      // `data:image/jpeg;base64,XXXX` → solo la parte de datos.
+      resolver(s.slice(s.indexOf(",") + 1));
+    };
+    lector.onerror = () => rechazar(new Error("No se pudo leer el JPEG."));
+    lector.readAsDataURL(blob);
+  });
+}
+
 function descargar(blob: Blob, nombre: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -112,7 +124,6 @@ export default function Exportar({ piezaId, titulo, formato, slides, hayPendient
     setListo(null);
     setEstado({ hechas: 0, total: slides.length });
 
-    const supabase = createPublicClient();
     const rutas: string[] = [];
 
     try {
@@ -122,14 +133,12 @@ export default function Exportar({ piezaId, titulo, formato, slides, hayPendient
 
         descargar(jpeg, nombreArchivo(titulo, i));
 
-        const rutaConBucket = rutaPiezaJpg(piezaId, i);
-        const { error } = await supabase.storage
-          .from(BUCKET)
-          .upload(sinBucket(rutaConBucket), jpeg, { contentType: "image/jpeg", upsert: true });
-
-        // Que falle la subida no debe arruinar la descarga: el usuario ya tiene su archivo.
-        if (error) setAviso(`Se descargó todo, pero no se pudo archivar en Storage: ${error.message}`);
-        else rutas.push(rutaConBucket);
+        // El archivado va por el servidor: la subida desde el navegador fallaba en
+        // silencio y el bucket quedaba vacío. Ver la cabecera de exportActions.ts.
+        const b64 = await blobABase64(jpeg);
+        const r = await archivarSlide(piezaId, i, b64);
+        if ("error" in r && r.error) setAviso(r.error);
+        else if ("ruta" in r && r.ruta) rutas.push(r.ruta);
 
         setEstado({ hechas: i + 1, total: slides.length });
       }
