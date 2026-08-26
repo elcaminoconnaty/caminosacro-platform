@@ -72,7 +72,9 @@ Archivos: `src/app/(dashboard)/contenido/**`.
 - **B1. Estados de error y de vacío.** ¿Qué se ve si falla el guardado, si la foto ya no
   existe, si la pieza no tiene slides, si el catálogo no responde? Que nunca haya una
   pantalla muda ni un error críptico.
-  `Estado: pendiente`
+  `Estado: en curso — revisando actions.ts, Editor.tsx, PanelCampos.tsx, SelectorFoto.tsx,
+  Exportar.tsx, PiezasGrid.tsx y los page.tsx del bloque B en busca de catch mudos, estados
+  vacíos sin mensaje y pantallas en blanco.`
 - **B2. Carreras del autoguardado.** Editar y cambiar de slide, editar y exportar, editar y
   salir, dos pestañas abiertas. Busca pérdidas de datos.
   `Estado: pendiente`
