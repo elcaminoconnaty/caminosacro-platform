@@ -10,8 +10,11 @@ import { resolverAjustes } from "../ajustes";
 import { esApaisado, type Formato } from "../formatos";
 import type { Slide, DefinicionPlantilla } from "../tipos";
 import { Concha, Pie, Eyebrow, Filete } from "./_lockups";
-
-const WHATSAPP_CLARA = "+57 304 663 7964";
+// El WhatsApp y el nombre de Clara NO se hardcodean acá: antes vivían duplicados en una
+// constante local, un número aparte de la fuente de verdad de `estrategia.ts` (que a su
+// vez es la copia vendorizada del otro repo). Dos copias del mismo dato solo pueden
+// desincronizarse — es el mismo problema por el que el smoke vigila HASHTAGS/RUTAS/PILARES.
+import { MARCA as MARCA_VOZ } from "../estrategia";
 
 export const definicion: DefinicionPlantilla = {
   id: "cierre-cta",
@@ -147,7 +150,7 @@ export function CierreCta({ f, slide }: { f: Formato; slide: Slide }) {
                 color: PALETA.dorado,
               }}
             >
-              {`Escríbele a Clara · WhatsApp ${WHATSAPP_CLARA}`}
+              {`Escríbele a ${MARCA_VOZ.asistente} · WhatsApp ${MARCA_VOZ.whatsapp}`}
             </span>
           </div>
           <Pie w={w} />

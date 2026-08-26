@@ -61,16 +61,23 @@ export function PreguntaGrande({ f, slide }: { f: Formato; slide: Slide }) {
       ) : (
         <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: FONDO_SIN_FOTO }} />
       )}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: f.w,
-          height: f.h,
-          ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
-        }}
-      />
+      {/*
+        Solo con foto: aplicado siempre —como estaba— este velo tapaba casi por completo
+        el degradado FONDO_SIN_FOTO de cuando no hay foto (mismo bug medido en
+        testimonio.tsx). Sin foto no hay nada que atenuar.
+      */}
+      {foto ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
+          }}
+        />
+      ) : null}
 
       <div
         style={{

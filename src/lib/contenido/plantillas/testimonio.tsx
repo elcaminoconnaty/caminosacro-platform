@@ -54,17 +54,25 @@ export function Testimonio({ f, slide }: { f: Formato; slide: Slide }) {
       ) : (
         <div style={{ position: "absolute", top: 0, left: 0, width: f.w, height: f.h, backgroundImage: FONDO_SIN_FOTO }} />
       )}
-      {/* Sobre un testimonio la foto va más apagada que en la portada: manda el texto. */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: f.w,
-          height: f.h,
-          ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
-        }}
-      />
+      {/*
+        Sobre un testimonio la foto va más apagada que en la portada: manda el texto.
+        Solo con foto: sin ella el fondo ya es FONDO_SIN_FOTO (un degradado sutil bosque→
+        bosqueMedio), y este mismo velo aplicado siempre —como estaba— lo tapaba casi por
+        completo (medido: 27,61,44 en una esquina contra 28,62,45 en la otra, el degradado
+        quedaba invisible). Mismo criterio que portada-ruta y cierre-cta.
+      */}
+      {foto ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: f.w,
+            height: f.h,
+            ...(veloPropio ? { backgroundImage: aj.overlay } : { backgroundColor: "rgba(26,58,42,0.72)" }),
+          }}
+        />
+      ) : null}
 
       <div
         style={{

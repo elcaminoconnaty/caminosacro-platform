@@ -119,7 +119,7 @@ export function EtapasRuta({ f, slide }: { f: Formato; slide: Slide }) {
         >
           {v.titular ?? ""}
         </span>
-        <Barras datos={barras} w={w} />
+        <Barras datos={barras} w={w} ut={aj.ut} />
         {resto > 0 && (
           <span style={{ fontFamily: TIPO.cuerpo, fontSize: aj.ut(24), color: BLANCO.bajo }}>
             {`y ${resto} ${resto === 1 ? "etapa más" : "etapas más"}`}

@@ -20,17 +20,28 @@ export type Barra = { etiqueta: string; valor: number; sufijo?: string };
 export function Barras({
   datos,
   w,
+  ut,
   altoBarra = 30,
   separacion = 14,
 }: {
   datos: Barra[];
   w: number;
+  /**
+   * Tamaño de letra ya escalado por la perilla `escalaTexto` del slide (ver
+   * `resolverAjustes` en `ajustes.ts`). Opcional y con `u(·, w)` de respaldo para que
+   * nada rompa si algún día hay una segunda llamada sin ajustes a mano (hoy solo la
+   * usa etapas-ruta.tsx, que sí lo pasa) — pero SIN esto la perilla "tamaño del texto"
+   * no tenía ningún efecto sobre los rótulos del gráfico, solo sobre el resto del slide.
+   */
+  ut?: (n: number) => number;
   altoBarra?: number;
   separacion?: number;
 }) {
+  const escala = ut ?? ((n: number) => u(n, w));
+
   if (datos.length === 0) {
     return (
-      <span style={{ fontFamily: TIPO.cuerpo, fontSize: u(24, w), color: BLANCO.bajo }}>
+      <span style={{ fontFamily: TIPO.cuerpo, fontSize: escala(24), color: BLANCO.bajo }}>
         Esta ruta todavía no tiene etapas cargadas en el catálogo.
       </span>
     );
@@ -46,7 +57,7 @@ export function Barras({
             <span
               style={{
                 fontFamily: TIPO.cuerpo,
-                fontSize: u(25, w),
+                fontSize: escala(25),
                 color: BLANCO.alto,
               }}
             >
@@ -56,7 +67,7 @@ export function Barras({
               style={{
                 fontFamily: TIPO.cuerpo,
                 fontWeight: 700,
-                fontSize: u(25, w),
+                fontSize: escala(25),
                 color: PALETA.dorado,
               }}
             >
