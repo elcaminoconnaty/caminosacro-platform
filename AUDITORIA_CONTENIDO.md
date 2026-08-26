@@ -97,7 +97,9 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 - **C1. Fallos silenciosos.** Busca todo `catch` que se trague un error, todo `?? []` que
   convierta un fallo en "no hay datos", toda consulta cuyo error no se muestre. Un módulo
   que miente en silencio es peor que uno que se cae.
-  `Estado: pendiente`
+  `Estado: en curso — recorriendo cola.ts, ideas.ts, copy.ts, claude.ts, vozLint.ts, datos.ts,
+  fotos.ts, export.ts, tipos.ts, encargo.ts, hashSlide.ts, miniatura.ts en busca de catch
+  mudos, ?? [] / ?? null que oculten fallos y consultas sin chequear error.`
 - **C2. La cola y el puente.** ¿Qué pasa si el worker muere a mitad, si hay dos trabajos a
   la vez, si el trabajo tarda más de 5 minutos, si el JSON de vuelta viene mal? Verifica el
   rescate de trabajos colgados.
