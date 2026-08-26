@@ -51,7 +51,8 @@ Archivos: `src/lib/contenido/plantillas/**`, `graficos/**`, `marca.ts`, `ajustes
 - **A1. Coherencia visual entre las 14 plantillas.** ¿Mismos márgenes, mismos tamaños para
   el mismo papel, la cabecera y el pie siempre en el mismo sitio? Renderiza una hoja de
   contactos y compáralas de verdad.
-  `Estado: pendiente`
+  `Estado: en curso` — hoja de contactos de las 14 en 4x5 (con y sin foto), midiendo
+  píxeles de fondo con Python en vez de opinar a ojo.
 - **A2. Texto largo en todas las plantillas.** Prueba cada campo con el texto más largo que
   permite su `maxLargo`. Busca desbordes y solapamientos.
   `Estado: pendiente`
