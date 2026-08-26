@@ -78,6 +78,25 @@ function contarEmojis(texto: string): number {
   return (texto.match(re) ?? []).length;
 }
 
+/**
+ * Describir la imagen está PROHIBIDO en el bloque TONO: "nada de 'en esta foto', 'esta
+ * vista', 'este paisaje', 'mira cómo', el clima, la hora, la persona, lo que hace".
+ *
+ * La razón es de negocio, no de estilo: el caption tiene que valer por sí solo. Un texto
+ * que narra la foto se queda sin nada que decir en cuanto la foto cambia, y no vende.
+ * Esta regla no se estaba comprobando en absoluto.
+ */
+const DESCRIBE_LA_IMAGEN = [
+  "en esta foto", "esta foto", "en la foto", "la foto de arriba",
+  "en esta imagen", "esta imagen", "en la imagen",
+  "esta vista", "este paisaje", "este lugar de la foto",
+  "mira como", "miren como", "como ves", "como puedes ver", "aqui vemos", "aqui se ve",
+  "la persona de la foto", "ellos estan", "el de la foto",
+];
+
+/** El emoji va "solo en el cierre": uno a mitad del texto rompe la regla igual. */
+const COLA_DEL_TEXTO = 90;
+
 export function revisarVoz(caption: string, hashtags: string): Hallazgo[] {
   const hallazgos: Hallazgo[] = [];
   const plano = normalizar(caption);
@@ -147,6 +166,56 @@ export function revisarVoz(caption: string, hashtags: string): Hallazgo[] {
       detalle: `Hay ${n}. La voz permite uno solo, opcional, y solo al cierre.`,
       gravedad: "error",
     });
+  }
+
+  // 5b. El emoji de la mochila está prohibido por su nombre en el bloque TONO, junto al
+  // checklist con viñetas: son las dos marcas del post-folleto que hace la competencia.
+  if (/\u{1F392}/u.test(caption)) {
+    hallazgos.push({
+      regla: "Sin el emoji de mochila",
+      detalle: "Aparece 🎒. estrategia.ts lo prohíbe por su nombre, junto al checklist con viñetas.",
+      gravedad: "error",
+    });
+  }
+
+  // 5c. El emoji permitido va SOLO en el cierre. Uno a mitad del texto incumple igual,
+  // aunque sea el único.
+  if (n === 1 && caption.length > COLA_DEL_TEXTO) {
+    const re = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+    const pos = caption.search(re);
+    if (pos >= 0 && pos < caption.length - COLA_DEL_TEXTO) {
+      hallazgos.push({
+        regla: "El emoji va al cierre",
+        detalle: "El emoji está a mitad del texto. La voz lo permite solo al final.",
+        gravedad: "aviso",
+      });
+    }
+  }
+
+  // 5d. Describir la imagen.
+  for (const f of DESCRIBE_LA_IMAGEN) {
+    if (plano.includes(f)) {
+      hallazgos.push({
+        regla: "No describas la foto",
+        detalle: `Aparece "${f}". El caption tiene que valer sin la imagen: si la narra, se queda sin nada que decir cuando la foto cambia.`,
+        gravedad: "error",
+      });
+      break;
+    }
+  }
+
+  // 5e. La prueba social solo admite "+200": cualquier otra cifra es inventada.
+  const cifras = caption.match(/\+\s?(\d{2,5})/g) ?? [];
+  for (const c of cifras) {
+    const num = c.replace(/\D/g, "");
+    if (num !== "200") {
+      hallazgos.push({
+        regla: "Solo la cifra +200",
+        detalle: `Aparece "${c.trim()}". estrategia.ts dice: no inventes cifras distintas a "+200".`,
+        gravedad: "error",
+      });
+      break;
+    }
   }
 
   // 6. Signos de exclamación en el cierre: el CTA va sin ellos.

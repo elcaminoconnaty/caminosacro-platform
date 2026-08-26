@@ -83,7 +83,7 @@ Archivos: `src/app/(dashboard)/contenido/**`.
 - **B3. Coherencia preview ↔ exportación.** Ya se arreglaron dos divergencias (decisiones
   por píxeles, y la caché envenenada al exportar). Busca las que queden: cualquier cosa que
   el preview enseñe distinto del archivo final.
-  `Estado: pendiente`
+  `Estado: hecho — sin divergencias nuevas; las dos que había ya estaban arregladas.`
 - **B4. Recorrido completo de uso.** Crear desde cada uno de los 6 arranques, editar, poner
   foto, ajustar, exportar. Anota cada fricción: clics de más, cosas que no se entienden,
   esperas sin aviso.
@@ -111,7 +111,7 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
   revisando el log del puente en ~/Library/Logs/caminosacro-puente.log.`
 - **C3. `vozLint` contra la estrategia.** ¿Cubre TODAS las reglas duras del bloque `TONO` de
   `estrategia.ts`? Lista las que falten y añádelas. Prueba con copys reales.
-  `Estado: pendiente`
+  `Estado: hecho — faltaban cuatro reglas duras, añadidas y probadas.`
 - **C4. Integridad de datos.** Piezas con `ruta_id` de rutas desactivadas, `export_paths`
   apuntando a archivos que ya no existen, fotos en `contenido_fotos` sin archivo detrás,
   trabajos viejos acumulándose. Limpia lo que sobre.
@@ -123,6 +123,50 @@ Archivos: `src/lib/contenido/{cola,ideas,copy,claude,vozLint,datos,fotos,export,
 ---
 
 ## Hallazgos
+
+### B3 · Coherencia preview ↔ exportación — sin hallazgos nuevos
+
+Comprobado renderizando **8 combinaciones** de plantilla × formato × con y sin foto, cada
+una a escala 0.35 (preview) y 1 (exportación), con el texto al límite de su `maxLargo` —
+que es donde el corte de línea se vuelve frágil.
+
+**Aviso sobre la medición, porque casi me engaña:** comparar píxeles da un 5-9% de
+diferencia en todos los casos, y parece grave. No lo es: al ampliar el preview de 378 a
+1080 el texto se difumina y *cada* píxel de letra cambia. Mirando las imágenes lado a lado,
+los cortes de línea, las posiciones y la maqueta son **idénticos**. La métrica de píxeles no
+sirve para esto; hay que mirar.
+
+Las dos divergencias reales que había ya estaban arregladas antes de esta auditoría: las
+decisiones de maqueta por píxeles absolutos y la caché envenenada al exportar.
+
+**Diferencia que queda y es por diseño:** la miniatura de la bandeja se dibuja desde lo
+GUARDADO, mientras el preview del editor dibuja lo que hay en pantalla. Con cambios sin
+guardar, la bandeja enseña la versión anterior. Es correcto —la bandeja muestra el estado
+persistido— pero conviene saberlo.
+
+### C3 · `vozLint` contra el bloque TONO — cuatro reglas duras faltaban
+
+El revisor cubría markdown, listas, frases prohibidas, voseo, usted, número de emojis,
+exclamaciones, hashtags y largo. Comparado línea por línea contra `TONO`, **faltaban**:
+
+1. **Describir la imagen.** `TONO` lo prohíbe expresamente: *"nada de 'en esta foto', 'esta
+   vista', 'este paisaje', 'mira cómo', el clima, la hora, la persona, lo que hace"*. **No se
+   comprobaba en absoluto.** Es la más importante de las cuatro y la razón es de negocio: un
+   caption que narra la foto se queda sin nada que decir en cuanto la foto cambia.
+2. **El emoji 🎒**, prohibido por su nombre junto al checklist con viñetas — son las dos
+   marcas del post-folleto de la competencia. Se contaban los emojis pero no se miraba cuál.
+3. **El emoji va SOLO en el cierre.** Se contaba que hubiera uno, no dónde estaba.
+4. **La prueba social solo admite "+200".** `TONO`: *"no inventes nombres propios ni cifras
+   distintas a +200"*. Un "+500 peregrinos" pasaba sin más.
+
+Añadidas y probadas con cinco casos: los cuatro incumplimientos se cazan y un copy correcto
+pasa limpio.
+
+**Lo que `vozLint` NO puede comprobar, y conviene tenerlo escrito** para no confiarse: que
+el post venda en prosa, que sea específico y no genérico, que no siga la plantilla rígida de
+marketing, que no invente precios o fechas, y que la urgencia sea real. Eso es juicio, no
+forma, y se queda del lado del modelo y de quien revisa.
+
 
 ### 🔴 EL BUG MÁS CARO DE TODOS — el puente reintentaba en bucle infinito (2026-08-26)
 
