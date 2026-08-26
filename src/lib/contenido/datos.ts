@@ -28,11 +28,18 @@ export type EtapaRuta = { dia: number; desde: string; hasta: string; km: number 
 
 export async function listarRutas(): Promise<RutaLista[]> {
   const supabase = await createCommercialClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("routes")
     .select("id,name,km,days,stages,difficulty")
     .eq("active", true)
     .order("name");
+
+  // Único llamador: el Server Component de la página del editor (sin try/catch propio,
+  // como el resto de la carga inicial de esa página). Un selector de rutas vacío por una
+  // consulta rota se ve IGUAL que "no hay rutas activas" — y aquí sí es seguro lanzar: no
+  // es una Server Action, así que no rompe la regla de "nunca throw" del repo. Next
+  // muestra su pantalla de error en vez de un selector mudo.
+  if (error) throw new Error(`No se pudo leer el catálogo de rutas: ${error.message}`);
 
   return (data ?? []).map((r) => ({
     id: r.id,
@@ -50,13 +57,20 @@ async function precioDesde(
   rutaId: string,
 ): Promise<number | null> {
   const anio = quoteYear(null) ?? CATALOG_BASE_YEAR;
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("pricing")
     .select("price_cs,year")
     .eq("route_id", rutaId)
     .eq("season", "regular")
     .not("price_cs", "is", null);
 
+  // DECISIÓN ESCRITA: esta función alimenta datosDeRuta(), que llama sin try/catch
+  // `aplicarRuta()` en rutaActions.ts (una Server Action, que por convención del repo
+  // nunca debe lanzar). No throw aquí a propósito — "sin precio cargado" y "la consulta
+  // de precios falló" quedan indistinguibles para el usuario (ambas muestran el pill de
+  // precio vacío, sin aviso), pero al menos el segundo caso deja rastro en los logs del
+  // servidor en vez de desaparecer del todo.
+  if (error) console.error(`[contenido] no se pudo leer precios de la ruta ${rutaId}: ${error.message}`);
   const filas = (data ?? []).filter((p) => p.price_cs != null);
   if (filas.length === 0) return null;
 
@@ -69,11 +83,16 @@ async function precioDesde(
 
 export async function etapasDeRuta(rutaId: string): Promise<EtapaRuta[]> {
   const supabase = await createCommercialClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("route_stages")
     .select("day,from_place,to_place,km")
     .eq("route_id", rutaId)
     .order("day");
+
+  // Mismo motivo que precioDesde() arriba: no lanza (alimenta una Server Action que no
+  // puede recibir un throw), pero queda en los logs. Sin esto, una ruta con etapas reales
+  // se dibujaría como si nunca las hubiera tenido cargadas.
+  if (error) console.error(`[contenido] no se pudieron leer etapas de la ruta ${rutaId}: ${error.message}`);
 
   return (data ?? [])
     .filter((e) => e.km != null)
@@ -99,11 +118,16 @@ export type DatosDeRuta = {
  */
 export async function datosDeRuta(rutaId: string): Promise<DatosDeRuta | null> {
   const supabase = await createCommercialClient();
-  const [{ data: ruta }, etapas, desde] = await Promise.all([
+  const [{ data: ruta, error: errRuta }, etapas, desde] = await Promise.all([
     supabase.from("routes").select("name,km,days,stages,difficulty,family").eq("id", rutaId).maybeSingle(),
     etapasDeRuta(rutaId),
     precioDesde(supabase, rutaId),
   ]);
+  // Igual que arriba: "ruta no encontrada" (borrada del catálogo) y "la consulta falló"
+  // hoy devuelven lo mismo (`null`), y aplicarRuta() en rutaActions.ts lo traduce a "No se
+  // encontró esa ruta en el catálogo" — cierto en el primer caso, engañoso en el segundo.
+  // Registrado para distinguirlos en los logs sin cambiar el contrato de esta función.
+  if (errRuta) console.error(`[contenido] no se pudo leer la ruta ${rutaId}: ${errRuta.message}`);
   if (!ruta) return null;
 
   // La línea de datos se arma solo con lo que existe: una ruta sin km cargados no debe
@@ -150,9 +174,14 @@ export async function refrescarDesdeCatalogo<T extends { valores: Record<string,
       try {
         const d = await datosDeRuta(id);
         if (d) frescos.set(id, d);
-      } catch {
-        // Si el catálogo no responde, la pieza se dibuja con lo que tenía guardado.
-        // Mejor una pieza con datos de ayer que un preview roto.
+      } catch (e) {
+        // DECISIÓN ESCRITA (ya lo era, solo que muda): si el catálogo no responde, la
+        // pieza se dibuja con lo que tenía guardado. Mejor una pieza con datos de ayer
+        // que un preview roto. Lo que faltaba es dejar rastro: antes este catch no
+        // registraba nada, así que un fallo sistemático (RLS rota, credenciales
+        // vencidas) se habría visto exactamente igual que "esta ruta puntual no
+        // respondió", sin ninguna forma de notarlo desde los logs.
+        console.error(`[contenido] refrescarDesdeCatalogo no pudo traer la ruta ${id}, usando lo guardado:`, e);
       }
     }),
   );

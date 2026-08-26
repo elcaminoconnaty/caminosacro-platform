@@ -137,7 +137,14 @@ export async function buscarFotos(consulta: ConsultaFotos): Promise<PaginaFotos>
     }
 
     const { data, count, error } = await q;
-    if (error) return { fotos: [], total: 0, hayMas: false };
+    // ⚠️ Antes esto devolvía { fotos: [], total: 0 } en silencio: el buscador se veía
+    // igual que "no hay fotos" que "la consulta falló" (RLS, red, lo que sea). Es
+    // exactamente el fallo que ya mordió una vez al pipeline de Instagram (tablas con RLS
+    // sin política, PostgREST devolviendo [] sin error, y nadie enterándose). Los tres
+    // llamadores de esta función (listarBanco/listarSubidas en el Server Component de la
+    // página, y buscarFotosAccion en fotoActions.ts) YA tienen su propio try/catch listo
+    // para convertir una excepción en un {error} legible — solo hacía falta lanzarla.
+    if (error) throw new Error(`No se pudo buscar en el banco de fotos: ${error.message}`);
     const fotos: FotoBuscada[] = (data ?? []).map((f) => ({
       id: f.id,
       url: f.public_url,
@@ -162,7 +169,8 @@ export async function buscarFotos(consulta: ConsultaFotos): Promise<PaginaFotos>
   }
 
   const { data, count, error } = await q;
-  if (error) return { fotos: [], total: 0, hayMas: false };
+  // Mismo motivo que arriba: fallar en silencio con "0 resultados" es peor que fallar.
+  if (error) throw new Error(`No se pudieron buscar tus fotos: ${error.message}`);
   const fotos: FotoBuscada[] = (data ?? []).map((f) => ({
     id: f.id,
     url: f.public_url,
@@ -189,7 +197,11 @@ export type RutaDeFotos = { tag: string; n: number };
 export async function listarRutasDeFotos(fuente: "banco" | "subida"): Promise<RutaDeFotos[]> {
   const supabase = await createPublicSchemaClient();
   const tabla = fuente === "banco" ? "fotos" : "contenido_fotos";
-  const { data } = await supabase.from(tabla).select("ruta_tag").not("ruta_tag", "is", null).limit(2000);
+  const { data, error } = await supabase.from(tabla).select("ruta_tag").not("ruta_tag", "is", null).limit(2000);
+  // Sin esto, una consulta que falla se ve igual que "nadie etiquetó nada todavía": cero
+  // chips, sin ninguna pista de que hay un problema. El único llamador (rutasDeFotos en
+  // fotoActions.ts) ya tiene try/catch para esto.
+  if (error) throw new Error(`No se pudieron leer las rutas de fotos: ${error.message}`);
 
   const cuenta = new Map<string, number>();
   for (const fila of data ?? []) {

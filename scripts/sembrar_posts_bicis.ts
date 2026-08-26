@@ -116,7 +116,15 @@ async function cargar() {
 }
 
 async function existente(titulo: string): Promise<string | null> {
-  const { data } = await sbPublic.from("contenido_piezas").select("id").eq("titulo", titulo).is("ruta_id", null).maybeSingle();
+  const { data, error } = await sbPublic.from("contenido_piezas").select("id").eq("titulo", titulo).is("ruta_id", null).maybeSingle();
+  // Antes esto ignoraba `error` del todo: si la búsqueda fallaba (red, RLS, lo que sea),
+  // `data` quedaba undefined y el llamador lo leía como "no existe" — es decir, el
+  // camino de INSERT en vez de UPDATE. Con la piedra tocando dos veces la misma consulta
+  // (correr el script dos veces, que es justo la prueba de idempotencia que pide C5) eso
+  // habría duplicado la pieza. Aquí sí conviene lanzar: main() ya tiene
+  // `.catch(e => { console.error(e); process.exit(1) })`, así que un fallo detiene TODO
+  // el sembrado en vez de arriesgarse a sembrar de más.
+  if (error) throw new Error(`No se pudo buscar la pieza existente "${titulo}": ${error.message}`);
   return data?.id ?? null;
 }
 

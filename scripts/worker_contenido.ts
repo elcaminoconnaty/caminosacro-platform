@@ -117,20 +117,36 @@ async function unaVuelta() {
 
   try {
     const resultado = await resolver(t);
-    await sb
+    // Antes no se miraba el resultado de este update: si fallaba (red, Supabase caído un
+    // instante justo después de resolver con éxito), el log decía "listo" pero la fila se
+    // quedaba en 'tomado' para siempre — contenido_rescatar_trabajos() la habría devuelto
+    // a la cola a los 5 minutos y Claude habría vuelto a trabajar en un encargo YA
+    // resuelto, gastando la respuesta por nada. Ahora se registra el fallo si ocurre.
+    const { error: errGuardar } = await sb
       .from("contenido_trabajos")
       .update({ estado: "listo", resultado, terminado_at: new Date().toISOString() })
       .eq("id", t.id);
-    console.log(`[puente] encargo #${t.id} listo en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    if (errGuardar) {
+      console.error(`[puente] encargo #${t.id} se resolvió pero no se pudo guardar: ${errGuardar.message}`);
+    } else {
+      console.log(`[puente] encargo #${t.id} listo en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     // Vuelve a 'pendiente' para que se reintente; a los 3 intentos la función de rescate
     // lo marca como error definitivo.
-    await sb
+    const { error: errMarcar } = await sb
       .from("contenido_trabajos")
       .update({ estado: "pendiente", error: msg })
       .eq("id", t.id);
-    console.error(`[puente] encargo #${t.id} falló: ${msg}`);
+    if (errMarcar) {
+      // El peor de los casos: el encargo falló Y no se pudo dejar constancia. Se queda
+      // 'tomado' hasta que el rescate lo note a los 5 minutos, así que al menos no se
+      // pierde para siempre — pero vale la pena que aparezca fuerte en el log.
+      console.error(`[puente] encargo #${t.id} falló (${msg}) Y no se pudo registrar el error: ${errMarcar.message}`);
+    } else {
+      console.error(`[puente] encargo #${t.id} falló: ${msg}`);
+    }
   }
   return true;
 }

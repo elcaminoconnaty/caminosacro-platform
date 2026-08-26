@@ -105,12 +105,18 @@ type Evidencia = { fuente: string; dato: string; n: number; senal_debil: boolean
 /** Rendimiento por pilar, siempre con la n a la vista. */
 async function rendimientoPorPilar(): Promise<{ texto: string; evidencias: Evidencia[]; medidos: number }> {
   const supabase = await createPublicSchemaClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("posts_log")
     .select("pilar,ruta,post_metricas(reach,saved,shares,profile_visits,likes)")
     .eq("status", "published")
     .order("created_at", { ascending: false })
     .limit(60);
+  // Antes esto seguía de largo con `data ?? []` y el prompt le decía a Claude "todavía no
+  // hay posts con métricas" — indistinguible de un fallo real de la consulta (por ejemplo
+  // RLS sin política, el mismo fallo que ya dejó ciego una vez al motor de sugerencias del
+  // pipeline de Instagram). encargarIdeas(), el único llamador de construirEncargoIdeas(),
+  // ya envuelve todo en try/catch, así que lanzar acá es seguro y honesto.
+  if (error) throw new Error(`No se pudo leer el rendimiento por pilar: ${error.message}`);
 
   const porPilar = new Map<string, { n: number; comercial: number; alcance: number }>();
   for (const p of data ?? []) {
@@ -173,23 +179,30 @@ async function rendimientoPorPilar(): Promise<{ texto: string; evidencias: Evide
 /** Los aprendizajes que ya destiló el bot semanal: la señal más madura que existe. */
 async function aprendizajeVigente(): Promise<string> {
   const supabase = await createPublicSchemaClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("aprendizajes")
     .select("periodo,resumen")
     .eq("vigente", true)
     .maybeSingle();
+  // "todavía no hay aprendizajes" tiene que significar SOLO eso, no también "la consulta
+  // falló". Ver el comentario de rendimientoPorPilar(): mismo motivo, mismo arreglo.
+  if (error) throw new Error(`No se pudo leer el aprendizaje vigente: ${error.message}`);
   return data ? `Periodo ${data.periodo}:\n${data.resumen}` : "todavía no hay aprendizajes destilados";
 }
 
 /** Qué rutas pide la gente de verdad. No depende de Instagram, y por eso vale más. */
 async function demandaComercial(): Promise<{ texto: string; evidencias: Evidencia[] }> {
   const supabase = await createCommercialClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("quotes")
     .select("route_name,start_date,created_at")
     .not("route_name", "is", null)
     .order("created_at", { ascending: false })
     .limit(200);
+  // Esta es la señal que el módulo llama "fuerte" porque no depende de Instagram. Si la
+  // consulta falla y se sigue de largo, el prompt le diría a Claude que hay cero
+  // cotizaciones — justo la fuente en la que más confía. Mejor tumbar el encargo.
+  if (error) throw new Error(`No se pudo leer la demanda comercial: ${error.message}`);
 
   const porRuta = new Map<string, number>();
   const porMes = new Map<number, number>();
@@ -230,6 +243,10 @@ async function rutasSinPublicar(): Promise<string> {
     (await createPublicSchemaClient()).from("posts_log").select("ruta").not("ruta", "is", null),
     (await createCommercialClient()).from("routes").select("name").eq("active", true),
   ]);
+  // Si cualquiera de las dos falla, "todas las rutas ya aparecieron alguna vez" es la
+  // peor mentira posible: es justo lo contrario de lo que se quiere destacar.
+  if (pub.error) throw new Error(`No se pudo leer posts_log: ${pub.error.message}`);
+  if (cat.error) throw new Error(`No se pudo leer el catálogo de rutas: ${cat.error.message}`);
   const publicadas = new Set((pub.data ?? []).map((p) => (p.ruta ?? "").toLowerCase()));
   const sin = (cat.data ?? [])
     .map((r) => r.name)
@@ -241,12 +258,13 @@ async function rutasSinPublicar(): Promise<string> {
 async function temaDeLaSemana(): Promise<string> {
   const supabase = await createPublicSchemaClient();
   const hoy = new Date().toISOString().slice(0, 10);
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("blog_calendario")
     .select("fecha,categoria,subcategoria,titulo,keyword")
     .gte("fecha", hoy)
     .order("fecha")
     .limit(5);
+  if (error) throw new Error(`No se pudo leer el calendario editorial: ${error.message}`);
   if (!data?.length) return "sin calendario editorial cargado para las próximas fechas";
   return data.map((d) => `- ${d.fecha} · ${d.categoria ?? ""}: ${d.titulo} (keyword: ${d.keyword ?? "—"})`).join("\n");
 }
