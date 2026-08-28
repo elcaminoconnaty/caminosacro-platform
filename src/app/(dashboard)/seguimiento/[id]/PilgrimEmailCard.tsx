@@ -64,11 +64,17 @@ export default function PilgrimEmailCard({
     }
     startEnvio(async () => {
       const r = await enviarCorreoPilgrim(quoteId, { subject, body, pruebaEmail: prueba || null });
+      // "Enviado" solo si el proveedor devolvió el id del mensaje. Sin eso, lo
+      // único cierto es que la petición se encoló: decir "✓ Enviado" ahí fue como
+      // se dieron por buenas tres solicitudes a Pilgrim que nunca llegaron.
+      const detalle = `${r.email}${modoPrueba ? " (prueba)" : ""} con ${r.adjuntos ?? 0} pasaporte(s) adjunto(s)`;
       setResultado(
         r.ok
           ? {
               ok: true,
-              texto: `✓ Enviado a ${r.email}${modoPrueba ? " (prueba)" : ""} con ${r.adjuntos ?? 0} pasaporte(s) adjunto(s)`,
+              texto: r.confirmado
+                ? `✓ Enviado a ${detalle}`
+                : `⏳ En cola para ${detalle} — el proveedor todavía no confirmó el envío. Revisa el panel de Brevo si es urgente.`,
             }
           : { ok: false, texto: r.error ?? "No se pudo enviar el correo." },
       );

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
+import { registrarEnvio } from "@/lib/email/log";
 import { mensajeError } from "@/lib/errors";
 import { renderAndStoreQuotePdf, type ComercialClient } from "@/lib/quotes/pdf";
 
@@ -91,6 +92,16 @@ export async function enviarCorreoCliente(
       ``,
       `Respondiendo a este mensaje le escribes directo al cliente.`,
     ].join("\n"),
+  });
+  await registrarEnvio(supabase, {
+    quoteId,
+    code: quote.code,
+    tipo: "cliente",
+    destinatario: email,
+    asunto: subject,
+    adjuntos: 1,
+    messageId: envio.messageId ?? null,
+    error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
   });
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
 

@@ -404,7 +404,7 @@ export async function enviarCorreoCotizacion(
 export async function enviarCorreoPilgrim(
   quoteId: string,
   mensaje: { subject: string; body: string; pruebaEmail?: string | null },
-): Promise<{ ok?: true; email?: string; adjuntos?: number; error?: string }> {
+): Promise<{ ok?: true; email?: string; adjuntos?: number; confirmado?: boolean; error?: string }> {
   const supabase = await createCommercialClient();
   const r = await enviarCorreoAPilgrim(supabase, quoteId, mensaje);
   // En prueba no se marca el expediente, así que tampoco hay nada que revalidar.

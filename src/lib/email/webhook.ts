@@ -54,10 +54,20 @@ const AVISO_POR_DEFECTO = true;
  * Envía el correo por el webhook. Nunca lanza: devuelve `{ ok: false, error }`
  * con un motivo legible para poder mostrarlo en pantalla (el envío jamás debe
  * tumbar la operación que lo dispara).
+ *
+ * OJO CON `ok`: hoy el webhook está en `responseMode: onReceived`, o sea que n8n
+ * responde "Workflow got started" ANTES de llamar a Brevo. `ok: true` significa
+ * "n8n recibió la petición", no "el correo salió". Un 400 de Brevo (adjunto muy
+ * pesado, extensión no admitida, credencial vencida) llega acá como éxito.
+ *
+ * `messageId` es la única prueba real de envío: es el id que devuelve Brevo. Solo
+ * viene cuando el webhook está en `responseMode: lastNode`. Mientras no lo esté,
+ * llega `undefined` y quien llame debe registrarlo como NO confirmado en vez de
+ * dar el envío por hecho. Ver scripts/n8n_confirmacion_envio.md.
  */
 export async function enviarCorreoWebhook(
   payload: CorreoPayload,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; messageId?: string }> {
   const url = process.env.QUOTE_EMAIL_WEBHOOK_URL;
   if (!url) {
     console.warn("[correo] QUOTE_EMAIL_WEBHOOK_URL sin configurar: no se envió el correo.");
@@ -90,12 +100,29 @@ export async function enviarCorreoWebhook(
       console.error("[correo] el webhook respondió", r.status);
       return { ok: false, error: `El servicio de correo respondió ${r.status}.` };
     }
-    return { ok: true };
+    return { ok: true, messageId: extraerMessageId(await r.text()) };
   } catch (e) {
     console.error("[correo] no se pudo enviar:", e);
     const msg = e instanceof Error && e.name === "TimeoutError"
       ? "El servicio de correo no respondió a tiempo."
       : "No se pudo contactar el servicio de correo.";
     return { ok: false, error: msg };
+  }
+}
+
+/**
+ * Saca el messageId de Brevo de la respuesta del webhook, si viene.
+ *
+ * Tolerante a propósito: n8n puede responder un objeto, un arreglo de items o el
+ * "Workflow got started" de siempre. Nada de esto debe romper un envío.
+ */
+function extraerMessageId(cuerpo: string): string | undefined {
+  try {
+    const datos = JSON.parse(cuerpo);
+    const primero = Array.isArray(datos) ? datos[0] : datos;
+    const id = primero?.messageId ?? primero?.json?.messageId;
+    return typeof id === "string" && id.length > 0 ? id : undefined;
+  } catch {
+    return undefined;
   }
 }

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
+import { registrarEnvio, adjuntosNoSoportados } from "@/lib/email/log";
 import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 import { EMAIL_PDF_TTL } from "@/lib/quotes/clientEmail";
 import type { ComercialClient } from "@/lib/quotes/pdf";
@@ -20,7 +21,7 @@ export async function enviarCorreoAPilgrim(
   supabase: ComercialClient,
   quoteId: string,
   mensaje: { subject: string; body: string; pruebaEmail?: string | null },
-): Promise<{ ok?: true; email?: string; adjuntos?: number; error?: string }> {
+): Promise<{ ok?: true; email?: string; adjuntos?: number; confirmado?: boolean; error?: string }> {
   const subject = mensaje.subject.trim();
   const body = mensaje.body.trim();
   if (!subject) return { error: "El asunto no puede estar vacío." };
@@ -54,6 +55,20 @@ export async function enviarCorreoAPilgrim(
     if (signed?.signedUrl) attachments.push({ url: signed.signedUrl, name: a.nombre });
   }
 
+  // Brevo rechaza heic, heif y webp — y cuando rechaza un adjunto devuelve 400 y se
+  // pierde el correo ENTERO, no solo el archivo. La firma del contrato sí los acepta
+  // (son las fotos que mandan los iPhone y algunos Android), así que el choque llega
+  // hasta acá. Mejor frenar con un mensaje claro que mandar una reserva sin pasaporte
+  // o perder el correo en silencio.
+  const rechazados = adjuntosNoSoportados(attachments.map((a) => a.name));
+  if (rechazados.length) {
+    return {
+      error:
+        `El servicio de correo no admite estos adjuntos: ${rechazados.join(", ")}. ` +
+        `Conviértelos a JPG o PDF y vuelve a subirlos en el contrato del viajero.`,
+    };
+  }
+
   const prefijo = esPrueba ? "[PRUEBA] " : "";
   const envio = await enviarCorreoWebhook({
     code: quote.code,
@@ -74,8 +89,12 @@ export async function enviarCorreoAPilgrim(
     body: esPrueba
       ? `(Correo de PRUEBA. El destinatario real sería ${ajustes.email || "—"}.)\n\n${body}`
       : body,
-    // Sin aviso interno: lo dispara alguien del equipo desde el CRM.
-    aviso: false,
+    // Este SÍ avisa a reservas@, al revés que los demás correos del CRM. La razón:
+    // es el único que no deja copia en ningún buzón (lo manda Brevo, no el correo
+    // de Nico) y es el de más plata en juego. En agosto de 2026 se dieron por
+    // enviadas tres solicitudes a Pilgrim que nunca llegaron y no había dónde
+    // mirar. El aviso es ese "dónde mirar".
+    aviso: true,
     aviso_subject: `${prefijo}Reserva enviada a Pilgrim - ${quote.code}${quote.route_name ? ` - ${quote.route_name}` : ""}`,
     aviso_body: [
       esPrueba ? `PRUEBA: se envió a ${destino} en vez de a Pilgrim.` : `Se le envió la reserva a Pilgrim pidiendo el link de pago.`,
@@ -93,10 +112,21 @@ export async function enviarCorreoAPilgrim(
         : []),
     ].join("\n"),
   });
+  await registrarEnvio(supabase, {
+    quoteId,
+    code: quote.code,
+    tipo: "pilgrim",
+    destinatario: destino,
+    asunto: `${prefijo}${subject}`,
+    adjuntos: attachments.length,
+    messageId: envio.messageId ?? null,
+    error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
+    prueba: esPrueba,
+  });
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
 
   if (!esPrueba) {
     await supabase.from("quotes").update({ pilgrim_email_sent_at: new Date().toISOString() }).eq("id", quoteId);
   }
-  return { ok: true, email: destino, adjuntos: attachments.length };
+  return { ok: true, email: destino, adjuntos: attachments.length, confirmado: !!envio.messageId };
 }
