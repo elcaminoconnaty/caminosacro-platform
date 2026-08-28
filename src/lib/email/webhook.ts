@@ -55,15 +55,16 @@ const AVISO_POR_DEFECTO = true;
  * con un motivo legible para poder mostrarlo en pantalla (el envío jamás debe
  * tumbar la operación que lo dispara).
  *
- * OJO CON `ok`: hoy el webhook está en `responseMode: onReceived`, o sea que n8n
- * responde "Workflow got started" ANTES de llamar a Brevo. `ok: true` significa
- * "n8n recibió la petición", no "el correo salió". Un 400 de Brevo (adjunto muy
- * pesado, extensión no admitida, credencial vencida) llega acá como éxito.
+ * OJO CON `ok`: `ok: true` significa que el workflow terminó sin error. Lo que
+ * prueba que el correo salió es `messageId`. Si el envío falla (secreto inválido,
+ * payload sin correo, 400 de Brevo), el workflow revienta y el webhook responde
+ * 500 — verificado el 28-ago-2026 contra producción.
  *
- * `messageId` es la única prueba real de envío: es el id que devuelve Brevo. Solo
- * viene cuando el webhook está en `responseMode: lastNode`. Mientras no lo esté,
- * llega `undefined` y quien llame debe registrarlo como NO confirmado en vez de
- * dar el envío por hecho. Ver scripts/n8n_confirmacion_envio.md.
+ * `messageId` es la única prueba real de envío: es el id que devuelve Brevo.
+ * Llega desde el 28-ago-2026, cuando el webhook pasó a `responseMode: responseNode`
+ * con un nodo Respond colgado de "Enviar por Brevo". Si algún día vuelve a llegar
+ * `undefined`, quien llame debe registrarlo como NO confirmado en vez de dar el
+ * envío por hecho. Ver scripts/n8n_confirmacion_envio.md.
  */
 export async function enviarCorreoWebhook(
   payload: CorreoPayload,
@@ -94,7 +95,13 @@ export async function enviarCorreoWebhook(
           : {}),
       },
       body: JSON.stringify(conPrefijo),
-      signal: AbortSignal.timeout(10000),
+      // 45 s, no 10. Desde el 28-ago-2026 el webhook responde DESPUES de llamar a
+      // Brevo (responseMode: responseNode), y Brevo se descarga los adjuntos de
+      // Supabase antes de enviar — el correo a Pilgrim puede llevar 20 pasaportes.
+      // Con 10 s, un envio lento abortaba aca y la app lo reportaba como fallido
+      // aunque el correo hubiera salido: el peor error posible, porque invita a
+      // reenviarlo. El nodo HTTP de n8n corta a los 30 s, asi que 45 lo cubre.
+      signal: AbortSignal.timeout(45000),
     });
     if (!r.ok) {
       console.error("[correo] el webhook respondió", r.status);

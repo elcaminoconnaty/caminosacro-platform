@@ -1,4 +1,14 @@
-# Que el webhook confirme el envío (pendiente, hay que hacerlo a mano)
+# Que el webhook confirme el envío
+
+> ✅ **APLICADO Y VERIFICADO EN PRODUCCIÓN el 28-ago-2026.** El workflow quedó en
+> `responseMode: responseNode` con un nodo **Respond to Webhook** colgado de
+> "Enviar por Brevo", que responde `{ messageId }`. Verificado con tres POST reales
+> al webhook de producción: envío bueno → `HTTP 200` con
+> `{"messageId":"<...@smtp-relay.mailin.fr>"}` en 1,4 s; secreto inválido → `HTTP 500`;
+> payload sin correo válido → `HTTP 500`. La credencial de Brevo sobrevivió al cambio
+> (si no, Brevo habría respondido 401 y el nodo habría fallado).
+>
+> Lo que sigue abajo queda como registro de por qué se hizo y cómo rehacerlo.
 
 **Qué se gana:** hoy la plataforma no puede saber si un correo salió. El nodo trigger
 del workflow `Correo Cotización — Camino Sacro` (id `HgErNCbopi95CdiI`) está en
@@ -8,7 +18,7 @@ le llega a la app como éxito, y el CRM escribe `pilgrim_email_sent_at` y muestr
 "✓ Enviado". Las ejecuciones de n8n se purgan a los pocos días, así que después no hay
 dónde mirar.
 
-El código de la app **ya está listo** para el cambio y no se rompe sin él:
+El código de la app acompaña el cambio:
 
 - `src/lib/email/webhook.ts` lee el `messageId` de la respuesta si viene.
 - `src/lib/email/log.ts` escribe un renglón por envío en `comercial.email_log`
@@ -17,8 +27,12 @@ El código de la app **ya está listo** para el cambio y no se rompe sin él:
 - La tarjeta de Pilgrim dice "⏳ En cola" en vez de "✓ Enviado" mientras no haya
   confirmación.
 
-Mientras no se haga este cambio, todo queda registrado como `aceptado`. Es la verdad:
-n8n recibió la petición y nadie sabe más.
+**El efecto secundario que hay que tener presente:** ahora el webhook responde *después*
+de llamar a Brevo, y Brevo se descarga los adjuntos de Supabase antes de enviar. Un correo
+a Pilgrim con 20 pasaportes puede tardar. Por eso el timeout de `enviarCorreoWebhook` subió
+de 10 s a **45 s** — con 10 s, un envío lento abortaba del lado de la app y se reportaba
+como fallido aunque el correo hubiera salido, que es el peor error posible porque invita a
+reenviarlo. El nodo HTTP de n8n corta a los 30 s, así que 45 lo cubre con margen.
 
 ## El cambio, en la interfaz de n8n (3 clics, ~2 minutos)
 
