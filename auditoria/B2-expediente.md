@@ -29,7 +29,8 @@
   revalidación, no solo al montar; y «Cancelar» no descarta los nueve campos controlados, que son
   los del dinero. Quitado un `eslint-disable` muerto.
 - **B2.6 La tabla de seguimiento.** Filtros, búsqueda y orden. Qué tal se porta con 500 cotizaciones (hoy hay 45). Qué falta ver de un vistazo para no tener que abrir cada una.
-  `Estado: pendiente`
+  `Estado: en curso` — leyendo `seguimiento/page.tsx` (la consulta) y `QuotesTable.tsx` (filtros, orden,
+  saldo por fila) y midiendo cuánto trae por cotización.
 - **B2.7 Nadie se cae del embudo.** Hoy nada avisa de una cotización enviada hace ocho días sin respuesta ni de un saldo que vence. Di qué costaría lo mínimo útil.
   `Estado: pendiente`
 
