@@ -22,8 +22,8 @@
   no lo mueven: CS-2026-004 tiene los 970 € pagados y dice «pago parcial», y por eso no le sale la
   documentación de viaje. `aceptada` y `completada` no las ha usado nadie nunca.
 - **B2.4 Dos pestañas a la vez.** Guardar el editor pisa el expediente entero o solo lo cambiado. Qué pasa si alguien edita mientras otro cobra. Guardar sin cambios.
-  `Estado: en curso` — analizando el parche completo de `updateQuote` (16 columnas siempre), qué pasa
-  con una pestaña vieja, y qué efectos colaterales tiene guardar sin cambiar nada.
+  `Estado: hecho` — el editor escribe siempre 16 columnas sin comparar nada: una pestaña vieja devuelve
+  el estado, las notas y la validez a como estaban al abrirla. Cobrar y editar no chocan.
 - **B2.5 `QuoteEditor` y sus efectos.** El linter marca ocho `setState` dentro de efectos. Comprueba si alguno pisa lo que el usuario acaba de teclear o dispara recálculos de más.
   `Estado: pendiente`
 - **B2.6 La tabla de seguimiento.** Filtros, búsqueda y orden. Qué tal se porta con 500 cotizaciones (hoy hay 45). Qué falta ver de un vistazo para no tener que abrir cada una.
@@ -358,6 +358,88 @@ Y lo que **no** considero hallazgo, por dejarlo dicho: que se pueda saltar de `s
 una agencia de dos personas, poder corregir una etiqueta de un clic vale más que la rigidez.
 Lo que falta no es una máquina de estados, es que los eventos que sí ocurren —cobrar,
 firmar— muevan la etiqueta solos.
+
+### [MEDIO] Guardar el editor devuelve el expediente entero a lo que la pestaña vio al abrirse — `seguimiento/[id]/actions.ts:51-71`
+
+`updateQuote` arma un parche **fijo de 16 columnas** y las escribe todas, siempre, vengan
+cambiadas o no: nombre, teléfono, correo, ruta, fechas, personas, modalidad, base,
+suplemento, tipo de temporada, base Pilgrim, suplemento Pilgrim, **estado**, **validez**,
+**notas** y `price_blocks`. No hay diff, no hay `updated_at` de referencia, no hay condición
+de carrera que lo detenga: el último que guarda gana, y gana con **todo el formulario**, no
+con lo que tocó.
+
+El caso realista, con las dos pantallas que existen hoy:
+
+1. Naty abre `/seguimiento/CS-…` para corregir un teléfono mal escrito. La página monta el
+   formulario con el estado actual: `enviada`.
+2. Nico, desde la lista de `/seguimiento`, mueve el estado a `pago_completo`. Es un
+   desplegable de **un clic sin confirmación** (`QuotesTable.tsx:125` → `updateQuoteStatus`),
+   que es justo la pantalla rápida que se usa desde el celular.
+3. Naty le da a Guardar. Su formulario manda `status = "enviada"` y `updateQuote` lo escribe.
+   **El cambio de Nico desaparece.** Y con él volverían también `valid_until`, `notes`,
+   `people` y las fechas a como estaban cuando ella abrió la pestaña.
+
+Nadie ve un aviso. La pantalla de Naty dice «Guardado» y la de Nico, si no recarga, sigue
+mostrando lo que él puso.
+
+El otro caso, y este pasa sin que haya dos personas: **BayMax**. El agente escribe `notes`,
+`status` y `valid_until` con `actualizarCotizacion()` (`editQuote.ts:105-124`). Un «BayMax,
+anota que el cliente pide salir un día antes» mientras el expediente está abierto en otra
+pestaña se pierde en cuanto alguien guarde ahí.
+
+**Y la propia plataforma ya tiene resuelto el problema, en el otro camino.**
+`actualizarCotizacion()` (`editQuote.ts:87-124`) compara campo por campo contra la fila y
+mete en el parche **solo lo que de verdad cambió**; si no cambió nada, ni siquiera hace el
+`update` (línea 246). Dos filosofías en la misma plataforma, y la pantalla que más se usa
+tiene la destructiva.
+
+**Propuesta:** es el tercer argumento para el mismo arreglo que ya propone B1 —que la
+pantalla llame a `actualizarCotizacion()` en vez de tener su propio `updateQuote`—. Si eso
+se pospone, lo mínimo es añadir `.eq("updated_at", quote.updated_at)` al `update` (la
+columna existe y la mantiene el trigger `quotes_touch`) y, cuando no toque ninguna fila,
+devolver «alguien más cambió este expediente: recargá y volvé a intentarlo».
+
+### [MENOR] Guardar sin cambiar nada reescribe el PDF del cliente y quema el único rastro que hay — `seguimiento/[id]/actions.ts:71-80`
+
+Abrir el editor, no tocar nada y darle a Guardar no es una operación vacía. Hace, en orden:
+
+1. Un `update` de las 16 columnas con los mismos valores → el trigger `quotes_touch` mueve
+   `updated_at` igual.
+2. El RPC de recálculo (inofensivo, da lo mismo).
+3. `renderAndStoreQuotePdf()` (línea 78): **renderiza el PDF entero con `@react-pdf/renderer`
+   y lo sube a Storage con `upsert`**, pisando el archivo que el cliente tiene enlazado.
+
+Dos consecuencias, ninguna grave por sí sola:
+
+- B1 dejó anotado que `updated_at` es hoy **el único rastro** de que alguien tocó una
+  cotización («dice que la fila cambió, no qué columna»). Un guardado sin cambios lo mueve
+  igual, así que ese rastro tampoco distingue «le cambiaron el precio» de «entró y salió».
+- El PDF que ya salió al correo se reescribe por un guardado que no cambió nada. La
+  reescritura en sí ya está levantada en B1; lo que agrego es que ocurre **también sin
+  cambios**, y que cuesta un render completo de react-pdf en cada clic.
+
+Otra vez, el camino del agente lo hace bien: `editQuote.ts:246` corta antes con «No había
+nada que cambiar» y no escribe ni regenera nada.
+
+**Propuesta:** comparar el parche contra la fila antes de escribir (o reusar
+`actualizarCotizacion()`, que ya lo hace) y saltarse el `update`, el RPC y el PDF cuando no
+haya diferencias.
+
+### Lo que sí está bien: cobrar mientras otro edita no choca
+
+Lo comprobé porque era la pregunta directa de la tarea, y la respuesta es tranquilizadora:
+
+- `addClientPayment`, `updateClientPayment`, `deleteClientPayment`, `addProviderPayment`,
+  `updateProviderPayment` y `deleteProviderPayment` escriben **solo en las tablas hijas**
+  (`client_payments`, `provider_payments`). Ninguna toca `quotes`. Comprobado leyendo las
+  seis (`actions.ts:136-343`).
+- Las cifras de dinero de la cabecera —cobrado, saldo, margen— se calculan en el servidor
+  leyendo esas tablas (`page.tsx:276-286`), no salen del formulario del editor. Así que un
+  guardado del editor no puede pisar un cobro, ni al revés.
+- Las tarjetas de opcionales y bicis actúan por `id` de línea y vuelven a llamar al RPC, que
+  relee `base_eur` de la base. Tampoco chocan con el editor.
+
+El único choque real es el de arriba: dos escrituras sobre la **misma** fila `quotes`.
 
 ---
 
