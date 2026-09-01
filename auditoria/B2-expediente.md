@@ -15,7 +15,9 @@
   `Estado: hecho` — la disciplina de lo derivado se respeta (44 de 45 filas cuadran al céntimo), pero
   los 7 sitios que llaman al RPC tiran el error, y cambiar «personas» no re-cuantifica los opcionales por persona.
 - **B2.2 Pagos, saldos y monedas.** ¿La TRM que se guarda es la del día del movimiento o la de hoy? Cobrado, saldo cliente, pagado a proveedor y margen real: recalcula a mano en un expediente y compara con lo que muestra.
-  `Estado: pendiente`
+  `Estado: en curso` — leyendo `addClientPayment`/`updateClientPayment` (`actions.ts:136-188`),
+  `ClientPaymentsCard`, `ProviderPaymentsCard` y el cálculo de saldo de `page.tsx`; contrastando
+  contra `client_payments` y `provider_payments` reales.
 - **B2.3 Estados coherentes.** Busca combinaciones imposibles: pagada pero `sin_enviar`, cancelada con pagos, `pago_completo` sin cobros. Quién mueve cada estado y qué queda sin mover solo.
   `Estado: pendiente`
 - **B2.4 Dos pestañas a la vez.** Guardar el editor pisa el expediente entero o solo lo cambiado. Qué pasa si alguien edita mientras otro cobra. Guardar sin cambios.
