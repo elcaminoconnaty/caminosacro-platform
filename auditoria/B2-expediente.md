@@ -29,8 +29,9 @@
   revalidación, no solo al montar; y «Cancelar» no descarta los nueve campos controlados, que son
   los del dinero. Quitado un `eslint-disable` muerto.
 - **B2.6 La tabla de seguimiento.** Filtros, búsqueda y orden. Qué tal se porta con 500 cotizaciones (hoy hay 45). Qué falta ver de un vistazo para no tener que abrir cada una.
-  `Estado: en curso` — leyendo `seguimiento/page.tsx` (la consulta) y `QuotesTable.tsx` (filtros, orden,
-  saldo por fila) y midiendo cuánto trae por cotización.
+  `Estado: hecho` — filtros, búsqueda y orden están muy bien; lo que falla es la cabecera (la utilidad
+  proyectada incluye 1.696 € de canceladas y no responde a los filtros) y que la tabla enseña cuánto,
+  pero no qué falta hacer.
 - **B2.7 Nadie se cae del embudo.** Hoy nada avisa de una cotización enviada hace ocho días sin respuesta ni de un saldo que vence. Di qué costaría lo mínimo útil.
   `Estado: pendiente`
 
@@ -523,6 +524,122 @@ El resto del componente está resuelto sin efectos y bien: `season`, `yearRates`
 `catalogMatch`, `rateSlots` y `utilidadPreview` son `useMemo` derivados —cálculo, no estado
 duplicado—, y las nueve piezas de estado se mueven solo desde `onChange`. No hay ningún
 otro sitio donde un efecto pise lo tecleado ni dispare recálculos de más.
+
+### [MEDIO] «Utilidad proyectada» cuenta el dinero de las cotizaciones canceladas — `seguimiento/page.tsx:58-62,111-117`
+
+Las cinco tarjetas de la cabecera de Seguimiento se calculan sobre **todas** las filas
+cargadas, sin excluir nada:
+
+```ts
+const totVenta = quotes.reduce((s, q) => s + (q.total_eur || 0), 0);
+const totCosto = quotes.reduce((s, q) => s + (q.cost_eur || 0), 0);
+const utilidadProyectada = totVenta - totCosto;
+```
+
+Los números de hoy, verificados en la base:
+
+| | lo que muestra | de eso, cancelado |
+|---|---|---|
+| Total cotizado | 62.253,00 € | **5.491,00 €** |
+| Costo Pilgrim total | 51.545,00 € | 3.795,00 € |
+| **Utilidad proyectada** | **10.708,00 €** | **1.696,00 €** — el **15,8 %** |
+
+CS-2026-002, CS-2026-005 y CS-2026-014 están en `cancelada` y siguen sumando a la utilidad
+que el CRM proyecta. Es el número más grande de la pantalla y sobreestima en un sexto.
+
+Y hay un segundo lado: **las tarjetas no reaccionan a los filtros**. Se calculan en el
+servidor sobre las 45 filas; `QuotesTable` filtra en el cliente. Filtrar «salidas de
+octubre» deja la tabla en 6 filas y las tarjetas siguen diciendo 62.253 €, que es
+justamente la pregunta que uno querría hacerle a esa pantalla.
+
+**Propuesta (no se toca: es dinero):** excluir `cancelada` de los tres primeros KPI —o
+pintarlas aparte, «canceladas: 5.491 €»—, y subir el cálculo de las tarjetas al mismo lugar
+donde vive el filtro, para que respondan a lo que se está mirando.
+
+### [MENOR] La consulta trae cinco columnas que la tabla tira, y una es la validez — `seguimiento/page.tsx:35,64-84`
+
+El `select` de la línea 35 pide 16 columnas. El `map` que arma las filas (líneas 64-84)
+usa 12. Se quedan por el camino `end_date`, `modality`, `notes`, `client_email` (esta sí se
+usa, en la búsqueda) y **`valid_until`**.
+
+Lo de `valid_until` ya lo levantó B1 —que la validez se promete en el PDF y no se ve en la
+lista—, así que no lo repito; lo que agrego es dónde se pierde exactamente: **no es que
+falte consultarla, es que se consulta y se descarta en el `map`**. Añadirla a la tabla es
+una línea en `QuoteRow` y una `<td>`, no una consulta nueva.
+
+Lo mismo con `notes`: se traen las notas de las 45 cotizaciones por la red y no se pintan en
+ningún sitio.
+
+### [MENOR] `.limit(500)` corta sin avisar, y el pie de la tabla dice que no — `seguimiento/page.tsx:38` · `QuotesTable.tsx:285`
+
+La consulta trae como mucho 500 filas. El pie de la tabla dice «Mostrando {filtered.length}
+de **{rows.length}**», y `rows.length` es **lo que se cargó**, no lo que hay. El día que
+haya 640 cotizaciones el pie dirá «Mostrando 500 de 500» —una frase que suena completa y no
+lo es— y las cinco tarjetas de arriba sumarán solo esas 500.
+
+**Honestidad sobre el plazo:** hoy hay 45 y el histórico va por el código CS-2026-083 en
+nueve meses. A ese ritmo el tope llega dentro de unos cuatro o cinco años, así que **no es
+urgente**. Lo anoto porque el modo de fallo es silencioso y la vacuna cuesta una línea: pedir
+`{ count: "exact" }` en el `select` y decir «Mostrando 500 de 640 — afiná los filtros».
+
+De paso, y en el mismo sitio: `client_payments` y `provider_payments` se traen **enteras, sin
+filtrar por cotización** (líneas 39-40), para luego agrupar en JavaScript. Con 6 pagos da
+igual; con 500 cotizaciones son mil filas por la red para calcular 500 sumas que la base hace
+con un `group by`. Misma nota, mismo plazo.
+
+### [MEDIO] De un vistazo se ve el dinero, pero no lo que falta hacer — `QuotesTable.tsx:212-222`
+
+Las once columnas de la tabla son: Código, Cliente, Teléfono, Ruta, Salida, Pax, Total,
+Cobrado, Saldo, Estado y el botón de borrar. Sirven para responder «cuánto» y no para
+responder «qué falta», que es el punto 2 de CRITERIOS.
+
+Lo que hay que abrir el expediente para saber, con los casos de producción que lo enseñan:
+
+| lo que no se ve | caso vivo |
+|---|---|
+| si el correo salió de verdad | 33 de 39 `enviada` no tienen `email_sent_at` (ver B2.3) |
+| cuántos contratos hay firmados | **CS-2026-058**: 1 de 3 firmados, y en la lista se ve igual que una que nadie contestó |
+| que alguien pagó todo y no firmó | **CS-2026-019**: 932 € cobrados, 0 de 2 contratos firmados |
+| hasta cuándo vale la cotización | `valid_until` se consulta y se tira (arriba) |
+| si la documentación de viaje ya se envió | `travel_docs.sent_at` no se consulta |
+
+Todas esas señales ya están en la base y ninguna cuesta una consulta nueva por fila: son dos
+`left join lateral` con `count`, del mismo tipo que ya se hace con los pagos en las líneas
+47-55.
+
+**Propuesta:** una sola columna «Falta» con el siguiente paso del expediente —«sin enviar»,
+«1/3 firmados», «cobrar 485 €», «documentación pendiente»— calculada en el servidor. Es lo
+que convierte esta pantalla de un listado en un tablero de trabajo, y es la mitad barata de
+lo que pide B2.7.
+
+### Lo que sí está bien: los filtros, la búsqueda y el orden
+
+Es de lo mejor resuelto del bloque y merece decirse:
+
+- **La búsqueda es la misma que usa BayMax.** `coincideCotizacion()` de
+  `lib/quotes/buscar.ts` (`QuotesTable.tsx:86`), con el comentario que explica por qué: «si
+  algo aparece acá tiene que aparecer allá, y al revés». Busca por código, cliente, correo,
+  ruta y teléfono, ignora tildes y compara los teléfonos por dígitos. Un dato, un sitio.
+- **Los siete estados son chips que se apagan y encienden**, no un desplegable de uno solo,
+  así que «enviadas y aceptadas a la vez» es un clic. Salen de `QUOTE_STATUSES`, la misma
+  fuente que el `CHECK` de la base.
+- **El orden está bien pensado**: `cmp()` (líneas 44-61) manda las salidas sin fecha al
+  final en vez de tratar `""` como la fecha más antigua, y usa `localeCompare(…, "es")` para
+  que las tildes no descoloquen los apellidos. El sentido inicial de cada columna es el útil:
+  descendente en fecha, total y saldo; ascendente en los textos (líneas 113-117).
+- **Los tres estados que se suelen olvidar están los tres**: error de carga con mensaje
+  específico para el schema no expuesto (`page.tsx:101-109`), fila ocupada en opacidad
+  (`QuotesTable.tsx:229`), y un vacío que **distingue** «Sin cotizaciones aún» de «Ninguna
+  cotización coincide con los filtros» (líneas 277-281). Esa distinción es justo la que casi
+  nadie hace.
+- **Borrar confirma** con el código y el nombre del cliente (línea 132).
+
+Con 45 filas —y con 500— filtrar y ordenar en el cliente es lo correcto: la respuesta es
+instantánea y no hay ida y vuelta al servidor por cada tecla. No hay nada que arreglar ahí.
+
+Lo único que anoto sin llamarlo hallazgo, porque es terreno de B7: once columnas en un
+`overflow-x-auto` significa que en el celular —donde CRITERIOS dice que Nico atiende— hay
+que arrastrar de lado para llegar al Saldo y al Estado.
 
 ---
 
