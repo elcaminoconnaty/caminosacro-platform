@@ -589,10 +589,9 @@ el aviso informa, no bloquea. `npx tsc --noEmit` limpio.
 
 ## Crítica del experto
 
-`Estado: pendiente`
-
-_(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
-seguido de los huecos concretos.)_
+`Estado: en curso` — verificando en código y en la base los dos GRAVE (fórmula de
+`QuoteEditor.tsx` y el medio recálculo con reparto mixto), luego huecos, prioridades y
+hallazgos inflados contra `CRITERIOS.md`.
 
 ---
 
