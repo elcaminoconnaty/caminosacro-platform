@@ -20,7 +20,7 @@
 - **B1.4 Validación de la entrada.** Personas fuera de rango, fecha en el pasado, ruta sin tarifa del año, correo inválido, texto larguísimo. En los endpoints públicos además: secreto, límite de peticiones, payload gigante.
   `Estado: hecho` — los tres caminos con zod validan bien salvo la fecha (ninguno rechaza el pasado y `2026-13-45` pasa el regex y revienta); el asistente del CRM no valida **nada** en el servidor. Secreto sólido; el rate limit del endpoint de WordPress se puede saltar solo.
 - **B1.5 El wizard como herramienta.** Doble clic en «crear» (¿dos cotizaciones?), catálogo que no responde, errores sin mensaje, y los avisos de `setState` en efecto que ya marca el linter en `Wizard.tsx`.
-  `Estado: pendiente`
+  `Estado: en curso` — reviso doble envío, los tres estados (vacío/cargando/error) del catálogo y del buscador de cliente, y corro el linter sobre `Wizard.tsx` para ver qué marca de verdad.
 - **B1.6 Lo que falta frente a un CRM de agencia.** Duplicar una cotización, versionarla, plantillas por ruta. Solo lo que le ahorraría tiempo real a Nico; mira CRITERIOS.md.
   `Estado: pendiente`
 
