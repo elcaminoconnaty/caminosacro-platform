@@ -18,7 +18,7 @@
 - **B1.3 Alta a medias.** Si falla el PDF, el correo o la inserción de líneas, ¿qué queda en la base? Busca cotizaciones sin líneas, sin código o sin cliente. No hay transacción: di qué se rompe.
   `Estado: hecho` — no hay cotizaciones sin líneas (el schema no las necesita) ni sin código, pero sí tres puntos donde el alta queda a medias sin que nadie se entere: el error al crear el cliente se ignora, el PDF fallido no detiene el correo, y la ruta personalizada queda creada aunque la cotización falle.
 - **B1.4 Validación de la entrada.** Personas fuera de rango, fecha en el pasado, ruta sin tarifa del año, correo inválido, texto larguísimo. En los endpoints públicos además: secreto, límite de peticiones, payload gigante.
-  `Estado: en curso` — pruebo cada validación de los cuatro caminos: rango de personas, fecha en el pasado, año sin tarifa, correo, longitudes, y en los públicos secreto, rate limit y tamaño del payload.
+  `Estado: hecho` — los tres caminos con zod validan bien salvo la fecha (ninguno rechaza el pasado y `2026-13-45` pasa el regex y revienta); el asistente del CRM no valida **nada** en el servidor. Secreto sólido; el rate limit del endpoint de WordPress se puede saltar solo.
 - **B1.5 El wizard como herramienta.** Doble clic en «crear» (¿dos cotizaciones?), catálogo que no responde, errores sin mensaje, y los avisos de `setState` en efecto que ya marca el linter en `Wizard.tsx`.
   `Estado: pendiente`
 - **B1.6 Lo que falta frente a un CRM de agencia.** Duplicar una cotización, versionarla, plantillas por ruta. Solo lo que le ahorraría tiempo real a Nico; mira CRITERIOS.md.
@@ -308,6 +308,107 @@ guardada, o la borre si el alta falla — como ya hace bien `bikeQuote.ts:248-25
   `ON DELETE RESTRICT`: no se puede borrar un cliente y dejar cotizaciones apuntando al
   vacío.
 
+### [MEDIO] Nadie rechaza una fecha de salida en el pasado — los cuatro caminos
+
+Ninguno de los cuatro valida que la salida sea futura. Lo único que hay es el atributo
+`min={hoyMas(7)}` del `<input type="date">` de `/cotizar` (`PublicQuoter.tsx:246`), que es
+del navegador y no del servidor; el asistente del CRM ni eso (`Wizard.tsx:643`).
+
+Caso concreto: `POST /api/wp/quote` con `start_date: "2026-01-15"` (pasado, pero del año en
+curso, así que hay tarifas) crea una cotización completa, con PDF y **con correo al
+cliente**, para un viaje que ya se fue. Igual por `/cotizar`, por el endpoint del agente y
+por el asistente. Fechas más viejas se cortan de rebote, no por validación: el año no tiene
+tarifas cargadas y `ratesForYear` devuelve vacío.
+
+Qué se rompe: se le manda al cliente una cotización imposible y entra al embudo de
+Seguimiento y al calendario como una salida más. Se pierde una hora en aclararlo y algo de
+credibilidad. **Propuesta:** una sola comprobación en `tarifarRuta()` —que ya es el paso
+común de tres de los cuatro— rechazando salidas anteriores a hoy, con excepción explícita
+para el alta retroactiva del CRM si Nico la necesita.
+
+### [MEDIO] Una fecha con formato correcto pero imposible tumba el endpoint con un 500 — `api/wp/quote/route.ts:10`, `api/agente/cotizacion/route.ts:10`, `cotizar/actions.ts:21`
+
+Los tres esquemas de zod validan la fecha con `.regex(/^\d{4}-\d{2}-\d{2}$/)`, que acepta
+`2026-13-45` y `2026-99-01`. Comprobado en Node con la misma función del código:
+
+```
+2026-13-45 -> THROW RangeError: Invalid time value   (sumarDias)
+2026-99-01 -> THROW RangeError: Invalid time value
+2026-02-31 -> 2026-03-09                              (¡se corrige sola y sigue!)
+```
+
+`sumarDias()` (`tarifar.ts:74-78` y su copia en `cotizar/actions.ts:51-55`) hace
+`d.toISOString()` sobre un `Invalid Date` y lanza. En `/api/wp/quote` y
+`/api/agente/cotizacion` el `try/catch` de la ruta lo convierte en **500 «interno»** cuando
+debería ser un 422 de validación — el integrador de WordPress ve un error de servidor y
+abre un ticket por un dato mal formado suyo. Y `2026-02-31` ni siquiera falla: se
+desliza a 9 de marzo y se cotiza esa fecha, distinta de la que pidió el cliente.
+
+Lo bueno: el reventón ocurre **antes** de tocar la base en los tres caminos, así que no deja
+cliente ni cotización a medias.
+
+**Propuesta:** cambiar el `.regex()` por un refine que compruebe que la fecha existe de
+verdad (`new Date(iso)` válido y que el ISO de vuelta coincida). Son tres líneas y quita el
+500, el falso 3 de marzo y de paso permite meter ahí la validación de fecha pasada.
+
+### [MEDIO] El asistente del CRM no valida nada en el servidor — `src/app/(dashboard)/cotizaciones/nueva/actions.ts:96-126`
+
+`createQuote` es una server action que toma el `FormData` y lo inserta tal cual. No hay
+zod, ni rangos, ni longitudes:
+
+- `people: num(formData.get("people")) ?? 1` — sin mínimo ni máximo. El tope de 30 vive
+  solo en el `<input max={30}>` y en el `onChange` del componente (`Wizard.tsx:487`).
+- `client_email` — sin `.email()`. El único filtro es el `type="email"` del navegador. Un
+  correo mal escrito se guarda y después la tarjeta de correo del expediente intenta
+  mandárselo.
+- `notes`, `client_name`, `route_name` — sin tope de longitud. El endpoint del agente sí
+  topa las notas en 2000 (`api/agente/cotizacion/route.ts:15`). Aquí una nota pegada de
+  varias páginas entra entera y luego va al PDF.
+- `start_date` / `end_date` — sin validar; los rechaza la columna `date` de Postgres, con un
+  mensaje de base de datos.
+
+Es el único de los cuatro caminos sin validación de servidor, y encima es el que más usa
+Nico. Está detrás de login, así que no es un agujero de seguridad: es que el primer filtro
+real está en Postgres. **Propuesta:** el mismo esquema zod que ya existe en el endpoint del
+agente, reutilizado en la action.
+
+### [MENOR] El límite de peticiones de `/api/wp/quote` se cuenta sobre una IP que manda el propio cliente — `api/wp/quote/route.ts:17,60`
+
+`visitor_ip` es un campo **del cuerpo de la petición**, no de la conexión. Quien tenga el
+secreto (o cualquier bug en el WordPress que lo exponga) puede omitirlo o rotarlo y el
+techo de 60/hora no cuenta nada. El comentario dice que el límite fino de 5/hora lo pone
+WordPress con sus transients, así que la defensa real está fuera de la plataforma. En
+`/cotizar` sí se lee de `x-forwarded-for` (`cotizar/actions.ts:66`), que es lo correcto.
+Además, los dos contadores viven en memoria del proceso y se **vacían enteros** al pasar de
+5000 IPs (`hits.clear()`), lo que es un reset gratis para quien vaya rotando direcciones.
+No es urgente —el endpoint está detrás de un secreto compartido— pero conviene no
+confundirlo con un límite de verdad. **Propuesta:** usar `x-forwarded-for` también aquí y
+dejar `visitor_ip` solo como dato informativo.
+
+### Lo que sí está bien
+
+- **El secreto de los endpoints server-to-server está bien hecho** (`api/wp/auth.ts:12-20`):
+  comparación con `timingSafeEqual`, secretos distintos para WordPress y para el agente
+  («filtrar uno no abre la puerta del otro»), y si la variable de entorno falta **se
+  deniega** en vez de dejar pasar, que es el error clásico.
+- **Personas fuera de rango**: bien topado donde importa. `/cotizar` y `/api/wp/quote` en
+  1..12 por zod; el endpoint del agente en 1..30, y además `crearCotizacionAgente` lo
+  vuelve a comprobar por dentro (`agentQuote.ts:72-74`), así que no depende solo de la
+  capa HTTP. `editQuote.ts:129-131` también valida el rango al editar.
+- **Ruta sin tarifa del año**: es el caso mejor resuelto de todo el bloque.
+  `tarifarRuta()` distingue «no hay tarifa de este año» (409 `sin_tarifas_ano`) de «esta
+  ruta no tiene precio en ningún año» (404 `ruta_sin_precio`), y las dos pantallas lo dicen
+  en ámbar antes de que se teclee nada.
+- **El precio nunca llega del navegador**: `/cotizar` lo recalcula en el servidor y el
+  comentario lo dice explícitamente (`cotizar/actions.ts:76-77`); WordPress no manda
+  ningún precio (`webQuote.ts:56-57`). Un usuario que edite el formulario no puede
+  abaratarse el viaje.
+- **Honeypot** en los dos caminos públicos (`website` y `honeypot`, ambos `max(0)`), y
+  `terms_accepted: z.literal(true)` en el de WordPress: no se puede crear una cotización
+  web sin aceptar términos.
+- Longitudes topadas en los tres esquemas zod (nombre 120, correo 160, teléfono 40, notas
+  2000), así que el «texto larguísimo» solo entra por el asistente.
+
 ---
 
 ## Arreglos aplicados
@@ -320,6 +421,16 @@ PDF —que es justo el caso en que también suele fallar el correo, porque el co
 del PDF— el visitante veía la frase señalando a un botón que no estaba. Ahora ese caso
 tiene su propio mensaje: dice que la cotización quedó guardada, da el código y manda a
 WhatsApp, que es el único camino que de verdad le queda. `npx tsc --noEmit` limpio.
+
+### Dos formularios que se quedaban mudos si la action reventaba — `src/app/cotizar/PublicQuoter.tsx:97-116` y `src/app/(dashboard)/cotizaciones/nueva/Wizard.tsx:377-387`
+
+Los dos hacían `const r = await accion(...); if (r.error) setError(...)`, sin `try`. Si la
+server action lanzaba en vez de devolver `{ok:false}` —y lanza, por ejemplo, con la fecha
+`2026-13-45` del hallazgo de arriba, o si Supabase no responde— la promesa se rechazaba, el
+`startTransition` terminaba y la pantalla volvía al formulario **sin éxito, sin error y sin
+nada que leer**: el visitante no sabe si su cotización se creó o no. Ahora cada uno atrapa
+el fallo y dice qué pasó. En el asistente se reenvía el `NEXT_REDIRECT` para no romper la
+redirección del caso exitoso. `npx tsc --noEmit` limpio.
 
 ---
 

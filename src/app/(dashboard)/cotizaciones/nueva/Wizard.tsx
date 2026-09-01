@@ -374,9 +374,17 @@ export default function Wizard({
         fd.set("route_name", custom.name.trim());
         if ("routeId" in rRoute && rRoute.routeId) fd.set("route_id", rRoute.routeId);
       }
-      const r = await createQuote(fd);
-      if (r?.error) setError(r.error);
-      // En caso éxito, el server hace redirect — no llegamos acá
+      // El `redirect()` del éxito viaja como excepción y lo maneja el framework, no este
+      // catch. Lo que sí atrapa es un fallo inesperado de la action: sin él la pantalla se
+      // quedaba muda, con el botón otra vez listo y sin decir que no se guardó nada.
+      try {
+        const r = await createQuote(fd);
+        if (r?.error) setError(r.error);
+        // En caso éxito, el server hace redirect — no llegamos acá
+      } catch (e) {
+        if (e && typeof e === "object" && "digest" in e && String(e.digest).startsWith("NEXT_REDIRECT")) throw e;
+        setError("No se pudo guardar la cotización. Revisá la conexión y volvé a intentarlo.");
+      }
     });
   }
 

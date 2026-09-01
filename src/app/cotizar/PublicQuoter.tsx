@@ -98,19 +98,25 @@ export default function PublicQuoter({
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const r = await crearCotizacionPublica({
-        route_id: routeId,
-        modality: modality as "pension_doble" | "pension_single" | "hotel_doble" | "hotel_single",
-        start_date: startDate,
-        people,
-        full_name: fullName,
-        email,
-        phone,
-        country: country || null,
-        website,
-      });
-      if (r.ok) setExito(r);
-      else setError(r.error);
+      // Si la action revienta (y no devuelve `{ok:false}`) sin este catch el formulario
+      // volvía a quedar como si nada: sin éxito, sin error y sin nada que leer.
+      try {
+        const r = await crearCotizacionPublica({
+          route_id: routeId,
+          modality: modality as "pension_doble" | "pension_single" | "hotel_doble" | "hotel_single",
+          start_date: startDate,
+          people,
+          full_name: fullName,
+          email,
+          phone,
+          country: country || null,
+          website,
+        });
+        if (r.ok) setExito(r);
+        else setError(r.error);
+      } catch {
+        setError("No pudimos generar tu cotización en este momento. Vuelve a intentarlo o escríbenos por WhatsApp.");
+      }
     });
   }
 
