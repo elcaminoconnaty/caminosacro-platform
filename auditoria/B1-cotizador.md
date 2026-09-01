@@ -828,6 +828,25 @@ Falta esto, y es concreto:
 
 ## Revisión tras la crítica
 
-`Estado: pendiente`
+`Estado: en curso` — una sola ronda, atacando los siete puntos del veredicto en este orden,
+cada uno con su commit y corrigiendo **en su sitio** (sección Hallazgos) para que el archivo
+sea la verdad y no haya que leer tres versiones:
 
-_(Solo si el veredicto fue `revisar`. Una ronda.)_
+1. Hallazgo nuevo **GRAVE**: `updateQuote` nunca reescribe `rooms_json`. Verificar en la base
+   CS-2026-080 y en código quién lo lee después (`pilgrimEmail.ts`, `contracts/render.ts`,
+   `pdf.ts`), y anotar que `/cotizar` ni siquiera lo escribe al crear.
+2. Ensanchar el **GRAVE 1**: el auto-fill corre al montar, así que pisa cualquier base
+   tecleada a mano (CS-2026-077, CS-2026-060, las dos `enviada`), y quitarle el titular de
+   los «177 € menos cobrados» de CS-2026-014, que está `cancelada`.
+3. Añadir el hallazgo de **moneda**: `trm_history` vacía, `getTRMHoy()` con `catch {}`, COP
+   ni pintado ni archivado frente a la validez de 30 días.
+4. Correcciones de rigor: CS-2026-065 («la fila cambió», no «`base_eur` se modificó») más el
+   sospechoso latente `initialBase = base ?? total`; las gemelas nacieron con el mismo precio;
+   **45** cotizaciones, no 38.
+5. Reencuadrar la propuesta de los dos GRAVE: hay **dos editores** y `editQuote.ts` ya
+   resuelve bien las tres cosas → «la pantalla llama a `actualizarCotizacion()`».
+6. Prioridades: `rooms_json` a GRAVE; el 500 de `2026-13-45` a MENOR y el titular pasa a
+   `2026-02-31 → 9 de marzo`.
+
+Sin tocar código: es revisión del informe. Todo se comprueba contra `comercial` (solo SELECT)
+antes de escribirlo.
