@@ -83,7 +83,7 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 
 | # | Bloque | Archivo | Auditoría | Crítica | Revisión |
 |---|---|---|---|---|---|
-| B1 | Cotizador y alta | `B1-cotizador.md` | `hecho` | `en curso` | `—` |
+| B1 | Cotizador y alta | `B1-cotizador.md` | `hecho` | `hecho` | `en curso` |
 | B2 | Expediente y estados | `B2-expediente.md` | `pendiente` | `pendiente` | `—` |
 | B3 | Contratos y documentos | `B3-contratos-documentos.md` | `pendiente` | `pendiente` | `—` |
 | B4 | Correo | `B4-correo.md` | `pendiente` | `pendiente` | `—` |
