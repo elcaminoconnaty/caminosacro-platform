@@ -6,7 +6,7 @@ import { CATALOG_BASE_YEAR } from "@/lib/pricing/year";
 
 export default async function NuevaCotizacionPage() {
   const supabase = await createCommercialClient();
-  const [{ data: routes }, { data: pricing }, { data: seasonSetting }] = await Promise.all([
+  const [{ data: routes, error: routesErr }, { data: pricing, error: pricingErr }, { data: seasonSetting }] = await Promise.all([
     supabase.from("routes").select("id,name,family,origin,days,nights,km").eq("active", true).order("family").order("days", { ascending: false }),
     // Todos los años: el asistente filtra por el año de salida de la cotización, que solo
     // se conoce en el cliente (cambia con la fecha que se teclee).
@@ -43,6 +43,16 @@ export default async function NuevaCotizacionPage() {
         <h1 className="font-display text-3xl text-bosque">Nueva cotización</h1>
         <p className="text-muted text-sm mt-1">Cliente, ruta del catálogo, fechas. El código y la fecha de validez se asignan automáticamente.</p>
       </header>
+      {/* Sin esto, un fallo al leer el catálogo se veía igual que un catálogo vacío: el
+          selector de Camino sin opciones, o cada combinación diciendo "no hay tarifas
+          cargadas — ingresá los precios a mano" sobre un catálogo que sí existe. */}
+      {(routesErr || pricingErr) && (
+        <div className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
+          No se pudo leer el catálogo{routesErr && pricingErr ? "" : routesErr ? " de rutas" : " de precios"}.
+          Lo que veas abajo está incompleto: <b>no teclees precios a mano dando por hecho que la tarifa no existe</b>.
+          Recargá la página antes de crear nada.
+        </div>
+      )}
       <Wizard
         routes={(routes as { id: string; name: string; family: string | null; origin: string | null; days: number | null; nights: number | null; km: number | null }[]) || []}
         pricing={pricingFlat}

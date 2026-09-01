@@ -20,7 +20,7 @@
 - **B1.4 Validación de la entrada.** Personas fuera de rango, fecha en el pasado, ruta sin tarifa del año, correo inválido, texto larguísimo. En los endpoints públicos además: secreto, límite de peticiones, payload gigante.
   `Estado: hecho` — los tres caminos con zod validan bien salvo la fecha (ninguno rechaza el pasado y `2026-13-45` pasa el regex y revienta); el asistente del CRM no valida **nada** en el servidor. Secreto sólido; el rate limit del endpoint de WordPress se puede saltar solo.
 - **B1.5 El wizard como herramienta.** Doble clic en «crear» (¿dos cotizaciones?), catálogo que no responde, errores sin mensaje, y los avisos de `setState` en efecto que ya marca el linter en `Wizard.tsx`.
-  `Estado: en curso` — reviso doble envío, los tres estados (vacío/cargando/error) del catálogo y del buscador de cliente, y corro el linter sobre `Wizard.tsx` para ver qué marca de verdad.
+  `Estado: hecho` — nada impide crear la misma cotización dos veces (hay un caso real en producción, CS-2026-064/065), y un fallo al leer el catálogo se veía idéntico a un catálogo vacío. Los 7 avisos del linter son ruido salvo uno.
 - **B1.6 Lo que falta frente a un CRM de agencia.** Duplicar una cotización, versionarla, plantillas por ruta. Solo lo que le ahorraría tiempo real a Nico; mira CRITERIOS.md.
   `Estado: pendiente`
 
@@ -409,6 +409,74 @@ dejar `visitor_ip` solo como dato informativo.
 - Longitudes topadas en los tres esquemas zod (nombre 120, correo 160, teléfono 40, notas
   2000), así que el «texto larguísimo» solo entra por el asistente.
 
+### [MEDIO] Nada impide crear dos veces la misma cotización, y ya pasó — CS-2026-064 y CS-2026-065 en producción
+
+Ninguno de los cuatro caminos deduplica ni pide confirmación. En la base están estas dos:
+
+| | CS-2026-064 | CS-2026-065 |
+|---|---|---|
+| creada | 2026-08-06 18:04:**10** | 2026-08-06 18:04:**29** |
+| cliente | Leidy Lorena Marín Castro | la misma (`client_id` idéntico) |
+| ruta / salida / personas | Francés desde Sarria · 2027-07-19 · 4 | idéntico |
+
+**19 segundos de diferencia**, mismo origen (`wordpress`). Es un doble envío: el visitante
+volvió a pulsar. Cada una generó su código, su PDF y **su correo al cliente**, así que esa
+persona recibió dos cotizaciones del mismo viaje con dos referencias distintas — y en
+Seguimiento quedan dos expedientes para una sola venta, uno de los cuales alguien tendrá
+que cerrar a mano. Encima las dos quedaron con precios distintos (2460 € y 2780 € de base),
+así que el cliente tiene dos números para el mismo viaje.
+
+En el asistente del CRM el botón sí se deshabilita mientras guarda (`Wizard.tsx:710`), que
+tapa el doble clic normal pero no dos pestañas ni un Enter repetido; en los endpoints no hay
+nada. **Propuesta:** antes de insertar, buscar una cotización del mismo cliente, ruta, fecha
+y personas creada en los últimos minutos y devolver esa en vez de crear otra. Es la
+protección que ya se echa de menos con un caso real encima.
+
+### [MEDIO] Un catálogo que no responde se veía exactamente igual que un catálogo vacío — `src/app/(dashboard)/cotizaciones/nueva/page.tsx:9-18`
+
+La página del asistente lanzaba las tres consultas y **descartaba el `error` de todas**,
+quedándose con `data || []`. Si la consulta de `routes` falla, el selector «Camino» sale sin
+una sola opción y no hay nada que explique por qué. Si la que falla es la de `pricing`, es
+peor: las rutas se ven, pero cada combinación muestra el aviso ámbar
+*«⚠ No hay tarifas {año} cargadas para esta ruta — ingresá los precios a mano»*
+(`Wizard.tsx:553`), que en ese momento es **mentira**: las tarifas existen, lo que falló fue
+leerlas. El aviso está redactado justamente para empujar a teclear el precio a mano, así
+que la consecuencia previsible es una cotización con precios inventados sobre un catálogo
+que estaba bien. **Arreglado** (ver abajo).
+
+### [MENOR] Los 7 avisos de `setState` en efecto son ruido, menos uno — `Wizard.tsx`
+
+`npx eslint` marca 7 errores de `react-hooks/set-state-in-effect` en `Wizard.tsx`
+(líneas 94, 173, 188, 207, 243, 249, 262) y 1 en `QuoteEditor.tsx` (165), más un
+`eslint-disable` ya inútil en `QuoteEditor.tsx:167`. Revisados uno a uno, seis de los siete
+son auto-fill legítimo: no encadenan bucles, solo cuestan un render extra en un formulario
+que se usa unas cuantas veces al día. No los llamaría un hallazgo por sí solos.
+
+El que sí importa es el de **`QuoteEditor.tsx:165`**, y no por el render de más sino por lo
+que hace: es el auto-fill que se dispara con solo abrir «Editar» y reescribe la base con
+`price_cs × people` — el GRAVE de B1.1. El linter estaba señalando el sitio correcto por el
+motivo equivocado.
+
+Lo que sí conviene saber: con 8 errores en pie, `npm run lint` falla, así que el linter no
+puede usarse hoy como puerta de nada. **Propuesta:** o se arreglan, o se silencian con un
+`eslint-disable` **por línea y con motivo escrito**, para que el próximo error de verdad no
+se pierda entre los ocho de siempre.
+
+### Lo que sí está bien
+
+- **El botón de crear se deshabilita y cambia de texto** mientras guarda
+  (`Wizard.tsx:710-713`, «Creando…»): el estado «cargando» está.
+- **El buscador de cliente por teléfono tiene los tres estados**: «Buscando…», «✓ Cliente
+  existente: X» y «Cliente nuevo (se creará al guardar)» (`Wizard.tsx:80-86`), con debounce
+  de 500 ms y limpieza del timeout. Es el detalle mejor hecho del formulario.
+- **Los fallos de la ruta personalizada sí se cuentan**: si falla crear la ruta se muestra
+  el error, y si falla el itinerario el mensaje distingue el caso a medias («la ruta se creó
+  pero el itinerario falló», `Wizard.tsx:363-365`).
+- El aviso del reparto de habitaciones bajo el selector de alojamiento
+  (`Wizard.tsx:505-509`) dice en texto plano cuántas dobles y cuántas individuales salen
+  para ese número de personas, antes de guardar. Es lo que evita la sorpresa que sí produce
+  el editor de Seguimiento.
+
 ---
 
 ## Arreglos aplicados
@@ -431,6 +499,15 @@ server action lanzaba en vez de devolver `{ok:false}` —y lanza, por ejemplo, c
 nada que leer**: el visitante no sabe si su cotización se creó o no. Ahora cada uno atrapa
 el fallo y dice qué pasó. En el asistente se reenvía el `NEXT_REDIRECT` para no romper la
 redirección del caso exitoso. `npx tsc --noEmit` limpio.
+
+### El asistente ya distingue «el catálogo está vacío» de «el catálogo falló» — `src/app/(dashboard)/cotizaciones/nueva/page.tsx:9,44-53`
+
+La página descartaba el `error` de las consultas de rutas y de precios y se quedaba con
+`data || []`. Ahora se recogen los dos y, si alguno falla, sale un aviso rojo arriba del
+asistente diciendo qué no se pudo leer y —lo importante— **que no se teclee un precio a
+mano dando por hecho que la tarifa no existe**, porque el aviso ámbar del formulario dice
+exactamente eso cuando en realidad la consulta se cayó. El asistente se sigue renderizando:
+el aviso informa, no bloquea. `npx tsc --noEmit` limpio.
 
 ---
 
