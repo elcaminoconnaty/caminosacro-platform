@@ -516,6 +516,10 @@ export default function Wizard({
               defaultValue={DEFAULT_STATUS}
               className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
             >
+              {/* `sin_enviar` primero y por defecto: crear la cotización no es mandarla.
+                  Pasa sola a "Enviada" al mandar el correo desde el expediente. Las otras
+                  dos siguen aquí para el caso de cargar algo que ya se gestionó aparte. */}
+              <option value="sin_enviar">{STATUS_LABELS.sin_enviar}</option>
               <option value="enviada">{STATUS_LABELS.enviada}</option>
               <option value="aceptada">{STATUS_LABELS.aceptada}</option>
             </select>

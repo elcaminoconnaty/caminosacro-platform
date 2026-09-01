@@ -7,6 +7,8 @@ import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
+import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
+import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 import { mensajeError } from "@/lib/errors";
 import { MODALIDAD_LABEL } from "./constants";
 import { fallbackPriceNote, quoteYear, ratesForYearWithFallback } from "@/lib/pricing/year";
@@ -159,7 +161,7 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
       cost_base_eur: costBaseEur,
       season_supplement_cost_eur: suplementoCostEur,
       cost_eur: costEur,
-      status: "enviada",
+      status: DEFAULT_STATUS,
       source: "web",
       notes: "Cotización generada por el cliente desde caminosacro.com",
       price_note: priceNote,
@@ -206,6 +208,11 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
     subject: correo?.subject ?? null,
     body: correo?.body ?? null,
   });
+
+  // Nace en `sin_enviar` como todas; si el correo salió, pasa a `enviada`. Antes este
+  // camino ni siquiera escribía `email_sent_at`, así que en el CRM una cotización del
+  // cotizador público figuraba como no enviada para siempre.
+  if (emailEnviado) await marcarCotizacionEnviada(supabase, quote.id);
 
   return { ok: true, code: quote.code, totalEur, pdfUrl, emailEnviado };
 }

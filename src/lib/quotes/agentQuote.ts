@@ -3,6 +3,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { mensajeError } from "@/lib/errors";
+import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 import { firmarPdf } from "@/lib/quotes/pdfUrl";
 import { sumarDias, tarifarRuta, type TipoAlojamiento } from "@/lib/quotes/tarifar";
 
@@ -142,7 +143,7 @@ export async function crearCotizacionAgente(datos: SolicitudAgente): Promise<Res
       cost_base_eur: t.costBaseEur,
       season_supplement_cost_eur: t.suplementoCostEur,
       cost_eur: t.costEur,
-      status: "enviada",
+      status: DEFAULT_STATUS,
       source: "baymax",
       notes: nota,
       rooms_json: t.roomsJson,

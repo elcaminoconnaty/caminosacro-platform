@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
+import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
+import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 import { mensajeError } from "@/lib/errors";
 import { firmarPdf } from "@/lib/quotes/pdfUrl";
 import { sumarDias, tarifarRuta } from "@/lib/quotes/tarifar";
@@ -127,7 +129,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
       cost_base_eur: t.costBaseEur,
       season_supplement_cost_eur: t.suplementoCostEur,
       cost_eur: t.costEur,
-      status: "enviada",
+      status: DEFAULT_STATUS,
       source: "wordpress",
       notes: "Cotización generada desde el cotizador de caminosacro.com (WordPress)",
       rooms_json: t.roomsJson,
@@ -167,6 +169,8 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     subject: correo?.subject ?? null,
     body: correo?.body ?? null,
   });
+
+  if (emailSent) await marcarCotizacionEnviada(supabase, quote.id);
 
   return {
     ok: true,

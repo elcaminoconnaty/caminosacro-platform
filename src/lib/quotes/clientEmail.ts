@@ -7,6 +7,7 @@ import { renderAndStoreQuotePdf, type ComercialClient } from "@/lib/quotes/pdf";
 import { correoCotizacionHtml } from "@/lib/quotes/emailHtml";
 import { nuevoTokenCorreo, urlVersionWeb } from "@/lib/email/versionWeb";
 import { getTravelDocTexts } from "@/lib/travelDocs/texts";
+import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
 
 /**
  * Envío del correo de cotización al cliente, con su PDF adjunto.
@@ -157,8 +158,6 @@ export async function enviarCorreoCliente(
   });
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
 
-  if (!esPrueba) {
-    await supabase.from("quotes").update({ email_sent_at: new Date().toISOString() }).eq("id", quoteId);
-  }
+  if (!esPrueba) await marcarCotizacionEnviada(supabase, quoteId);
   return { ok: true, email };
 }

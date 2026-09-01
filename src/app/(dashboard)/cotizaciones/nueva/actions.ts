@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
+import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 
 const str = (v: FormDataEntryValue | null) => {
   if (v == null) return null;
@@ -116,7 +117,7 @@ export async function createQuote(formData: FormData) {
       cost_base_eur: num(formData.get("cost_base_eur")) ?? 0,
       season_supplement_cost_eur: num(formData.get("season_supplement_cost_eur")) ?? 0,
       cost_eur: (num(formData.get("cost_base_eur")) ?? 0) + (num(formData.get("season_supplement_cost_eur")) ?? 0),
-      status: str(formData.get("status")) || "enviada",
+      status: str(formData.get("status")) || DEFAULT_STATUS,
       notes: str(formData.get("notes")),
       rooms_json: roomsJson,
       price_blocks: priceBlocks,

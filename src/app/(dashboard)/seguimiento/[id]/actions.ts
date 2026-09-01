@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
-import { isQuoteStatus } from "@/lib/quoteStatus";
+import { DEFAULT_STATUS, isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { rutaCotizacion, rutaDocumentoPilgrim, rutaRecibo, sinBucket } from "@/lib/storage/paths";
 import { alternarOpcional, cambiarCantidadOpcional } from "@/lib/quotes/optionals";
@@ -63,7 +63,7 @@ export async function updateQuote(id: string, formData: FormData) {
     // Lado Pilgrim, espejo del lado cliente. `cost_eur` NO se escribe: es derivado.
     cost_base_eur: num(formData.get("cost_base_eur")),
     season_supplement_cost_eur: num(formData.get("season_supplement_cost_eur")) ?? 0,
-    status: str(formData.get("status")) || "enviada",
+    status: str(formData.get("status")) || DEFAULT_STATUS,
     valid_until: str(formData.get("valid_until")),
     notes: str(formData.get("notes")),
     price_blocks: priceBlocks,
