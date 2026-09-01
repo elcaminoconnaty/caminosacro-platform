@@ -96,9 +96,10 @@ el suplemento sí actualizado a 6×80 = 480 €, y sin un solo aviso en pantalla
 texto que aparece es «Modalidad custom — sin precio en catálogo», que además miente: no es
 una modalidad custom, es la etiqueta estándar que escribe el propio asistente.
 
-**Propuesta (no se tocó: es dinero):** o el editor entiende la etiqueta mixta y retarifa con
-el reparto, o bloquea el guardado cuando cambian personas/ruta/fecha y la base no se pudo
-recalcular. Lo que no puede es guardar medio recálculo.
+**Propuesta (no se tocó: es dinero):** ver el hallazgo de fondo, aquí abajo. No hay que
+enseñarle a la pantalla a leer la etiqueta mixta: `editQuote.ts` ya no la necesita —saca el
+reparto de `rooms_json`, que es el dato duro— y ya se niega a guardar cuando no puede
+retarifar. Lo que la pantalla no puede seguir haciendo es guardar medio recálculo.
 
 ### [GRAVE] Al editar desde la pantalla, `rooms_json` se queda viejo — y de ahí salen el pedido a Pilgrim y el contrato firmado — `src/app/(dashboard)/seguimiento/[id]/actions.ts:52-70`
 
@@ -162,6 +163,42 @@ parche mínimo mientras tanto, que `updateQuote` recalcule el reparto cuando cam
 personas/ruta/modalidad, y que `/cotizar` guarde el `roomsJson` que su propio cálculo ya
 tiene a mano. Y por separado, revisar CS-2026-080 antes de que se le mande el pedido a
 Pilgrim: hoy declara dos camas de más.
+
+### El hallazgo de fondo: hay **dos editores de cotización** y solo uno sigue las reglas
+
+Los tres GRAVE de arriba no son tres defectos sueltos. Son el mismo: **la misma cotización,
+editada por la pantalla o editada por BayMax, no queda igual.** Eso es «un dato, un sitio»
+roto en el sitio más caro de la plataforma.
+
+| | `QuoteEditor.tsx` + `[id]/actions.ts` (la pantalla) | `editQuote.ts` → `actualizarCotizacion()` (BayMax) |
+|---|---|---|
+| Fórmula del precio | `price_cs × people` (`QuoteEditor.tsx:156,163`) | `tarifarRuta()`: reparto real de habitaciones |
+| Cuándo retarifa | **al montar**, siempre que la etiqueta case con el catálogo (`:161-167`) | solo si cambia ruta, modalidad, fecha o personas (`:143`) |
+| Base tecleada a mano | la pisa con el catálogo | **la respeta**, y está escrito como regla (`:20-23`) |
+| Etiqueta mixta | `modalityToSlug()` devuelve `null` → no retarifa nada (`:68`) | `modalidadGuardada()` la resuelve por `rooms_json` (`:53-56`) |
+| Año sin tarifa | guarda igual, con la base vieja | **no guarda nada**: `sin_tarifas_ano` y la fila queda como estaba (`:200`) |
+| `rooms_json` | no lo toca nunca | lo reescribe (`:212`) |
+| `price_blocks` tecleados | los conserva aunque el precio cambie | los suelta y lo avisa (`:214-217`) |
+| PDF | lo regenera | lo regenera |
+
+Las tres columnas de la derecha que están en negrita son **exactamente** los tres GRAVE. El
+camino de BayMax, que se escribió después y con el problema a la vista, ya los resolvió los
+tres. La pantalla —la que más usa Nico, la que toca las cotizaciones que ya se enviaron— se
+quedó con la primera versión.
+
+**Propuesta (no se tocó: es dinero, y hay que decidirla con Nico).** El arreglo deja de ser
+«replicar el reparto en la pantalla» y pasa a ser **reuso**: que `updateQuote` llame a
+`actualizarCotizacion()` para todo lo que mueve plata —ruta, modalidad, fecha, personas— y
+se quede solo con lo que hoy es suyo (estado, notas, validez, datos del cliente). Un editor,
+una regla, y los tres GRAVE se cierran de una vez.
+
+Un cabo que hay que atar antes, y que conviene decir para que la propuesta no suene más
+barata de lo que es: **`ParcheCotizacion` no acepta un precio a mano** (`editQuote.ts:30-41`),
+y la pantalla sí necesita poder teclearlo — es precisamente el caso que la regla de
+`editQuote.ts:20-23` protege, el año sin tarifa cargada. Así que el trabajo real es añadirle
+a `actualizarCotizacion()` un override explícito de base y costo que **solo** se aplique
+cuando el usuario haya tocado esos campos, en vez de dispararse solo al montar. Sigue siendo
+mucho menos que reescribir la aritmética por segunda vez.
 
 ### [MEDIO] CS-2026-058 tiene un `cost_eur` que la próxima recalculada borra — dato en producción
 
