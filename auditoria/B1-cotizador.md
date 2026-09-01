@@ -16,7 +16,7 @@
 - **B1.2 Los cuatro caminos de alta dan lo mismo.** Wizard, cotizador público, WordPress y el endpoint del agente. Mismo input → ¿mismo precio, mismas líneas, mismo estado? Donde discrepen, cuál manda.
   `Estado: hecho` — tres de los cuatro (Wizard, WordPress y agente) dan el mismo precio porque comparten `tarifarRuta()`; **`/cotizar` no**: cobra una sola modalidad a todo el grupo y cae al año anterior. Estado inicial, código y validez sí coinciden en los cuatro.
 - **B1.3 Alta a medias.** Si falla el PDF, el correo o la inserción de líneas, ¿qué queda en la base? Busca cotizaciones sin líneas, sin código o sin cliente. No hay transacción: di qué se rompe.
-  `Estado: en curso` — sigo el orden de escrituras de los cuatro flujos buscando dónde queda algo a medias, y lo contrasto con las filas huérfanas reales de producción.
+  `Estado: hecho` — no hay cotizaciones sin líneas (el schema no las necesita) ni sin código, pero sí tres puntos donde el alta queda a medias sin que nadie se entere: el error al crear el cliente se ignora, el PDF fallido no detiene el correo, y la ruta personalizada queda creada aunque la cotización falle.
 - **B1.4 Validación de la entrada.** Personas fuera de rango, fecha en el pasado, ruta sin tarifa del año, correo inválido, texto larguísimo. En los endpoints públicos además: secreto, límite de peticiones, payload gigante.
   `Estado: pendiente`
 - **B1.5 El wizard como herramienta.** Doble clic en «crear» (¿dos cotizaciones?), catálogo que no responde, errores sin mensaje, y los avisos de `setState` en efecto que ya marca el linter en `Wizard.tsx`.
@@ -221,11 +221,105 @@ Verificado leyendo los cuatro inserts, no por confianza:
   distintos para WordPress y para el agente, y si la variable de entorno falta se deniega
   en vez de dejar pasar (`api/wp/auth.ts:12-20`).
 
+### [MEDIO] Si falla la creación del cliente, la cotización nace huérfana y nadie se entera — `webQuote.ts:98-103`, `agentQuote.ts:111-116`, `cotizar/actions.ts:130-135`, `nueva/actions.ts:60-65`
+
+Los cuatro caminos hacen lo mismo:
+
+```ts
+const { data: creado } = await supabase.from("clients").insert({...}).select("id").single();
+clientId = creado?.id ?? null;
+```
+
+El `error` ni se desestructura. Si el insert falla, `clientId` queda en `null` y **la
+cotización se crea igual**, sin cliente del directorio y sin un solo mensaje.
+
+El disparador realista no es exótico: `comercial.clients` tiene `UNIQUE (phone)`, y el
+patrón es leer-y-después-insertar sin transacción. Dos peticiones simultáneas con el mismo
+teléfono —el visitante que da doble clic en «Cotizar», o dos pestañas abiertas— hacen que
+la segunda pierda la carrera contra la clave única: su cotización aterriza con
+`client_id = null`. Lo mismo si el teléfono viene con un formato que la columna rechaza.
+
+Qué se rompe: esa cotización no queda enlazada al directorio, así que el cliente no
+aparece con su historial y todo lo que resuelve datos por `client_id` se queda sin ellos.
+En producción hay 11 cotizaciones con `client_id` nulo, pero **todas son del seed del
+1-may-2026**: el mecanismo está en el código y todavía no ha mordido. Vale arreglarlo antes.
+
+**Propuesta:** mirar el `error` del insert y, si es violación de unicidad, releer el cliente
+por teléfono (que es justo el que acaba de ganar la carrera) en vez de seguir con `null`.
+Cualquier otro error debería abortar el alta con mensaje, no crear una cotización coja.
+
+### [MEDIO] Si el PDF falla, el correo sale igual y la cotización queda marcada «Enviada» — `webQuote.ts:147-173` y `cotizar/actions.ts:178-215`
+
+En los dos caminos que mandan correo al crear, el fallo del PDF solo hace `console.error`.
+Después `firmarPdf()` devuelve `null`, `enviarCorreoWebhook()` se llama igual con
+`pdf_url: null` —y el workflow de n8n adjunta el PDF **descargándolo de `pdf_url`**
+(`lib/email/webhook.ts:3-5`)—, y si el webhook responde ok se llama
+`marcarCotizacionEnviada()`.
+
+Resultado: el cliente recibe «te enviamos tu cotización» sin cotización, y en el CRM el
+expediente dice ✓ Enviada, que es precisamente el estado que impide que alguien lo note y
+lo reenvíe. El único rastro está en los logs de Railway. El disparador no es teórico: es la
+trampa de `@react-pdf/renderer` («Font family not registered») que el propio TABLERO lista,
+o un Storage caído.
+
+**Propuesta (no se tocó: cambia el estado de la venta):** si no hay PDF, no marcar
+`enviada` y dejar el aviso visible en el expediente. Como mínimo, guardar el motivo del
+fallo en la cotización en vez de solo en el log.
+
+### [MEDIO] La ruta personalizada del asistente queda creada aunque la cotización falle, y reintentar la duplica — `Wizard.tsx:334-377` + `catalogo/actions.ts:285-333`
+
+El asistente crea, en este orden y sin transacción: **1)** la ruta, **2)** sus filas de
+`pricing`, **3)** sus etapas, **4)** la cotización. Si el paso 4 falla, los tres primeros
+quedan escritos: una ruta con precios y etapas, en el catálogo, sin ninguna cotización
+detrás. Se ve en `/catalogo` y en el propio selector del asistente.
+
+Y lo que hace daño de verdad es el reintento. `createRoute()` no comprueba si ya existe una
+ruta con ese nombre; solo desambigua el **slug** (`uniqueRouteSlug`). Darle otra vez a
+«Guardar» crea una **segunda ruta con el mismo nombre**. A partir de ahí:
+
+- `src/lib/quotes/pdf.ts:42-46` resuelve la ruta con `.eq("name", quote.route_name)
+  .maybeSingle()`. Con dos filas del mismo nombre eso devuelve error y `route` queda en
+  `null`: **el PDF sale sin días, sin km y con el itinerario en blanco**, en silencio.
+- El editor de Seguimiento resuelve la tarifa con `yearRates.find(p => p.route_name ===
+  routeName)` y toma la primera que aparezca, que puede ser la de la ruta gemela vacía.
+
+Hoy no hay nombres duplicados en producción (28 rutas, ninguno repetido), así que esto es
+una mina sin pisar. **Propuesta:** que `createRoute()` rechace un nombre que ya existe con
+un mensaje claro, y que el asistente cree la ruta **después** de tener la cotización
+guardada, o la borre si el alta falla — como ya hace bien `bikeQuote.ts:248-252`.
+
+### Lo que sí está bien
+
+- **No hay cotizaciones sin líneas, porque el schema no las necesita.** La ruta y el
+  alojamiento viven en `quotes.base_eur`, no en `quote_lines`; las líneas son solo
+  opcionales, bicis, personalizadas y descuentos. De las 45 cotizaciones de producción, 39
+  no tienen ninguna línea y todas están correctas. La pregunta «¿hay cotizaciones sin
+  líneas?» no aplica a este modelo.
+- **No puede haber cotizaciones sin código ni con código repetido.** `code` es `NOT NULL`
+  con `UNIQUE`, y `next_quote_code()` hace `insert … on conflict (year) do update` sobre
+  `quote_codes`, que toma el candado de fila: dos altas simultáneas se serializan. Además
+  se resincroniza contra el máximo real de `quotes`, así que un borrado no rompe la serie.
+- **`quote_lines.total` es una columna generada** (`quantity * unit_price`), así que ninguna
+  línea puede guardarse con un total que no cuadre con su cantidad y su precio.
+- **El único flujo que crea en dos pasos sí compensa**: si fallan las líneas de la
+  cotización de bici, borra la cotización recién creada (`bikeQuote.ts:248-252`). Es el
+  patrón que le falta al asistente con la ruta personalizada.
+- `quote_lines` cae en cascada al borrar la cotización, y `quotes.client_id` es
+  `ON DELETE RESTRICT`: no se puede borrar un cliente y dejar cotizaciones apuntando al
+  vacío.
+
 ---
 
 ## Arreglos aplicados
 
-_(Solo lo pequeño y reversible. Un commit por arreglo.)_
+### `/cotizar` prometía una descarga que no existía — `src/app/cotizar/PublicQuoter.tsx:124-137`
+
+Cuando el correo no salía, la pantalla de éxito decía «**Descarga tu cotización aquí
+abajo**»… y el botón de descarga solo se dibuja `{exito.pdfUrl && …}`. Si además falló el
+PDF —que es justo el caso en que también suele fallar el correo, porque el correo depende
+del PDF— el visitante veía la frase señalando a un botón que no estaba. Ahora ese caso
+tiene su propio mensaje: dice que la cotización quedó guardada, da el código y manda a
+WhatsApp, que es el único camino que de verdad le queda. `npx tsc --noEmit` limpio.
 
 ---
 

@@ -125,8 +125,15 @@ export default function PublicQuoter({
               <>
                 Te enviamos el PDF a <b className="text-fg">{email}</b>. Si no aparece en unos minutos, mira en spam.
               </>
-            ) : (
+            ) : exito.pdfUrl ? (
               <>Descarga tu cotización aquí abajo. Si prefieres, te la reenviamos por WhatsApp.</>
+            ) : (
+              // Ni correo ni PDF: no hay nada que descargar, así que no se lo prometemos.
+              // Su cotización sí quedó guardada con este código; el camino que queda es WhatsApp.
+              <>
+                Tu cotización quedó guardada con el código <b className="text-fg">{exito.code}</b>, pero no pudimos
+                generarte el documento. Escríbenos por WhatsApp con ese código y te lo mandamos enseguida.
+              </>
             )}
           </p>
           <p className="font-display mt-6 text-4xl text-bosque">{eur(exito.totalEur)}</p>
