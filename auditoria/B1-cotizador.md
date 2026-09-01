@@ -181,6 +181,49 @@ los números.
 consulta de salud que liste cotizaciones donde `cost_eur <> cost_base + suplemento +
 líneas`.
 
+### [MEDIO] La agencia cobra en pesos y el cotizador público no pinta ni un peso — `src/lib/trm.ts:31,70-80` · `src/app/cotizar/PublicQuoter.tsx:93,320-324`
+
+CRITERIOS §4 pide los números «en dos monedas, con la tasa del día del movimiento y no la
+de hoy». Camino Sacro le cobra en pesos a un cliente colombiano lo que le paga en euros a
+Pilgrim, así que el COP no es un adorno: es la única cifra que ese cliente entiende de
+verdad. Tres cosas, en orden de peso:
+
+**1. `comercial.trm_history` está vacía. Cero filas.** Verificado. `getTRMHoy()` intenta,
+en este orden: la fila de hoy en `trm_history` → dos APIs externas → la última fila
+guardada. Con la tabla vacía los dos extremos no existen, así que **el único camino vivo es
+que una de las dos APIs conteste dentro de esa misma petición**. Y que la tabla lleve vacía
+toda la vida del proyecto es la prueba de que el `upsert` de la línea 70 no ha escrito
+nunca: o las APIs no responden (`TRM_API_PRIMARY` / `TRM_API_FALLBACK`), o el insert lo
+rechaza la base. No se puede saber cuál, porque **ninguno de los dos fallos deja rastro**:
+el `catch {}` de la línea 31 se traga el de las APIs y el `upsert` solo desestructura
+`data`, nunca `error`. Es el mismo patrón de `catch` mudo que el contrato manda arreglar,
+en el sitio donde impide diagnosticar el problema.
+
+**2. Cuando falla, `/cotizar` no dice nada.** La cifra en pesos está detrás de
+`{totalCop && …}` (`PublicQuoter.tsx:320`): si `trm` es `null`, el bloque simplemente **no
+se dibuja** y el visitante ve solo euros, sin explicación ni aviso. El CRM sí es honesto —
+`Topbar.tsx:18` pinta «TRM no disponible»— y el contrato también, con su `valor_total_cop:
+"—"` (`contracts/render.ts:119-120`). El cotizador público, que es el único de los tres que
+habla con un cliente, es el único que calla.
+
+**3. El peso que se le muestra no se archiva en ninguna parte.** `quotes` no tiene una sola
+columna de COP ni de TRM (comprobado en el esquema): el número en pesos se calcula en
+pantalla (`total × trmEurCop`) y se pierde al cerrar la pestaña. Y eso choca con la promesa
+que la propia cotización imprime: `valid_until` = hoy + 30 días. **Lo que aguanta 30 días
+es el euro; el peso no.** Con la TRM moviéndose lo normal, el cliente que vuelve el día 25
+con la captura de pantalla y el CRM que le cotiza hoy están mirando dos números distintos, y
+no hay forma de saber cuál se le prometió porque la tasa de ese día no se guardó — ni
+siquiera está la fila en `trm_history`. Para una agencia que vende en pesos lo que paga en
+euros, esa es la fuga de margen clásica del oficio, y hoy no es medible.
+
+**Propuesta (la política de tasa es decisión de Nico y toca B3/B6; lo de B1 es esto):**
+(a) que el `upsert` y el `catch {}` de `trm.ts` registren el fallo en vez de tragárselo, que
+es lo único que hace falta para saber por qué la tabla lleva vacía desde el principio;
+(b) que `/cotizar` diga «tasa del día no disponible» en vez de omitir la línea; y
+(c) guardar en la cotización la TRM con la que se le mostró el precio —dos columnas,
+`trm_eur_cop` y su fecha—, para que la validez de 30 días signifique algo en la moneda en la
+que se cobra.
+
 ### [MENOR] La Semana Santa se acaba en 2028 y no hay dónde renovarla — `src/lib/seasons.ts:85-89` y `comercial.settings.key='season_supplements'`
 
 `dates_by_year` solo tiene 2026, 2027 y 2028, tanto en el default del código como en la
