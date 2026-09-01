@@ -22,7 +22,8 @@
   no lo mueven: CS-2026-004 tiene los 970 € pagados y dice «pago parcial», y por eso no le sale la
   documentación de viaje. `aceptada` y `completada` no las ha usado nadie nunca.
 - **B2.4 Dos pestañas a la vez.** Guardar el editor pisa el expediente entero o solo lo cambiado. Qué pasa si alguien edita mientras otro cobra. Guardar sin cambios.
-  `Estado: pendiente`
+  `Estado: en curso` — analizando el parche completo de `updateQuote` (16 columnas siempre), qué pasa
+  con una pestaña vieja, y qué efectos colaterales tiene guardar sin cambiar nada.
 - **B2.5 `QuoteEditor` y sus efectos.** El linter marca ocho `setState` dentro de efectos. Comprueba si alguno pisa lo que el usuario acaba de teclear o dispara recálculos de más.
   `Estado: pendiente`
 - **B2.6 La tabla de seguimiento.** Filtros, búsqueda y orden. Qué tal se porta con 500 cotizaciones (hoy hay 45). Qué falta ver de un vistazo para no tener que abrir cada una.
