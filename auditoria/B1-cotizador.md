@@ -496,30 +496,51 @@ credibilidad. **Propuesta:** una sola comprobación en `tarifarRuta()` —que ya
 común de tres de los cuatro— rechazando salidas anteriores a hoy, con excepción explícita
 para el alta retroactiva del CRM si Nico la necesita.
 
-### [MEDIO] Una fecha con formato correcto pero imposible tumba el endpoint con un 500 — `api/wp/quote/route.ts:10`, `api/agente/cotizacion/route.ts:10`, `cotizar/actions.ts:21`
+### [MEDIO] `2026-02-31` se desliza a 9 de marzo y se cotiza esa fecha en silencio — `api/wp/quote/route.ts:10`, `api/agente/cotizacion/route.ts:10`, `cotizar/actions.ts:21`
 
-Los tres esquemas de zod validan la fecha con `.regex(/^\d{4}-\d{2}-\d{2}$/)`, que acepta
-`2026-13-45` y `2026-99-01`. Comprobado en Node con la misma función del código:
+Los tres esquemas de zod validan la fecha de salida con `.regex(/^\d{4}-\d{2}-\d{2}$/)`:
+comprueban la **forma**, no que el día exista. `2026-02-31` pasa el filtro, y `new Date()`
+lo normaliza al 3 de marzo sin quejarse. A partir de ahí todo el cálculo corre sobre una
+fecha que **el cliente no pidió**: se tarifa esa salida, se calcula la fecha fin (`+6 días`
+= 9 de marzo), se guarda la cotización y se le manda el PDF. Comprobado en Node con la
+misma función del código:
+
+```
+2026-02-31 -> 2026-03-09   (¡se corrige sola y sigue!)
+2026-02-30 -> 2026-03-08
+```
+
+Nadie ve nada raro: no hay error, no hay aviso, y el PDF sale con fechas coherentes entre
+sí. La única señal es que no son las que pidió quien cotizó. Si la salida cae en otro mes,
+además puede cruzar a otra temporada y cambiar el suplemento. El disparador realista es un
+formulario de WordPress con un selector de día suelto o un integrador que arme la fecha
+concatenando campos.
+
+**Propuesta:** cambiar el `.regex()` por un refine que compruebe que la fecha existe de
+verdad (`new Date(iso)` válido **y** que el ISO de vuelta coincida con lo que llegó). Son
+tres líneas, cierran también el 500 de abajo y dejan el sitio donde meter la validación de
+fecha pasada.
+
+### [MENOR] `2026-13-45` devuelve un 500 «interno» donde tocaba un 422 de validación — `api/wp/quote/route.ts:10`, `api/agente/cotizacion/route.ts:10`
+
+El mismo `.regex()` del hallazgo de arriba acepta también fechas que no se pueden
+normalizar, y esas sí revientan:
 
 ```
 2026-13-45 -> THROW RangeError: Invalid time value   (sumarDias)
 2026-99-01 -> THROW RangeError: Invalid time value
-2026-02-31 -> 2026-03-09                              (¡se corrige sola y sigue!)
 ```
 
 `sumarDias()` (`tarifar.ts:74-78` y su copia en `cotizar/actions.ts:51-55`) hace
-`d.toISOString()` sobre un `Invalid Date` y lanza. En `/api/wp/quote` y
-`/api/agente/cotizacion` el `try/catch` de la ruta lo convierte en **500 «interno»** cuando
-debería ser un 422 de validación — el integrador de WordPress ve un error de servidor y
-abre un ticket por un dato mal formado suyo. Y `2026-02-31` ni siquiera falla: se
-desliza a 9 de marzo y se cotiza esa fecha, distinta de la que pidió el cliente.
+`d.toISOString()` sobre un `Invalid Date` y lanza; el `try/catch` de la ruta lo convierte en
+**500 «interno»**, así que el integrador de WordPress ve un error de servidor y abre un
+ticket por un dato mal formado suyo.
 
-Lo bueno: el reventón ocurre **antes** de tocar la base en los tres caminos, así que no deja
-cliente ni cotización a medias.
-
-**Propuesta:** cambiar el `.regex()` por un refine que compruebe que la fecha existe de
-verdad (`new Date(iso)` válido y que el ISO de vuelta coincida). Son tres líneas y quita el
-500, el falso 3 de marzo y de paso permite meter ahí la validación de fecha pasada.
+Es MENOR y no MEDIO por lo que **no** cuesta: no se pierde dinero, no lo ve ningún cliente
+—el endpoint está detrás de un secreto compartido, o sea que lo dispara un integrador, no un
+visitante—, el reventón ocurre **antes** de tocar la base en los tres caminos (no deja
+cliente ni cotización a medias) y queda en el log. Lo cara es la fecha que sí se desliza, no
+esta. Se arregla con el mismo refine.
 
 ### [MEDIO] El asistente del CRM no valida nada en el servidor — `src/app/(dashboard)/cotizaciones/nueva/actions.ts:96-126`
 
