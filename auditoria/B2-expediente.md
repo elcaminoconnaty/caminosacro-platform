@@ -33,8 +33,9 @@
   proyectada incluye 1.696 € de canceladas y no responde a los filtros) y que la tabla enseña cuánto,
   pero no qué falta hacer.
 - **B2.7 Nadie se cae del embudo.** Hoy nada avisa de una cotización enviada hace ocho días sin respuesta ni de un saldo que vence. Di qué costaría lo mínimo útil.
-  `Estado: en curso` — inventariando lo que ya existe (cron de contratos, email_log, plantillas) y
-  midiendo contra la base cuántos expedientes están hoy parados y desde cuándo.
+  `Estado: hecho` — 8 salidas dentro de 45 días con 13.816 € sin cobrar (dos de ellas salen en 4 días)
+  y nada las señala; la plantilla `recordatorio_pago` ya está escrita en la base y no la lee ni una
+  línea de código. Lo mínimo útil es una columna «Falta» en la lista, sin migración ni correos.
 
 ---
 
@@ -641,6 +642,92 @@ instantánea y no hay ida y vuelta al servidor por cada tecla. No hay nada que a
 Lo único que anoto sin llamarlo hallazgo, porque es terreno de B7: once columnas en un
 `overflow-x-auto` significa que en el celular —donde CRITERIOS dice que Nico atiende— hay
 que arrastrar de lado para llegar al Saldo y al Estado.
+
+### [GRAVE] El único recordatorio que existe es el de la firma; ni la cotización ni el saldo persiguen a nadie — `src/app/api/cron/` (un solo endpoint) · `comercial.email_templates` (plantilla `recordatorio_pago` sin usar)
+
+B1 ya levantó que falta `api/cron/recordatorios-cotizacion`. Doy eso por dicho y aporto lo
+que en su momento no se midió: **el otro lado del embudo, el del dinero de gente que ya
+decidió viajar**, y lo que ya está construido y sin enchufar.
+
+**Lo que está parado hoy, contra la base:**
+
+| | filas |
+|---|---|
+| cotizaciones en `enviada` | 39 |
+| …con la `valid_until` ya vencida | **16** |
+| …sin que la fila se haya tocado en 8 días o más | **34** |
+| contratos esperando firma | 4 |
+| **salidas dentro de 45 días con saldo pendiente** | **8**, por **13.816 €** |
+
+Las ocho, y las que salen primero arriba:
+
+| código | sale | días | total | cobrado | saldo |
+|---|---|---|---|---|---|
+| **CS-2026-056** | 2026-09-05 | **4** | 1.310 € | 0 € | **1.310 €** |
+| **CS-2026-008** | 2026-09-05 | **4** | 4.570 € | 0 € | **4.570 €** |
+| CS-2026-058 | 2026-09-27 | 26 | 1.932 € | 0 € | 1.932 € |
+| CS-2026-055 | 2026-09-28 | 27 | 925 € | 0 € | 925 € |
+| CS-2026-037 | 2026-09-29 | 28 | 2.705 € | 0 € | 2.705 € |
+| CS-2026-016 · -031 · -032 | 2026-10-01 | 30 | 2.374 € | 0 € | 2.374 € |
+
+**Y acá está el punto, que no es «hay 13.816 € sin cobrar».** Casi seguro la mayoría de esas
+ocho son cotizaciones que nunca cuajaron —CS-2026-008 tiene la validez vencida desde el 31
+de mayo—. El problema es que **la plataforma no puede distinguir «sale en cuatro días y no
+ha pagado» de «nunca contestó y sigue ahí»**, porque las dos cosas se ven exactamente igual:
+estado `enviada`, sin ninguna señal, en una lista ordenada por código. No hay ninguna
+pantalla que pregunte «¿qué sale este mes y no está cobrado?». La consulta que acabo de
+correr para escribir esta tabla no existe en ningún sitio del producto.
+
+Y CS-2026-058 sí importa de verdad: sale el 27 de septiembre, tiene **3 contratos y 1
+firmado** (ver B2.3), y **cero euros cobrados**. Ese no es un lead muerto.
+
+**Lo que ya está construido y nadie enchufó:**
+
+1. **La plantilla de correo ya existe.** `comercial.email_templates` tiene dos filas:
+   `cotizacion_enviada` y **`recordatorio_pago`**. Buscado `recordatorio_pago` en todo
+   `src/`: **cero apariciones**. Alguien escribió y guardó la plantilla del recordatorio de
+   pago y no hay una línea de código que la lea.
+2. **El cron de contratos es un molde que funciona.**
+   `api/cron/recordatorios-contrato/route.ts` ya resuelve todo lo difícil: autenticación con
+   `CRON_SECRET` por `timingSafeEqual` (líneas 27-33), idempotencia —«correrlo varias veces
+   al día no duplica correos»—, cadencia de 4 días contada desde el último contacto real
+   (líneas 87-91), tope de 5 envíos, y tono distinto según el número de recordatorio
+   (`tono()`, líneas 35-54). Está probado: hay contratos con `reminder_count` hasta 5.
+3. **Las columnas del patrón ya están inventadas.** `0012_contract_reminders.sql` añadió
+   `last_reminder_at` + `reminder_count` + su índice a `contracts`. Las mismas tres cosas en
+   `quotes` y el molde encaja.
+4. **El emisor de correo es único** (`lib/email/webhook.ts` → n8n → Brevo) y el Schedule
+   diario de n8n ya existe.
+
+**Lo mínimo útil, en orden de lo que cuesta:**
+
+- **(a) Una columna «Falta» en `/seguimiento`, cero correos, cero migraciones.** Calculada en
+  el servidor con los `left join lateral` que esa página ya hace para los pagos: «validez
+  vencida hace 93 días», «sale en 4 días · debe 4.570 €», «1 de 3 firmados», «sin registro de
+  envío». Es lo que propuse en B2.6 y resuelve la mitad del problema **hoy**, sin tocar
+  dinero ni estados ni mandar nada. Si solo se hace una cosa, es esta.
+- **(b) Un aviso interno diario a `reservas@`**, no al cliente. Un `/api/cron/pendientes`
+  clonado del de contratos que mande un correo con tres listas: salidas de los próximos 30
+  días con saldo, cotizaciones que vencen esta semana, y contratos sin firmar. Reusa el
+  emisor y el Schedule; no necesita migración porque no hay que recordar a quién se le
+  escribió: es un resumen, no una insistencia.
+- **(c) El recordatorio al cliente, ya con migración.** `last_reminder_at` y
+  `reminder_count` en `quotes`, un `/api/cron/recordatorios-cotizacion` calcado del de
+  contratos, y **la plantilla `recordatorio_pago` que ya está escrita**. Ojo con la trampa
+  que documenté en B2.3: si el disparador es `email_sent_at`, solo verá **6** de las 39
+  enviadas; hay que rellenar las 33 históricas antes o el recordatorio nacerá ciego.
+
+**Lo que NO haría:** un motor de reglas configurable, secuencias de nurturing o puntuación de
+leads. Para dos personas y 45 expedientes, (a) sola ya cambia el día a día, y (b) cuesta una
+tarde.
+
+### [MENOR] Al entrar a la plataforma, lo primero que se ve no es el trabajo pendiente — `src/app/page.tsx:4`
+
+La raíz redirige a `/clara`. No hay ninguna pantalla de inicio que diga qué hay que hacer
+hoy: para saberlo hay que ir a `/seguimiento` y leer 45 filas ordenadas por código, donde una
+salida dentro de cuatro días sin cobrar se ve igual que una cotización de julio que nadie
+contestó. Es la misma carencia de arriba vista desde la puerta de entrada, y la solución es
+la misma columna «Falta» — o esas tres listas puestas en una portada.
 
 ---
 
