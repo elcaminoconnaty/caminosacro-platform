@@ -74,6 +74,69 @@ una modalidad custom, es la etiqueta estándar que escribe el propio asistente.
 el reparto, o bloquea el guardado cuando cambian personas/ruta/fecha y la base no se pudo
 recalcular. Lo que no puede es guardar medio recálculo.
 
+### [GRAVE] Al editar desde la pantalla, `rooms_json` se queda viejo — y de ahí salen el pedido a Pilgrim y el contrato firmado — `src/app/(dashboard)/seguimiento/[id]/actions.ts:52-70`
+
+`rooms_json` no es un campo decorativo del alta: es **el reparto de habitaciones**, y lo
+leen tres sitios, todos aguas abajo del dinero:
+
+| Quién lo lee | Para qué |
+|---|---|
+| `src/lib/quotes/pilgrimEmail.ts:122-129` | la línea `Habitaciones: N dobles + N individuales` **del correo con el que se le pide el cupo a Pilgrim** |
+| `src/lib/contracts/render.ts:74-84` | la acomodación que aparece en el **contrato que firma el cliente** («N habitación(es) doble(s) + N individual(es)») |
+| `src/lib/quotes/pdf.ts:197-225` | las tarjetas de precio del PDF cuando el reparto es mixto |
+
+El `patch` de `updateQuote` tiene 16 campos —cliente, ruta, fechas, personas, modalidad,
+base, suplemento, costo, estado, validez, notas, `price_blocks`— y **`rooms_json` no está
+en ninguno**. `QuoteEditor.tsx` tampoco lo manda: no hay un solo `formData.set("rooms_json")`
+en la pantalla. Cambiar personas, ruta, fecha o modalidad desde `/seguimiento/[id]` deja el
+reparto congelado en el que se calculó el día del alta, para siempre. El único camino que
+sí lo reescribe es `editQuote.ts:212` (`patch.rooms_json = t.roomsJson`), el de BayMax:
+otra vez los dos editores en desacuerdo (ver el hallazgo de fondo, más abajo).
+
+**No es teórico. CS-2026-080, estado `enviada`, editada el 1-sep-2026** (verificado en
+producción):
+
+| | valor en la base |
+|---|---|
+| `people` | 14 |
+| `modality` | «Pensión, habitación doble» |
+| `rooms_json` | `{tipo: pension, dobles: 8, individuales: 0, tarifa_doble: 575}` |
+| camas que declara | **16** |
+| `base_eur` | 8750 = 625 × 14, con el `pension_doble` 2026 de hoy — no con los 575 de `rooms_json` |
+
+Nació de 16 personas y se bajó a 14 desde la pantalla: la base se recalculó, el reparto no.
+Es la **única** de las 45 filas de producción donde las camas de `rooms_json` no cuadran con
+`people` (barridas las 15 que lo tienen), pero es exactamente la que está `enviada` y viva.
+
+Qué se rompe, si esa cotización sigue el recorrido normal:
+
+- El correo a Pilgrim pide **8 dobles para 14 personas**: una habitación de más, del orden
+  de una plaza y media de coste que la agencia paga y no cobra.
+- El contrato que firma el cliente dice «8 habitación(es) doble(s)» para 14 personas. Si
+  alguien lo lee, la agencia queda comprometida a algo que no cuadra; si no lo lee, lo
+  descubre el hotel el día de la llegada.
+- Y las tarifas dentro de `rooms_json` (575 €) tampoco se refrescan, así que un PDF de
+  reparto mixto puede pintar tarjetas con la tarifa vieja mientras el total se cobra con la
+  nueva.
+
+**El mismo campo tiene un segundo agujero, en el alta:** de los cuatro caminos, `/cotizar`
+es el único que **no escribe `rooms_json`** al crear (`cotizar/actions.ts:143-168`: no
+aparece en el insert). El informe original lo despachaba como una casilla «no» de la tabla
+comparativa; lo que significa de verdad es que toda cotización nacida en el cotizador
+público llega al contrato y al pedido de Pilgrim **sin línea de habitaciones** —
+`contracts/render.ts:82` cae al `modality`, que para un grupo impar dice «Pensión doble» —
+y sin tarjetas de reparto en el PDF. Hoy es latente: en producción no hay ninguna fila con
+`source = 'web'` (39 `interna`, 5 `wordpress`, 1 `baymax`), así que ese cotizador aún no ha
+producido una venta. Las 30 filas sin `rooms_json` son del asistente y de antes de que el
+campo existiera.
+
+**Propuesta (no se tocó: toca proveedor y documento firmado):** ver el hallazgo de fondo —
+que la pantalla llame a `actualizarCotizacion()`, que ya reescribe `rooms_json` bien. Como
+parche mínimo mientras tanto, que `updateQuote` recalcule el reparto cuando cambien
+personas/ruta/modalidad, y que `/cotizar` guarde el `roomsJson` que su propio cálculo ya
+tiene a mano. Y por separado, revisar CS-2026-080 antes de que se le mande el pedido a
+Pilgrim: hoy declara dos camas de más.
+
 ### [MEDIO] CS-2026-058 tiene un `cost_eur` que la próxima recalculada borra — dato en producción
 
 `comercial.recompute_quote_money()` deriva `cost_eur = cost_base_eur +
