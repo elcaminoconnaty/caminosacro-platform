@@ -14,6 +14,9 @@
  */
 
 export type DocumentoEnlace = {
+  /** 'documento' | 'asistencia' | 'seguro' | 'etiqueta'. El cuerpo del correo la mira
+   *  para no prometer un seguro que todavía no se ha cargado. */
+  clave: string;
   /** Nombre del archivo tal como aparece en el botón, en mayúsculas. */
   nombre: string;
   url: string;
@@ -67,26 +70,31 @@ function parrafos(texto: string, estilo: string): string {
 const P = `margin:0 0 14px;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.65;color:${TXT};`;
 const P_MINI = `margin:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.6;color:${SEC};`;
 
+/**
+ * Una tarjeta por documento: nombre, para qué sirve y el botón.
+ *
+ * El enlace NO se imprime en crudo debajo. Un token de 64 caracteres ocupando dos
+ * renglones convierte el correo en un muro y no ayuda a nadie: el botón ya es un
+ * `<a href>` normal, así que funciona igual con las imágenes bloqueadas. La versión en
+ * texto plano sí lleva las URL completas, que es donde de verdad hacen falta.
+ */
 function bloqueDescarga(d: DocumentoEnlace): string {
   return `
   <tr><td style="padding:0 0 12px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
            style="background:${CREMA};border:1px solid ${BORDE};border-radius:6px;">
       <tr>
-        <td style="padding:14px 16px;">
+        <td style="padding:16px;">
           <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;color:${VERDE};letter-spacing:0.3px;">${esc(d.nombre)}</div>
           ${d.detalle ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${SEC};margin-top:3px;">${esc(d.detalle)}</div>` : ""}
         </td>
-        <td align="right" style="padding:14px 16px;" width="130">
+        <td align="right" style="padding:16px;" width="130">
           <a href="${esc(d.url)}"
              style="display:inline-block;background:${VERDE};color:#ffffff;text-decoration:none;
                     font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:bold;letter-spacing:1px;
                     padding:9px 18px;border-radius:4px;">DESCARGAR</a>
         </td>
       </tr>
-      <tr><td colspan="2" style="padding:0 16px 12px;">
-        <div style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${SEC};word-break:break-all;line-height:1.5;">${esc(d.url)}</div>
-      </td></tr>
     </table>
   </td></tr>`;
 }
@@ -120,7 +128,7 @@ export function correoDocumentacionHtml(d: CorreoDocumentacionDatos): string {
   <tr><td style="padding:28px 32px 8px;">
     <p style="${P}">Buenas tardes, <strong>${esc(d.nombre)}</strong>.</p>
     ${parrafos(d.intro, P)}
-    <p style="${P}">A continuación tienes los enlaces para descargar tu documentación de viaje. <em style="color:${SEC};font-size:13px;">(Si no ves los botones de descarga, copia y pega los enlaces en tu navegador.)</em></p>
+    <p style="${P}">A continuación puedes descargar tu documentación de viaje:</p>
   </td></tr>
 
   <!-- Documentos -->
@@ -131,16 +139,17 @@ export function correoDocumentacionHtml(d: CorreoDocumentacionDatos): string {
   </td></tr>
 
   <tr><td style="padding:4px 32px 0;">
-    <p style="${P_MINI}">Todos tus documentos están también juntos, y siempre disponibles, en esta página:<br>
-      <a href="${esc(d.urlExpediente)}" style="color:${VERDE_M};">${esc(d.urlExpediente)}</a></p>
+    <p style="${P_MINI}">Los cuatro documentos están siempre disponibles en tu página de viaje:
+      <a href="${esc(d.urlExpediente)}" style="color:${VERDE_M};font-weight:bold;">abrir mi documentación</a>.
+      Guarda este correo y podrás volver a ella durante todo el Camino.</p>
   </td></tr>
 
   <!-- Recomendaciones -->
   <tr><td style="padding:14px 32px 0;">
-    <p style="${P}">En el archivo adjunto te enviamos tu documentación de viaje, donde se detallan todos los alojamientos que hemos reservado para ti, así como todas las observaciones a tener en cuenta.</p>
+    <p style="${P}">En tu documentación de viaje se detallan todos los alojamientos que hemos reservado para ti, así como todas las observaciones a tener en cuenta.</p>
     <p style="${P}">Te rogamos que leas con detenimiento toda la información. Para que tu viaje se lleve a cabo sin contratiempos, ten en cuenta todas las indicaciones de la documentación y no modifiques los procedimientos indicados.</p>
     <p style="${P}">Todas las gestiones se han realizado atendiendo a la cotización aceptada en el momento de la confirmación de compra. Cualquier modificación supondrá un coste adicional, que deberá abonarse en el momento en que se solicite el cambio.</p>
-    <p style="${P}">Adjuntamos también tu seguro de viaje, para que tengas constancia del mismo.</p>
+    ${d.documentos.some((x) => x.clave === "seguro") ? `<p style="${P}">Entre los documentos encontrarás también tu seguro de viaje, para que tengas constancia del mismo.</p>` : ""}
     <p style="${P}">Quedamos a tu entera disposición para cualquier duda o consulta: escríbenos o llámanos sin ningún compromiso al <strong>${tel}</strong>.</p>
     ${d.telefonoViaje ? `<p style="${P}">Durante el Camino, el teléfono de atención en España es el <strong>${esc(d.telefonoViaje)}</strong>. Lo encontrarás también en la última página de tu documentación de viaje.</p>` : ""}
     <p style="${P}">Para información de misas en la Catedral de Santiago: <a href="https://catedraldesantiago.es/liturgia/" style="color:${VERDE_M};">catedraldesantiago.es/liturgia/</a></p>
@@ -203,7 +212,7 @@ export function correoDocumentacionTexto(d: CorreoDocumentacionDatos): string {
     ...d.documentos.flatMap((x) => [x.nombre, x.url, ""]),
     `Todos tus documentos, siempre disponibles, en: ${d.urlExpediente}`,
     "",
-    "En el archivo adjunto te enviamos tu documentación de viaje, donde se detallan todos los alojamientos que hemos reservado para ti, así como todas las observaciones a tener en cuenta.",
+    "En tu documentación de viaje se detallan todos los alojamientos que hemos reservado para ti, así como todas las observaciones a tener en cuenta.",
     "",
     "Te rogamos que leas con detenimiento toda la información. Para que tu viaje se lleve a cabo sin contratiempos, ten en cuenta todas las indicaciones de la documentación y no modifiques los procedimientos indicados.",
     "",

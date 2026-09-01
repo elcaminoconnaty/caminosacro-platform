@@ -4,6 +4,7 @@ import type { ComercialClient } from "@/lib/quotes/pdf";
 import { mensajeError } from "@/lib/errors";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { registrarEnvio } from "@/lib/email/log";
+import { rutaAsistencia } from "@/lib/storage/paths";
 import { getTravelDocTexts } from "@/lib/travelDocs/texts";
 import { renderAndStoreTravelDoc } from "@/lib/travelDocs/render";
 import {
@@ -20,12 +21,8 @@ import {
  * días como mucho—, y el cliente abre esta documentación durante el viaje y meses
  * después. Con el token, el enlace del correo vive lo que viva el expediente.
  *
- * Adjuntamos además el Documento de Viaje y el seguro: un adjunto no depende de que haya
- * señal en el albergue.
+ * El correo no lleva adjuntos: solo los botones. Ver el comentario del payload más abajo.
  */
-
-/** Adjuntos y enlaces del correo viven 7 días; los enlaces del correo no los usan. */
-const ADJUNTO_TTL = 60 * 60 * 24 * 7;
 
 export async function enviarCorreoDocumentacionViaje(
   supabase: ComercialClient,
@@ -76,20 +73,33 @@ export async function enviarCorreoDocumentacionViaje(
   const urlExpediente = `${base}/documentacion/${doc.token}`;
   const descarga = (clave: string) => `${urlExpediente}/descargar/${clave}`;
 
+  // La asistencia es genérica y puede no estar generada todavía. Sin esta comprobación el
+  // correo saldría con un botón que lleva a un 404, que es peor que no ofrecerla.
+  const asistenciaRuta = rutaAsistencia();
+  const { data: listadoAsistencia } = await supabase.storage
+    .from(asistenciaRuta.split("/")[0])
+    .list("generico", { search: asistenciaRuta.split("/").pop() });
+  const hayAsistencia = (listadoAsistencia || []).length > 0;
+
   const documentos: DocumentoEnlace[] = [
     {
+      clave: "documento",
       nombre: `DOCUMENTO_VIAJE_${quote.code}.PDF`,
       url: descarga("documento"),
       detalle: "Alojamientos noche a noche, servicios incluidos y condiciones.",
     },
-    {
+  ];
+  if (hayAsistencia) {
+    documentos.push({
+      clave: "asistencia",
       nombre: "ASISTENCIA_EN_VIAJE_CAMINO_SACRO.PDF",
       url: descarga("asistencia"),
       detalle: "A quién llamar y qué hacer ante cualquier incidencia durante el viaje.",
-    },
-  ];
+    });
+  }
   if (doc.insurance_pdf_path) {
     documentos.push({
+      clave: "seguro",
       nombre: `SEGURO_DE_VIAJE_${quote.code}.PDF`,
       url: descarga("seguro"),
       detalle: "Póliza completa con las coberturas detalladas.",
@@ -97,6 +107,7 @@ export async function enviarCorreoDocumentacionViaje(
   }
   if (doc.luggage_tag_pdf_path) {
     documentos.push({
+      clave: "etiqueta",
       nombre: `ETIQUETA_TRANSPORTE_DE_EQUIPAJE_${quote.code}.PDF`,
       url: descarga("etiqueta"),
       detalle: "Imprímela y pégala en tu mochila antes de la primera etapa.",
@@ -119,21 +130,14 @@ export async function enviarCorreoDocumentacionViaje(
     intro,
   };
 
-  // Adjuntos: el documento siempre; el seguro si ya está cargado. La etiqueta no va
-  // adjunta a propósito — hay que imprimirla, y en el correo se busca mejor por su enlace.
-  const adjuntos: { url: string; name: string }[] = [];
-  const firmar = async (ruta: string) => {
-    const [bucket, ...rest] = ruta.split("/");
-    const { data } = await supabase.storage.from(bucket).createSignedUrl(rest.join("/"), ADJUNTO_TTL);
-    return data?.signedUrl ?? null;
-  };
-  const urlDoc = await firmar(doc.doc_pdf_path as string);
-  if (!urlDoc) return { error: "No se pudo preparar el Documento de Viaje como adjunto." };
-  adjuntos.push({ url: urlDoc, name: `Documento-Viaje-${quote.code}.pdf` });
-  if (doc.insurance_pdf_path) {
-    const urlSeg = await firmar(doc.insurance_pdf_path as string);
-    if (urlSeg) adjuntos.push({ url: urlSeg, name: `Seguro-Viaje-${quote.code}.pdf` });
-  }
+  // Sin adjuntos: el correo lleva solo los botones de descarga.
+  //
+  // Es deliberado. Adjuntar los cuatro PDF son ~7 MB que llegan a la bandeja de todo el
+  // mundo, y Brevo responde 400 pasado su límite llevándose el correo ENTERO por delante,
+  // no solo el adjunto que sobra. Además un adjunto es una foto del momento del envío: si
+  // luego se corrige un teléfono del hotel o se regenera el documento, el que el cliente
+  // tiene guardado sigue diciendo lo viejo. Los botones apuntan a /documentacion/<token>,
+  // que sirve SIEMPRE la versión vigente y no caduca.
 
   const envio = await enviarCorreoWebhook({
     code: quote.code,
@@ -145,9 +149,9 @@ export async function enviarCorreoDocumentacionViaje(
     personas: Number(quote.people) || 1,
     alojamiento: quote.modality ?? null,
     total_eur: quote.total_eur != null ? Number(quote.total_eur) : null,
-    pdf_url: adjuntos[0].url,
-    attachment_name: adjuntos[0].name,
-    attachments: adjuntos,
+    // Sin adjuntos, ni en `attachments` ni en el `pdf_url` de siempre: el nodo de n8n
+    // solo arma `brevoBody.attachment` si le llega alguno de los dos.
+    pdf_url: null,
     subject,
     body: correoDocumentacionTexto(datos),
     html: correoDocumentacionHtml(datos),
@@ -163,7 +167,7 @@ export async function enviarCorreoDocumentacionViaje(
     tipo: "documentacion",
     destinatario,
     asunto: subject,
-    adjuntos: adjuntos.length,
+    adjuntos: 0,
     messageId: envio.messageId ?? null,
     error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
     prueba: esPrueba,
