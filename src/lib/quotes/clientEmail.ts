@@ -22,11 +22,11 @@ export const EMAIL_PDF_TTL = 60 * 60 * 24 * 7; // 7 días
 export async function enviarCorreoCliente(
   supabase: ComercialClient,
   quoteId: string,
-  mensaje: { subject: string; body: string },
+  mensaje: { subject: string; body: string; pruebaEmail?: string },
 ): Promise<{ ok?: true; email?: string; error?: string }> {
-  const subject = mensaje.subject.trim();
+  const subjectOriginal = mensaje.subject.trim();
   const body = mensaje.body.trim();
-  if (!subject) return { error: "El asunto no puede estar vacío." };
+  if (!subjectOriginal) return { error: "El asunto no puede estar vacío." };
   if (!body) return { error: "El cuerpo del correo no puede estar vacío." };
 
   const { data: quote, error: qErr } = await supabase
@@ -37,8 +37,19 @@ export async function enviarCorreoCliente(
   if (qErr) return { error: mensajeError(qErr) };
   if (!quote) return { error: "No encontré la cotización." };
 
-  const email = String(quote.client_email || "").trim();
-  if (!email) return { error: "La cotización no tiene correo del cliente. Agrégalo y vuelve a intentar." };
+  // `pruebaEmail` desvía el correo a otra dirección sin tocar al destinatario real: es
+  // para ver cómo queda antes de mandárselo al cliente. En prueba NO se marca
+  // `email_sent_at`, así se puede repetir las veces que haga falta sin ensuciar el
+  // expediente ni hacer creer al equipo que la cotización ya salió.
+  const esPrueba = !!mensaje.pruebaEmail?.trim();
+  const email = esPrueba
+    ? String(mensaje.pruebaEmail).trim()
+    : String(quote.client_email || "").trim();
+  if (!email) {
+    return esPrueba
+      ? { error: "Escribe la dirección a la que quieres mandar la prueba." }
+      : { error: "La cotización no tiene correo del cliente. Agrégalo y vuelve a intentar." };
+  }
 
   // Sin PDF no hay adjunto: lo generamos antes de enviar.
   let pdfPath = quote.pdf_path as string | null;
@@ -57,6 +68,10 @@ export async function enviarCorreoCliente(
   if (urlErr || !signed?.signedUrl) {
     return { error: `No se pudo preparar el PDF adjunto: ${mensajeError(urlErr)}` };
   }
+
+  // La prueba llega marcada en el asunto: sin esto, una prueba y un envío real se ven
+  // idénticos en la bandeja y es cuestión de tiempo confundirlos.
+  const subject = esPrueba ? `[PRUEBA] ${subjectOriginal}` : subjectOriginal;
 
   const nombre = String(quote.client_name || "").trim();
   const adjuntoNombre = `Cotizacion-${quote.code}.pdf`;
@@ -136,11 +151,14 @@ export async function enviarCorreoCliente(
     adjuntos: 1,
     messageId: envio.messageId ?? null,
     error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
+    prueba: esPrueba,
     token,
     html,
   });
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
 
-  await supabase.from("quotes").update({ email_sent_at: new Date().toISOString() }).eq("id", quoteId);
+  if (!esPrueba) {
+    await supabase.from("quotes").update({ email_sent_at: new Date().toISOString() }).eq("id", quoteId);
+  }
   return { ok: true, email };
 }

@@ -381,13 +381,19 @@ export async function generateQuotePdf(quoteId: string) {
  * El destinatario SIEMPRE sale de `client_email` en la base: lo que llega del
  * navegador es solo el texto del mensaje.
  */
+/**
+ * Manda la cotización al cliente.
+ *
+ * `pruebaEmail` la desvía a otra dirección para ver cómo queda antes de mandarla de
+ * verdad. En prueba no se marca el expediente, así que tampoco hay nada que refrescar.
+ */
 export async function enviarCorreoCotizacion(
   quoteId: string,
-  mensaje: { subject: string; body: string },
+  mensaje: { subject: string; body: string; pruebaEmail?: string },
 ): Promise<{ ok?: true; email?: string; error?: string }> {
   const supabase = await createCommercialClient();
   const r = await enviarCorreoCliente(supabase, quoteId, mensaje);
-  if (r.ok) revalidatePath(`/seguimiento/${quoteId}`);
+  if (r.ok && !mensaje.pruebaEmail?.trim()) revalidatePath(`/seguimiento/${quoteId}`);
   return r;
 }
 

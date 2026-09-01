@@ -33,6 +33,8 @@ export default function EmailPreviewCard({
   const [body, setBody] = useState(bodyInicial);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const [enviando, startEnvio] = useTransition();
+  const [modoPrueba, setModoPrueba] = useState(false);
+  const [prueba, setPrueba] = useState("");
 
   async function copy(label: string, text: string) {
     try {
@@ -45,16 +47,23 @@ export default function EmailPreviewCard({
   }
 
   function enviar() {
+    if (!modoPrueba && !confirm(`Esto le manda la cotización a ${to}. ¿Seguir?`)) return;
     setResultado(null);
     startEnvio(async () => {
-      const r = await enviarCorreoCotizacion(quoteId, { subject, body });
+      const r = await enviarCorreoCotizacion(quoteId, {
+        subject,
+        body,
+        pruebaEmail: modoPrueba ? prueba : undefined,
+      });
       setResultado(
         r.ok
-          ? { ok: true, texto: `✓ Enviado a ${r.email}` }
+          ? { ok: true, texto: `✓ Enviado a ${r.email}${modoPrueba ? " (prueba)" : ""}` }
           : { ok: false, texto: r.error ?? "No se pudo enviar el correo." },
       );
     });
   }
+
+  const destino = modoPrueba ? prueba.trim() : to;
 
   const all = `Para: ${to}\nAsunto: ${subject}\n\n${body}`;
 
@@ -80,18 +89,48 @@ export default function EmailPreviewCard({
           </button>
           <button
             onClick={enviar}
-            disabled={!to || enviando}
-            title={to ? undefined : "La cotización no tiene correo del cliente"}
+            disabled={!destino || enviando}
+            title={destino ? undefined : modoPrueba ? "Escribe la dirección de prueba" : "La cotización no tiene correo del cliente"}
             className="text-xs px-3 py-1.5 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {enviando ? "Enviando…" : "Enviar correo"}
+            {enviando ? "Enviando…" : modoPrueba ? "Enviar prueba" : "Enviar correo"}
           </button>
         </div>
       </div>
       <div className="px-5 py-4 space-y-3 text-sm">
         <div>
           <div className="text-xs text-muted mb-0.5">Para</div>
-          <div className="font-mono text-xs">{to || <span className="text-muted italic">Sin email del cliente</span>}</div>
+          <div className="font-mono text-xs">
+            {destino || <span className="text-muted italic">{modoPrueba ? "Escribe la dirección de prueba" : "Sin email del cliente"}</span>}
+          </div>
+        </div>
+
+        <div className={`rounded-md border px-3 py-2.5 ${modoPrueba ? "border-dorado bg-crema" : "border-border"}`}>
+          <label className="flex items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={modoPrueba}
+              onChange={(e) => { setModoPrueba(e.target.checked); setResultado(null); }}
+              className="rounded border-border"
+            />
+            Enviarme una prueba a otra dirección, para ver cómo le llega
+          </label>
+          {modoPrueba && (
+            <>
+              <input
+                value={prueba}
+                onChange={(e) => setPrueba(e.target.value)}
+                type="email"
+                placeholder="correo@deprueba.com"
+                className="mt-2 w-full max-w-sm bg-white border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-bosque"
+              />
+              <p className="text-[11px] text-muted mt-1.5">
+                Llega igual que al cliente —maquetado y con el PDF adjunto—, pero con
+                <span className="font-mono"> [PRUEBA]</span> en el asunto. No marca la cotización
+                como enviada, así que puedes repetirlo las veces que quieras.
+              </p>
+            </>
+          )}
         </div>
         <div>
           <label className="text-xs text-muted mb-0.5 block" htmlFor="correo-asunto">Asunto</label>
