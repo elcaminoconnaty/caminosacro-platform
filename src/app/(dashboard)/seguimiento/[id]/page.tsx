@@ -16,6 +16,7 @@ import OptionalsCard, { type OptionalCatalog, type OptionalLine } from "./Option
 import BikesCard, { type BikeLine } from "./BikesCard";
 import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice } from "@/lib/bikes/catalog";
 import TravelDocCard, { type NocheInicial, type HotelOpcion, type TravelDocEstado } from "./TravelDocCard";
+import PilgrimFilesCard, { type PilgrimFile } from "./PilgrimFilesCard";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
@@ -129,6 +130,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     { data: nightsData },
     { data: travelDoc },
     { data: hotelOptions },
+    { data: pilgrimFiles },
     { data: contractRows },
     { data: travelers },
     { data: bikeRows },
@@ -173,6 +175,13 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .eq("quote_id", id)
       .maybeSingle(),
     supabase.from("hotels").select("id,name,city").eq("active", true).order("city").order("name"),
+    // El archivo de lo que nos manda Pilgrim. Es interno; no tiene nada que ver con la
+    // documentación que se le envía al cliente.
+    supabase
+      .from("quote_pilgrim_files")
+      .select("id,name,kind,storage_path,mime,size_bytes,notes,created_at")
+      .eq("quote_id", id)
+      .order("created_at", { ascending: false }),
     // Una cotización puede tener N contratos, uno por viajero.
     supabase.from("contracts").select("*").eq("quote_id", id),
     supabase
@@ -450,6 +459,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         body={pilgrimMail.body}
         adjuntos={pilgrimMail.adjuntos}
         pendientes={pilgrimMail.pendientes}
+      />
+
+      <PilgrimFilesCard
+        quoteId={id}
+        files={((pilgrimFiles as unknown) as PilgrimFile[]) || []}
       />
 
       {isFullyPaid(quote.status) && (

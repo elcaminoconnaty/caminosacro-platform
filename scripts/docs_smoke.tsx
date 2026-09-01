@@ -20,7 +20,7 @@ async function main() {
   console.log("asistencia.pdf", asis.length, "bytes");
 
   const { data: t } = await db.from("settings").select("value").eq("key", "travel_doc").maybeSingle();
-  const cover = readFileSync("src/lib/cover.jpg");
+  const cover = readFileSync("src/lib/coverViaje.jpg");
   const doc = await renderToBuffer(
     React.createElement(TravelDocPDF as never, {
       quote: {

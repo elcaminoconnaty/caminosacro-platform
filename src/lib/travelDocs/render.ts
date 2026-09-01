@@ -226,9 +226,12 @@ export async function renderAndStoreTravelDoc(
     construirNoches(supabase, quoteId),
   ]);
 
+  // Portada propia del documento de viaje, distinta de la de la cotización: aquí el
+  // cliente ya compró, así que la foto es del Camino que va a caminar, no un gancho de
+  // venta. Si faltara el archivo, la portada sale sobre el verde de la marca y ya.
   let coverImage: Buffer | undefined;
   try {
-    coverImage = fs.readFileSync(path.join(process.cwd(), "src/lib/cover.jpg"));
+    coverImage = fs.readFileSync(path.join(process.cwd(), "src/lib/coverViaje.jpg"));
   } catch {
     coverImage = undefined;
   }

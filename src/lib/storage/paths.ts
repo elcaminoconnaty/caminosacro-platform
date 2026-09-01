@@ -93,6 +93,24 @@ export function rutaEtiquetaEquipaje(code: string): string {
   return `comercial-docs/${carpetaCotizacion(code)}/Etiqueta-Equipaje-${code}.pdf`;
 }
 
+/**
+ * Un documento que nos mandó Pilgrim, en la subcarpeta `pilgrim/` del expediente.
+ *
+ * Lleva marca de tiempo delante porque acá los nombres se repiten de verdad: Pilgrim
+ * manda "Documento_Viaje_A47397.pdf" al confirmar y otra vez corregido dos semanas
+ * después, y el segundo no puede pisar al primero — justo esos dos son los que hay que
+ * poder comparar.
+ */
+export function rutaDocumentoPilgrim(code: string, nombreArchivo: string, marca = Date.now()): string {
+  const limpio = nombreArchivo
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(-70) || "documento";
+  return `comercial-docs/${carpetaCotizacion(code)}/pilgrim/${marca}-${limpio}`;
+}
+
 /** La única Asistencia en Viaje. Ruta fija a propósito: se regenera encima. */
 export function rutaAsistencia(): string {
   return "comercial-docs/generico/Asistencia-en-Viaje-Camino-Sacro.pdf";

@@ -5,7 +5,7 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
-import { rutaCotizacion, rutaRecibo, sinBucket } from "@/lib/storage/paths";
+import { rutaCotizacion, rutaDocumentoPilgrim, rutaRecibo, sinBucket } from "@/lib/storage/paths";
 import { alternarOpcional, cambiarCantidadOpcional } from "@/lib/quotes/optionals";
 import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
 import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
@@ -448,6 +448,93 @@ export async function uploadQuotePdf(quoteId: string, formData: FormData) {
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);
   if (dbErr) return { error: mensajeError(dbErr) };
+
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+// ---------------- DOCUMENTOS QUE NOS MANDA PILGRIM ----------------
+//
+// El archivo del expediente: confirmaciones, facturas, la documentación que arma Pilgrim.
+// Es interno — nunca sale al cliente. Lo que sí recibe el cliente vive en travel_docs y se
+// maneja desde ./travelDocActions.ts.
+
+// Generoso a propósito: Pilgrim manda PDF, pero también capturas de pantalla y hojas de
+// cálculo. Filtrar de más obligaría a renombrar archivos para poder guardarlos.
+const PILGRIM_MAX_BYTES = 20 * 1024 * 1024;
+
+export async function subirDocumentoPilgrim(quoteId: string, formData: FormData) {
+  const supabase = await createCommercialClient();
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Sin archivo." };
+  if (file.size > PILGRIM_MAX_BYTES) return { error: `"${file.name}" pesa más de 20 MB.` };
+
+  const { data: quote } = await supabase.from("quotes").select("code").eq("id", quoteId).maybeSingle();
+  if (!quote) return { error: "Cotización no encontrada." };
+
+  const destino = rutaDocumentoPilgrim(quote.code, file.name);
+  const buf = Buffer.from(await file.arrayBuffer());
+  const { error: upErr } = await supabase.storage
+    .from("comercial-docs")
+    .upload(sinBucket(destino), buf, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (upErr) return { error: mensajeError(upErr) };
+
+  const { error } = await supabase.from("quote_pilgrim_files").insert({
+    quote_id: quoteId,
+    name: file.name,
+    kind: (formData.get("kind") as string) || null,
+    storage_path: destino,
+    mime: file.type || null,
+    size_bytes: file.size,
+  });
+  if (error) {
+    // Si no se pudo indexar, el archivo en Storage sería basura invisible: se limpia.
+    await removeStoragePath(supabase, destino);
+    return { error: mensajeError(error) };
+  }
+
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+/** Renombra o reetiqueta un documento. El archivo en Storage no se mueve. */
+export async function editarDocumentoPilgrim(
+  quoteId: string,
+  fileId: string,
+  campos: { name?: string; kind?: string | null; notes?: string | null },
+) {
+  const supabase = await createCommercialClient();
+  const parche: Record<string, string | null> = {};
+  if (campos.name !== undefined) {
+    const limpio = campos.name.trim();
+    if (!limpio) return { error: "El nombre no puede quedar vacío." };
+    parche.name = limpio;
+  }
+  if (campos.kind !== undefined) parche.kind = campos.kind || null;
+  if (campos.notes !== undefined) parche.notes = campos.notes?.trim() || null;
+
+  const { error } = await supabase.from("quote_pilgrim_files").update(parche).eq("id", fileId);
+  if (error) return { error: mensajeError(error) };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+export async function eliminarDocumentoPilgrim(quoteId: string, fileId: string) {
+  const supabase = await createCommercialClient();
+  const { data: f } = await supabase
+    .from("quote_pilgrim_files")
+    .select("storage_path")
+    .eq("id", fileId)
+    .maybeSingle();
+
+  const { error } = await supabase.from("quote_pilgrim_files").delete().eq("id", fileId);
+  if (error) return { error: mensajeError(error) };
+  // Después del renglón: un archivo huérfano en Storage molesta menos que un renglón
+  // apuntando a un archivo que ya no existe.
+  await removeStoragePath(supabase, f?.storage_path as string | null);
 
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
