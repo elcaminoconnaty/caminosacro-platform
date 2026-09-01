@@ -746,10 +746,11 @@ queda importa.
 
 ## Crítica del experto
 
-`Estado: pendiente`
-
-_(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
-seguido de los huecos concretos.)_
+`Estado: en curso` — verificando en código y en producción los tres GRAVE (pago sin
+convertir, CS-2026-004 pagada con etiqueta `pago_parcial`, y las 8 salidas a 45 días con
+13.816 EUR), la tensión TRM (día del movimiento vs. el pago en EUR a cuenta COP), y luego
+los huecos frente a CRITERIOS: conciliación con Pilgrim, cobro partido en dos monedas,
+devoluciones, cambio de titular y rastro de quién tocó qué.
 
 ---
 
