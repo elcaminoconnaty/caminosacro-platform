@@ -182,6 +182,11 @@ alter table comercial.travel_docs
 -- =============================================================
 -- 5. Textos del documento (editables desde Configuración)
 -- =============================================================
+-- Dos teléfonos a propósito: `telefono` es el fijo en España y es el que sale en la
+-- última página del documento y en la caja de emergencias, porque es el que marca el
+-- peregrino DURANTE el Camino. `whatsapp` es el nuestro en Colombia y solo sale en el
+-- correo, que el cliente lee ANTES de viajar y desde su casa.
+--
 -- Van en settings y no quemados en el componente de PDF porque cambian sin desplegar:
 -- un teléfono de asistencia, un horario de la Oficina del Peregrino, un porcentaje de
 -- penalidad. `on conflict do nothing` para no pisar lo que ya se haya editado si esta
@@ -189,12 +194,13 @@ alter table comercial.travel_docs
 insert into comercial.settings (key, value) values ('travel_doc', $json$
 {
   "contacto": {
-    "telefono": "+57 300 491 0929",
-    "telefono_nota": "Atención al viajero, de 9:00 a 19:00 (hora Colombia), de lunes a viernes.",
+    "telefono": "+34 910 607 572",
+    "telefono_nota": "Teléfono de oficina en España. Atendemos de 9:00 a 19:00 (hora española), de lunes a viernes.",
+    "whatsapp": "+57 300 491 0929",
     "email": "reservas@caminosacro.com",
     "email_nota": "Escríbenos si tienes cualquier duda o consulta.",
-    "emergencias": "+57 300 491 0929",
-    "emergencias_nota": "Número para emergencias fuera del horario de atención.",
+    "emergencias": "+34 910 607 572",
+    "emergencias_nota": "Mismo número en España, disponible para emergencias fuera del horario de oficina.",
     "web": "www.caminosacro.com"
   },
   "servicios": [

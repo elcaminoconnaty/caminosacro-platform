@@ -110,7 +110,10 @@ export async function enviarCorreoDocumentacionViaje(
     ruta: (quote.route_name as string | null) ?? null,
     documentos,
     urlExpediente,
-    telefono: texts.contacto.telefono || "",
+    // El correo llega ANTES del viaje, cuando el cliente todavía está en Colombia: ahí el
+    // número útil es el WhatsApp, no el fijo español de la última página del documento.
+    telefono: texts.contacto.whatsapp || texts.contacto.telefono || "",
+    telefonoViaje: texts.contacto.telefono || "",
     email: texts.contacto.email || "reservas@caminosacro.com",
     web: texts.contacto.web || "www.caminosacro.com",
     intro,

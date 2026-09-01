@@ -23,6 +23,7 @@ type Bloque = {
 export type TravelDocTextsValue = {
   contacto: {
     telefono?: string; telefono_nota?: string;
+    whatsapp?: string;
     email?: string; email_nota?: string;
     emergencias?: string; emergencias_nota?: string;
     web?: string;
@@ -91,8 +92,9 @@ export default function TravelDocTextsForm({ current }: { current: TravelDocText
       <div className="px-5 py-4 border-b border-border">
         <h3 className="text-sm font-medium text-bosque mb-3">Contacto</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <Campo label="Teléfono" value={v.contacto.telefono} onChange={(x) => contacto("telefono", x)} />
+          <Campo label="Teléfono en España (sale en el documento)" value={v.contacto.telefono} onChange={(x) => contacto("telefono", x)} hint="El que marca el peregrino durante el Camino. Va en la última página y en la caja de emergencias." />
           <Campo label="Nota del teléfono" value={v.contacto.telefono_nota} onChange={(x) => contacto("telefono_nota", x)} />
+          <Campo label="WhatsApp Camino Sacro (sale en el correo)" value={v.contacto.whatsapp} onChange={(x) => contacto("whatsapp", x)} className="md:col-span-2" hint="El del correo, que el cliente lee antes de viajar y desde Colombia. No sale en el documento." />
           <Campo label="Correo" value={v.contacto.email} onChange={(x) => contacto("email", x)} />
           <Campo label="Nota del correo" value={v.contacto.email_nota} onChange={(x) => contacto("email_nota", x)} />
           <Campo label="Emergencias" value={v.contacto.emergencias} onChange={(x) => contacto("emergencias", x)} />
@@ -202,9 +204,10 @@ function ListaBloques({
 }
 
 export function Campo({
-  label, value, onChange, className, mono,
+  label, value, onChange, className, mono, hint,
 }: {
-  label: string; value?: string | null; onChange: (v: string) => void; className?: string; mono?: boolean;
+  label: string; value?: string | null; onChange: (v: string) => void;
+  className?: string; mono?: boolean; hint?: string;
 }) {
   return (
     <label className={`block ${className ?? ""}`}>
@@ -214,6 +217,7 @@ export function Campo({
         onChange={(e) => onChange(e.target.value)}
         className={`mt-1 w-full px-3 py-2 rounded-md border border-border bg-white text-sm ${mono ? "font-mono text-xs" : ""}`}
       />
+      {hint && <span className="block text-[11px] text-muted mt-1">{hint}</span>}
     </label>
   );
 }

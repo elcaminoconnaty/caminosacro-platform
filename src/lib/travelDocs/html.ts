@@ -28,7 +28,10 @@ export type CorreoDocumentacionDatos = {
   documentos: DocumentoEnlace[];
   /** Enlace a la página con los cuatro documentos, que no caduca. */
   urlExpediente: string;
+  /** WhatsApp de Camino Sacro: el número para antes de viajar. */
   telefono: string;
+  /** Teléfono de la agencia en España, para marcar durante el Camino. */
+  telefonoViaje?: string;
   email: string;
   web: string;
   /** Texto libre editable desde el CRM; va bajo el saludo. */
@@ -139,6 +142,7 @@ export function correoDocumentacionHtml(d: CorreoDocumentacionDatos): string {
     <p style="${P}">Todas las gestiones se han realizado atendiendo a la cotización aceptada en el momento de la confirmación de compra. Cualquier modificación supondrá un coste adicional, que deberá abonarse en el momento en que se solicite el cambio.</p>
     <p style="${P}">Adjuntamos también tu seguro de viaje, para que tengas constancia del mismo.</p>
     <p style="${P}">Quedamos a tu entera disposición para cualquier duda o consulta: escríbenos o llámanos sin ningún compromiso al <strong>${tel}</strong>.</p>
+    ${d.telefonoViaje ? `<p style="${P}">Durante el Camino, el teléfono de atención en España es el <strong>${esc(d.telefonoViaje)}</strong>. Lo encontrarás también en la última página de tu documentación de viaje.</p>` : ""}
     <p style="${P}">Para información de misas en la Catedral de Santiago: <a href="https://catedraldesantiago.es/liturgia/" style="color:${VERDE_M};">catedraldesantiago.es/liturgia/</a></p>
     <p style="${P}">Recibe un cordial saludo de parte de todo el equipo de Camino Sacro.</p>
   </td></tr>
@@ -155,6 +159,7 @@ export function correoDocumentacionHtml(d: CorreoDocumentacionDatos): string {
         <div style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${SEC};letter-spacing:1.5px;margin-bottom:8px;">¿QUIERES HACERNOS UNA CONSULTA?</div>
         <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${TXT};line-height:1.8;">
           Teléfono y WhatsApp: <strong>${tel}</strong><br>
+          ${d.telefonoViaje ? `Atención en España (durante el viaje): <strong>${esc(d.telefonoViaje)}</strong><br>` : ""}
           Correo: <a href="mailto:${esc(d.email)}" style="color:${VERDE_M};">${esc(d.email)}</a><br>
           Web: <a href="https://${esc(d.web.replace(/^https?:\/\//, ""))}" style="color:${VERDE_M};">${esc(d.web)}</a>
         </div>
@@ -205,6 +210,7 @@ export function correoDocumentacionTexto(d: CorreoDocumentacionDatos): string {
     "Todas las gestiones se han realizado atendiendo a la cotización aceptada en el momento de la confirmación de compra. Cualquier modificación supondrá un coste adicional, que deberá abonarse en el momento en que se solicite el cambio.",
     "",
     `Quedamos a tu entera disposición para cualquier duda: ${d.telefono} · ${d.email}`,
+    ...(d.telefonoViaje ? ["", `Durante el Camino, atención en España: ${d.telefonoViaje}`] : []),
     "",
     "Para información de misas en la Catedral de Santiago: catedraldesantiago.es/liturgia/",
     "",

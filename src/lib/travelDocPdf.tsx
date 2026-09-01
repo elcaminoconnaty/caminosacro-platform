@@ -68,8 +68,13 @@ export type CondicionTexto = {
 
 export type TravelDocTexts = {
   contacto: {
+    /** Teléfono de la agencia en España: el que se marca DURANTE el viaje. Es el que sale
+     *  en la última página del documento y en la caja de emergencias. */
     telefono?: string;
     telefono_nota?: string;
+    /** WhatsApp de Camino Sacro en Colombia: el del correo, que el cliente lee ANTES de
+     *  viajar y desde su casa. No sale en el documento. */
+    whatsapp?: string;
     email?: string;
     email_nota?: string;
     emergencias?: string;
@@ -252,6 +257,10 @@ const s = StyleSheet.create({
   contactLabel: { fontFamily: SANS, fontSize: 7, color: C.sec, letterSpacing: 1.5, marginBottom: 4 },
   contactLabelInv: { fontFamily: SANS, fontSize: 7, color: "rgba(255,255,255,0.6)", letterSpacing: 1.5, marginBottom: 4 },
   contactValue: { fontFamily: SERIF_BOLD, fontSize: 13, color: C.verde },
+  // El correo es la cadena más larga de la fila y a 13 pt no cabe: react-pdf lo partía
+  // con guion en medio de la palabra ("reser-vas@caminosacro.com"), que en una dirección
+  // de correo se lee como si el guion fuera parte de ella.
+  contactValueEmail: { fontFamily: SERIF_BOLD, fontSize: 10.5, color: C.verde },
   contactValueInv: { fontFamily: SERIF_BOLD, fontSize: 13, color: C.white },
   contactNote: { fontFamily: SANS, fontSize: 7.5, color: C.sec, lineHeight: 1.4, marginTop: 5 },
   contactNoteInv: { fontFamily: SANS, fontSize: 7.5, color: "rgba(255,255,255,0.7)", lineHeight: 1.4, marginTop: 5 },
@@ -594,7 +603,7 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
           </View>
           <View style={s.contactBox}>
             <Text style={s.contactLabel}>CORREO</Text>
-            <Text style={s.contactValue}>{cont.email || "—"}</Text>
+            <Text style={s.contactValueEmail}>{cont.email || "—"}</Text>
             {cont.email_nota ? <Text style={s.contactNote}>{cont.email_nota}</Text> : null}
           </View>
           <View style={s.contactBoxLast}>
