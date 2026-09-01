@@ -5,6 +5,7 @@ import {
   Check, Copy, FileText, Link2, Plus, RotateCcw, Save, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { getSignedUrl } from "./actions";
+import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
 import {
   enviarCorreoDocumentacion,
   generateTravelDoc,
@@ -74,6 +75,7 @@ export default function TravelDocCard({
   hotels,
   initialNights,
   estado,
+  envio,
   baseUrl,
   asistenciaLista,
 }: {
@@ -85,6 +87,7 @@ export default function TravelDocCard({
   hotels: HotelOpcion[];
   initialNights: NocheInicial[];
   estado: TravelDocEstado;
+  envio: EnvioResumen;
   baseUrl: string;
   asistenciaLista: boolean;
 }) {
@@ -215,8 +218,8 @@ export default function TravelDocCard({
           <p className="text-xs text-muted mt-0.5">
             Disponible porque la cotización está pagada. El documento se arma con los hoteles del
             catálogo: el nombre, la dirección, los contactos y las fotos salen de ahí.
-            {estado.sentAt ? ` Enviada el ${fecha(estado.sentAt)}.` : ""}
           </p>
+          <div className="mt-2"><EstadoEnvio resumen={envio} que="la documentación" /></div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={prellenar} disabled={pending} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50">
@@ -560,6 +563,7 @@ function CorreoDocumentacion({
   const [enviando, startEnvio] = useTransition();
 
   function enviar() {
+    if (!modoPrueba && !confirm(`Esto le manda la documentación a ${clientEmail}. ¿Seguir?`)) return;
     setResultado(null);
     onError(null);
     startEnvio(async () => {

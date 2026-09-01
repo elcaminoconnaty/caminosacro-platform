@@ -2,31 +2,20 @@
 
 import { useState, useTransition } from "react";
 import { enviarCorreoCotizacion } from "./actions";
-
-// Fecha del último envío, siempre en hora de Bogotá para que servidor y cliente
-// rendericen lo mismo.
-function fechaEnvio(iso: string): string {
-  return new Intl.DateTimeFormat("es-CO", {
-    day: "numeric",
-    month: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Bogota",
-  }).format(new Date(iso));
-}
+import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
 
 export default function EmailPreviewCard({
   quoteId,
   to,
   subject: subjectInicial,
   body: bodyInicial,
-  emailSentAt,
+  envio,
 }: {
   quoteId: string;
   to: string;
   subject: string;
   body: string;
-  emailSentAt?: string | null;
+  envio: EnvioResumen;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [subject, setSubject] = useState(subjectInicial);
@@ -74,8 +63,8 @@ export default function EmailPreviewCard({
           <h2 className="font-display text-lg text-bosque">Correo para el cliente</h2>
           <p className="text-xs text-muted mt-0.5">
             Sale desde reservas@caminosacro.com con la cotización adjunta.
-            {emailSentAt ? ` Último envío: ${fechaEnvio(emailSentAt)}.` : ""}
           </p>
+          <div className="mt-2"><EstadoEnvio resumen={envio} que="la cotización" /></div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => copy("asunto", subject)} className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition">

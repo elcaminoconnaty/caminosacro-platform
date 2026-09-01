@@ -17,6 +17,7 @@ import BikesCard, { type BikeLine } from "./BikesCard";
 import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice } from "@/lib/bikes/catalog";
 import TravelDocCard, { type NocheInicial, type HotelOpcion, type TravelDocEstado } from "./TravelDocCard";
 import PilgrimFilesCard, { type PilgrimFile } from "./PilgrimFilesCard";
+import { type EnvioResumen } from "./EstadoEnvio";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
@@ -131,6 +132,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     { data: travelDoc },
     { data: hotelOptions },
     { data: pilgrimFiles },
+    { data: envios },
     { data: contractRows },
     { data: travelers },
     { data: bikeRows },
@@ -182,6 +184,14 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .select("id,name,kind,storage_path,mime,size_bytes,notes,created_at")
       .eq("quote_id", id)
       .order("created_at", { ascending: false }),
+    // Para el aviso de "enviado / sin enviar" de cada tarjeta de correo. Se traen también
+    // las pruebas: son justo lo que hace dudar de si el correo de verdad ya salió.
+    supabase
+      .from("email_log")
+      .select("tipo,prueba,created_at,estado")
+      .eq("quote_id", id)
+      .neq("estado", "error")
+      .order("created_at", { ascending: false }),
     // Una cotización puede tener N contratos, uno por viajero.
     supabase.from("contracts").select("*").eq("quote_id", id),
     supabase
@@ -218,6 +228,20 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const pilgrimMail = pilgrimArmado.ok
     ? pilgrimArmado.correo
     : { subject: "", body: "", adjuntos: [], pendientes: [], total: 0 };
+
+  // Resumen de envíos por tipo de correo. La marca de "enviado" NO sale de aquí sino de
+  // las columnas del expediente (`quotes.email_sent_at`, `travel_docs.sent_at`), que son
+  // las que solo se escriben en un envío real; del registro solo se cuentan las pruebas.
+  type FilaEnvio = { tipo: string; prueba: boolean; created_at: string };
+  const filasEnvio = ((envios as FilaEnvio[] | null) || []);
+  function resumenEnvio(tipo: string, enviadoAt: string | null): EnvioResumen {
+    const pruebas = filasEnvio.filter((e) => e.tipo === tipo && e.prueba);
+    return {
+      enviadoAt,
+      pruebas: pruebas.length,
+      ultimaPruebaAt: pruebas[0]?.created_at ?? null,
+    };
+  }
 
   // Estado del expediente de documentación. Todavía puede no existir: se crea al generar
   // el documento, al subir el seguro o al activar el enlace, lo que pase primero.
@@ -430,7 +454,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       <EmailPreviewCard
         quoteId={id}
         to={quote.client_email || ""}
-        emailSentAt={quote.email_sent_at ?? null}
+        envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
         subject={renderTemplate(
           emailTpl?.subject || "Cotización {{code}} - Camino Sacro",
           buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name)),
@@ -476,6 +500,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           hotels={((hotelOptions as unknown) as HotelOpcion[]) || []}
           initialNights={((nightsData as unknown) as NocheInicial[]) || []}
           estado={estadoDocumentacion}
+          envio={resumenEnvio("documentacion", estadoDocumentacion.sentAt)}
           baseUrl={appBaseUrl}
           asistenciaLista={asistenciaLista}
         />
