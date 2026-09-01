@@ -22,7 +22,7 @@
 - **B1.5 El wizard como herramienta.** Doble clic en «crear» (¿dos cotizaciones?), catálogo que no responde, errores sin mensaje, y los avisos de `setState` en efecto que ya marca el linter en `Wizard.tsx`.
   `Estado: hecho` — nada impide crear la misma cotización dos veces (hay un caso real en producción, CS-2026-064/065), y un fallo al leer el catálogo se veía idéntico a un catálogo vacío. Los 7 avisos del linter son ruido salvo uno.
 - **B1.6 Lo que falta frente a un CRM de agencia.** Duplicar una cotización, versionarla, plantillas por ruta. Solo lo que le ahorraría tiempo real a Nico; mira CRITERIOS.md.
-  `Estado: en curso` — busco en el código si ya existe duplicar/versionar/plantillas antes de reclamarlas, y mido cada hueco contra lo que cuesta hoy en la base real.
+  `Estado: hecho` — faltan tres cosas que sí cuestan plata: duplicar (la maquinaria ya existe en `bikeQuote`), versionar (editar una cotización enviada pisa el PDF que el cliente ya tiene) y el seguimiento de la cotización sin respuesta — 16 de 39 enviadas están vencidas y quietas. Las plantillas por ruta **no** hacen falta.
 
 ---
 
@@ -476,6 +476,82 @@ se pierda entre los ocho de siempre.
   (`Wizard.tsx:505-509`) dice en texto plano cuántas dobles y cuántas individuales salen
   para ese número de personas, antes de guardar. Es lo que evita la sorpresa que sí produce
   el editor de Seguimiento.
+
+### [MEDIO] No se puede duplicar una cotización, y el motor para hacerlo ya está escrito — no existe en `cotizaciones/**` ni en `seguimiento/**`
+
+Buscado en todo el código: no hay ninguna acción de duplicar, clonar ni «cotizar también
+en hotel». Para ofrecerle a la misma persona el mismo viaje en otra modalidad, en otras
+fechas o con otro número de personas hay que volver al asistente y teclearlo entero:
+cliente, ruta, fechas, alojamiento, precios.
+
+Que pasa de verdad, en la base: CS-2026-060, CS-2026-062 y CS-2026-063 son tres
+cotizaciones de la misma ventana de mayo 2027 con distinta modalidad y distinto número de
+personas; CS-2026-010 y CS-2026-011 son la misma clienta con dos rutas. Es la operación
+normal de una agencia —dar dos o tres opciones— y hoy cuesta tres formularios completos.
+
+Lo llamativo es que **el patrón ya está implementado y probado**:
+`crearCotizacionConBici()` (`bikeQuote.ts:190-258`) copia una cotización a otra nueva con
+`parent_quote_id`, arrastra sus líneas de opcionales, borra la nueva si algo falla, y el
+expediente ya sabe pintar el «← Viene de CS-… / Continúa en CS-… →». Generalizar eso a un
+botón «Duplicar» es reusar código que ya funciona, no construir nada.
+
+### [MEDIO] Editar una cotización ya enviada pisa el PDF que el cliente tiene en el correo — `src/app/(dashboard)/seguimiento/[id]/actions.ts:71-78`
+
+`updateQuote` hace `update` sobre la fila y acto seguido `renderAndStoreQuotePdf()`, que
+**sobrescribe el archivo en Storage**. No queda copia de lo que se le cotizó antes, ni en
+la base ni en el bucket. El catálogo sí tiene su bitácora (`comercial.pricing_history`);
+las cotizaciones no tienen nada equivalente.
+
+Caso vivo en producción: **CS-2026-065** está en estado `enviada` —o sea, el cliente ya
+recibió su PDF— y su `base_eur` se modificó el 1-sep-2026 a las 21:25. Hoy la plataforma
+dice que ese viaje vale 3100 € y el correo que esa persona tiene guardado dice 2780 €.
+Nada en el expediente registra que el número cambió, ni cuándo, ni quién. Si mañana
+reclama, no hay forma de saber quién tiene razón: eso es exactamente el punto 7 de
+CRITERIOS («la diferencia entre saber y creer»).
+
+**Propuesta:** ni versiones completas ni un histórico grande. Lo mínimo que resuelve el
+problema son dos cosas: (a) no sobrescribir el PDF de una cotización que ya salió —
+guardarlo con sufijo de versión, que el bucket ya está organizado por año y código; y (b)
+una tabla `quote_history` con el mismo patrón de `pricing_history` (campo, valor viejo,
+valor nuevo, quién, cuándo) para los cuatro campos que mueven plata.
+
+### [MEDIO] La cotización enviada que nadie contesta no la persigue nadie — no existe `api/cron/recordatorios-cotizacion`
+
+En `src/app/api/cron/` hay **un solo** endpoint: `recordatorios-contrato`. La cadencia de
+insistir cada 4 días hasta 5 veces existe para la firma del contrato, que es el final del
+recorrido, y no existe para el principio, que es donde se cae la mayoría.
+
+Los números de producción de hoy:
+
+- **39** cotizaciones en estado `enviada`.
+- **16** de ellas con la `valid_until` ya vencida y ahí quietas.
+- **3** en total llegaron alguna vez a `aceptada` o más allá.
+
+Y `valid_until` se calcula en las cuatro altas, se imprime en el PDF que el cliente recibe
+—o sea, se le promete una fecha— y en la lista de `/seguimiento` **no se pinta**: se
+consulta en la query (`seguimiento/page.tsx:35`) y no llega a la tabla. Solo se ve entrando
+al expediente uno por uno. CRITERIOS dice que esto «es lo que más plata deja sobre la mesa
+cuando falta», y aquí la infraestructura para arreglarlo ya está montada: el cron de n8n, el
+emisor único de correo y las plantillas de `email_templates`.
+
+**Propuesta, por orden de lo que cuesta:** primero, pintar la validez en la lista de
+Seguimiento y marcar en rojo la vencida — es una columna. Después, un
+`/api/cron/recordatorios-cotizacion` clonado del de contratos: a los 8 días sin respuesta
+un correo, y avisar a `reservas@` cuando la validez esté por vencer.
+
+### Lo que NO hace falta
+
+- **Plantillas por ruta.** El asistente ya autocarga tarifa, días, fecha fin, etapas y las
+  tarjetas del PDF en cuanto se elige ruta + alojamiento + fecha; una plantilla encima de
+  eso ahorraría dos clics. El hueco real no es la plantilla, es duplicar una cotización que
+  ya existe (arriba).
+- **Versionado completo con historial navegable.** Para dos personas es maquinaria de más:
+  con no pisar el PDF ya enviado y una bitácora de los campos de dinero se cubre el
+  problema real.
+- Y por dejarlo dicho: `pricing`, `optional_prices` y `bike_prices` ya son datos por año
+  con su bitácora, así que el punto 8 de CRITERIOS —«un proveedor no es texto libre»— está
+  cubierto en el cotizador. El texto libre que queda (`route_name` en cotizaciones viejas
+  sin `route_id`) es deuda histórica, no diseño.
 
 ---
 
