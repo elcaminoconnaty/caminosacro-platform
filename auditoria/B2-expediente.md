@@ -12,7 +12,8 @@
 ## Tareas
 
 - **B2.1 Lo derivado, derivado.** `recompute_quote_money()`: cuándo se dispara y si algún camino lo puentea escribiendo `total_eur` o `cost_eur` a mano. Comprueba que los totales de la BD cuadran con la suma de líneas.
-  `Estado: pendiente`
+  `Estado: en curso` — leyendo la definición de `recompute_quote_money()` y buscando todos los
+  caminos que escriben `total_eur`/`cost_eur`; luego contraste de las 45 filas contra la suma de líneas.
 - **B2.2 Pagos, saldos y monedas.** ¿La TRM que se guarda es la del día del movimiento o la de hoy? Cobrado, saldo cliente, pagado a proveedor y margen real: recalcula a mano en un expediente y compara con lo que muestra.
   `Estado: pendiente`
 - **B2.3 Estados coherentes.** Busca combinaciones imposibles: pagada pero `sin_enviar`, cancelada con pagos, `pago_completo` sin cobros. Quién mueve cada estado y qué queda sin mover solo.
