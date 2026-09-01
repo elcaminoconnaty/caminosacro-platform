@@ -166,7 +166,7 @@ Pilgrim: hoy declara dos camas de más.
 ### [MEDIO] CS-2026-058 tiene un `cost_eur` que la próxima recalculada borra — dato en producción
 
 `comercial.recompute_quote_money()` deriva `cost_eur = cost_base_eur +
-season_supplement_cost_eur + líneas`. Revisadas las 38 cotizaciones de la base, **solo
+season_supplement_cost_eur + líneas`. Revisadas las 45 cotizaciones de la base, **solo
 CS-2026-058** no cuadra: `cost_base_eur = 0`, `season_supplement_cost_eur = 0`, cero
 líneas, y sin embargo `cost_eur = 1540,00 €` (escrito a mano antes de que el costo fuera
 derivado, migración D4 de la GUIA).
@@ -258,9 +258,10 @@ notarlo. **Propuesta:** avisar en ámbar cuando la fecha de salida cae en un añ
   siempre sale de `base_eur / personas` (`pdf.ts:110-111`), no del override de
   `price_blocks`. Verificado con CS-2026-080, que tiene `price_blocks` de 575 € heredado de
   otra ruta y aun así el PDF muestra los 625 € reales.
-- Cuadre general: de las 38 cotizaciones de producción, `total_eur` coincide con
-  `base + suplemento + líneas` en **las 38**. El único descuadre es el `cost_eur` de
-  CS-2026-058 anotado arriba.
+- Cuadre general: de las **45** cotizaciones de producción, `total_eur` coincide con
+  `base + suplemento + líneas` en **las 45**: cero descuadres. Por el lado del proveedor,
+  `cost_eur` vs `cost_base + suplemento de costo + líneas` descuadra en **una sola** fila,
+  el `cost_eur` de CS-2026-058 anotado arriba.
 
 ---
 
@@ -555,8 +556,14 @@ Ninguno de los cuatro caminos deduplica ni pide confirmación. En la base están
 volvió a pulsar. Cada una generó su código, su PDF y **su correo al cliente**, así que esa
 persona recibió dos cotizaciones del mismo viaje con dos referencias distintas — y en
 Seguimiento quedan dos expedientes para una sola venta, uno de los cuales alguien tendrá
-que cerrar a mano. Encima las dos quedaron con precios distintos (2460 € y 2780 € de base),
-así que el cliente tiene dos números para el mismo viaje.
+que cerrar a mano.
+
+Un matiz que hay que decir para no cargarle a este hallazgo lo que no le toca: las dos
+**nacieron con el mismo precio** (615 × 4 = 2460 € de base, 2780 € de total). La diferencia
+que hoy se ve entre ellas —CS-2026-065 está en 2780 € de base y 3100 € de total— es
+posterior, del cambio del 1-sep-2026, y pertenece al hallazgo de la edición sin bitácora,
+no al duplicado. El duplicado se sostiene solo: mismo cliente, misma ruta, misma fecha,
+mismas personas, 19 segundos.
 
 En el asistente del CRM el botón sí se deshabilita mientras guarda (`Wizard.tsx:710`), que
 tapa el doble clic normal pero no dos pestañas ni un Enter repetido; en los endpoints no hay
@@ -635,11 +642,26 @@ la base ni en el bucket. El catálogo sí tiene su bitácora (`comercial.pricing
 las cotizaciones no tienen nada equivalente.
 
 Caso vivo en producción: **CS-2026-065** está en estado `enviada` —o sea, el cliente ya
-recibió su PDF— y su `base_eur` se modificó el 1-sep-2026 a las 21:25. Hoy la plataforma
-dice que ese viaje vale 3100 € y el correo que esa persona tiene guardado dice 2780 €.
-Nada en el expediente registra que el número cambió, ni cuándo, ni quién. Si mañana
-reclama, no hay forma de saber quién tiene razón: eso es exactamente el punto 7 de
-CRITERIOS («la diferencia entre saber y creer»).
+recibió su PDF— y hoy dice que ese viaje vale 3100 €, mientras su gemela CS-2026-064, creada
+19 segundos antes y con exactamente los mismos datos, sigue en 2780 €. Las dos nacieron
+iguales, así que a CS-2026-065 le movieron el precio después de enviarla.
+
+Y aquí está la prueba del propio hallazgo: **no se puede saber qué campo cambió, ni quién,
+ni si fue una sola vez.** Lo único que hay es `updated_at = 2026-09-01 21:25`, que dice que
+la fila cambió, no qué columna. Sería deshonesto escribir «se modificó `base_eur`»: esa
+afirmación necesitaría justo la bitácora que no existe. Si mañana el cliente reclama con su
+PDF de 2780 € en la mano, no hay forma de saber quién tiene razón — punto 7 de CRITERIOS,
+«la diferencia entre saber y creer».
+
+**Y la aritmética de esa fila apunta a un segundo camino, latente.** Los 2780 € de base de
+hoy son exactamente `2460 + 320`: la base de su gemela **más el suplemento de temporada**.
+No sale del catálogo (`hotel_doble` 2027 = 715, y 715 × 4 = 2860). El único sitio del código
+que produce ese número es `QuoteEditor.tsx:90` — `initialBase = quote.base_eur ?? Number(quote.total_eur)`
+—, que siembra el campo Base con el **total** (base + suplemento + opcionales) cuando la
+base viene nula; al guardar, el RPC le vuelve a sumar el suplemento y la base queda inflada.
+Hoy no hay ninguna fila con `base_eur` nula, así que no se puede reproducir y no lo doy por
+probado; pero es un camino real del código y produce el único número inexplicado de la base.
+Merece mirarse junto con lo anterior.
 
 **Propuesta:** ni versiones completas ni un histórico grande. Lo mínimo que resuelve el
 problema son dos cosas: (a) no sobrescribir el PDF de una cotización que ya salió —
