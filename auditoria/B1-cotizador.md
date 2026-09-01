@@ -12,13 +12,13 @@
 ## Tareas
 
 - **B1.1 El precio, de punta a punta.** Sigue `tarifar.ts` con un caso real: temporada alta, Semana Santa, habitaciones mixtas, noche extra. ¿Los redondeos y el suplemento se aplican una sola vez? Compara el total con una cotización ya emitida.
-  `Estado: hecho` — el suplemento se aplica una sola vez en los cuatro flujos y no hay redondeos que se acumulen, pero el **editor de Seguimiento tarifa con otra fórmula** que la del resto (`precio × personas` en vez del reparto de habitaciones) y con reparto mixto no vuelve a tarifar nunca.
+  `Estado: hecho` — el suplemento se aplica una sola vez en los cuatro flujos y no hay redondeos que se acumulen, pero el **editor de Seguimiento tarifa con otra fórmula** que la del resto (`precio × personas` en vez del reparto de habitaciones), corre al montar el expediente y por eso pisa cualquier base tecleada a mano; con reparto mixto no vuelve a tarifar nunca y **nunca reescribe `rooms_json`**, de donde salen el pedido a Pilgrim y el contrato. Los tres son el mismo defecto de fondo: hay dos editores y solo `editQuote.ts` sigue las reglas.
 - **B1.2 Los cuatro caminos de alta dan lo mismo.** Wizard, cotizador público, WordPress y el endpoint del agente. Mismo input → ¿mismo precio, mismas líneas, mismo estado? Donde discrepen, cuál manda.
-  `Estado: hecho` — tres de los cuatro (Wizard, WordPress y agente) dan el mismo precio porque comparten `tarifarRuta()`; **`/cotizar` no**: cobra una sola modalidad a todo el grupo y cae al año anterior. Estado inicial, código y validez sí coinciden en los cuatro.
+  `Estado: hecho` — tres de los cuatro (Wizard, WordPress y agente) dan el mismo precio porque comparten `tarifarRuta()`; **`/cotizar` no**: cobra una sola modalidad a todo el grupo, cae al año anterior y no guarda `rooms_json`. Estado inicial, código y validez sí coinciden en los cuatro. Y en la moneda que el cliente lee: `trm_history` está vacía, así que el COP puede no pintarse sin que nadie se entere.
 - **B1.3 Alta a medias.** Si falla el PDF, el correo o la inserción de líneas, ¿qué queda en la base? Busca cotizaciones sin líneas, sin código o sin cliente. No hay transacción: di qué se rompe.
   `Estado: hecho` — no hay cotizaciones sin líneas (el schema no las necesita) ni sin código, pero sí tres puntos donde el alta queda a medias sin que nadie se entere: el error al crear el cliente se ignora, el PDF fallido no detiene el correo, y la ruta personalizada queda creada aunque la cotización falle.
 - **B1.4 Validación de la entrada.** Personas fuera de rango, fecha en el pasado, ruta sin tarifa del año, correo inválido, texto larguísimo. En los endpoints públicos además: secreto, límite de peticiones, payload gigante.
-  `Estado: hecho` — los tres caminos con zod validan bien salvo la fecha (ninguno rechaza el pasado y `2026-13-45` pasa el regex y revienta); el asistente del CRM no valida **nada** en el servidor. Secreto sólido; el rate limit del endpoint de WordPress se puede saltar solo.
+  `Estado: hecho` — los tres caminos con zod validan bien salvo la fecha: ninguno rechaza el pasado, y el regex acepta días que no existen (`2026-02-31` se desliza a 9 de marzo y cotiza esa fecha en silencio; `2026-13-45` revienta con un 500). El asistente del CRM no valida **nada** en el servidor. Secreto sólido; el rate limit del endpoint de WordPress se puede saltar solo.
 - **B1.5 El wizard como herramienta.** Doble clic en «crear» (¿dos cotizaciones?), catálogo que no responde, errores sin mensaje, y los avisos de `setState` en efecto que ya marca el linter en `Wizard.tsx`.
   `Estado: hecho` — nada impide crear la misma cotización dos veces (hay un caso real en producción, CS-2026-064/065), y un fallo al leer el catálogo se veía idéntico a un catálogo vacío. Los 7 avisos del linter son ruido salvo uno.
 - **B1.6 Lo que falta frente a un CRM de agencia.** Duplicar una cotización, versionarla, plantillas por ruta. Solo lo que le ahorraría tiempo real a Nico; mira CRITERIOS.md.
@@ -376,10 +376,14 @@ Verificado leyendo los cuatro inserts, no por confianza:
 | Validez | hoy + 30 | hoy + 30 | hoy + 30 | hoy + 30 |
 | Dedup de cliente | por teléfono | por teléfono | por teléfono | por teléfono |
 | Tope de personas | 30 | 12 | 12 | 30 |
-| `rooms_json` | sí | **no** | sí | sí |
+| `rooms_json` | sí | **no** ⚠ | sí | sí |
 | PDF al crear | **no** | sí | sí | sí |
 | Correo al crear | no | sí | sí | no (lo aprueba Nico) |
 
+- ⚠ El «no» de `rooms_json` en `/cotizar` **no es una casilla menor de esta tabla**: de ese
+  campo salen la línea «Habitaciones» del correo a Pilgrim y la acomodación del contrato
+  firmado. Ver el GRAVE de `rooms_json`, que además cubre el caso peor —el de las
+  cotizaciones que sí lo tienen y se quedan con el reparto viejo al editarlas—.
 - El reparto de habitaciones del Wizard (`Wizard.tsx:112-113,199-201`) es aritméticamente
   idéntico al de `tarifarRuta` y produce las mismas etiquetas; el Wizard es cliente y no
   puede llamar al módulo server-only, pero la duplicación está bien hecha.
