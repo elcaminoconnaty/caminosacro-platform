@@ -18,8 +18,9 @@
   `Estado: hecho` — la TRM que se guarda **sí** es la del día del movimiento (bien), pero un pago que no
   se puede convertir a euros vale cero en el saldo sin decirlo, y USD no tiene forma de convertirse.
 - **B2.3 Estados coherentes.** Busca combinaciones imposibles: pagada pero `sin_enviar`, cancelada con pagos, `pago_completo` sin cobros. Quién mueve cada estado y qué queda sin mover solo.
-  `Estado: en curso` — leyendo `lib/quoteStatus.ts`, `marcarEnviada.ts`, `updateQuoteStatus` y quién
-  escribe `quotes.status`; contrastando las 45 filas contra sus pagos, correos y contratos.
+  `Estado: hecho` — el único evento que mueve el estado solo es el envío del correo. Cobrar y firmar
+  no lo mueven: CS-2026-004 tiene los 970 € pagados y dice «pago parcial», y por eso no le sale la
+  documentación de viaje. `aceptada` y `completada` no las ha usado nadie nunca.
 - **B2.4 Dos pestañas a la vez.** Guardar el editor pisa el expediente entero o solo lo cambiado. Qué pasa si alguien edita mientras otro cobra. Guardar sin cambios.
   `Estado: pendiente`
 - **B2.5 `QuoteEditor` y sus efectos.** El linter marca ocho `setState` dentro de efectos. Comprueba si alguno pisa lo que el usuario acaba de teclear o dispara recálculos de más.
