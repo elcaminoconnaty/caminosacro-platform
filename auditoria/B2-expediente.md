@@ -234,6 +234,130 @@ pesos que le tiene que consignar— no está en ninguna pantalla. Se puede calcu
 TRM del día ya se consulta en esa misma página para el correo. Es una línea de texto bajo
 la tarjeta.
 
+### [GRAVE] Cobrar no mueve el estado, y por eso un cliente que pagó todo no puede recibir su documentación — `seguimiento/[id]/actions.ts:136-159` · `seguimiento/[id]/page.tsx:493`
+
+`addClientPayment` inserta la fila y revalida. **No toca `quotes.status`.** Tampoco lo tocan
+`updateClientPayment`, `deleteClientPayment` ni los pagos a proveedor. El estado de pago del
+expediente es enteramente un desplegable que alguien tiene que acordarse de mover.
+
+Dos expedientes vivos ya se descuadraron:
+
+| | estado | total | cobrado | qué debería decir |
+|---|---|---|---|---|
+| **CS-2026-001** | `enviada` | 505,00 € | **200,00 €** | pago parcial |
+| **CS-2026-004** | `pago_parcial` | 970,00 € | **970,00 €** (485 + 485) | pago completo |
+
+El de CS-2026-004 no es cosmético. `page.tsx:493` envuelve **toda** la tarjeta de
+documentación de viaje en `{isFullyPaid(quote.status) && …}`, y `isFullyPaid()`
+(`lib/quoteStatus.ts:66`) mira la **etiqueta**, no el dinero. Ese peregrino pagó los 970 €
+—el segundo pago entró el 31 de agosto, cargado el 1 de septiembre— **sale el 22 de
+septiembre**, y su documentación de viaje ni siquiera se puede generar: la tarjeta no está
+dibujada. No hay mensaje que lo explique; la sección simplemente no existe en la página.
+Un dato que la propia pantalla ya tiene calculado dos secciones más arriba —«Saldo cliente:
+0 €» (`page.tsx:283,416`)— no se usa para nada aquí.
+
+**Propuesta (no se toca: son estados de venta):** que la puerta de la documentación sea el
+saldo y no la etiqueta —`saldoCliente <= 0`, que ya está calculado en la línea 283—, o bien
+que registrar un pago proponga el cambio de estado («cobrado 970 de 970 · ¿marcar pago
+completo?»). Y una consulta de arqueo que liste los expedientes donde la etiqueta y el
+saldo no coinciden; hoy son dos de tres.
+
+### [MEDIO] Firmar el contrato tampoco mueve nada, y `aceptada` y `completada` no las ha usado nadie nunca — `contractActions.ts` (ningún `update` a `quotes.status`) · `lib/quoteStatus.ts:7-15`
+
+Buscados todos los `update` que escriben `quotes.status` en `src/`: hay **cuatro**, y ni uno
+sale de un contrato ni de un pago.
+
+1. `marcarEnviada.ts:32` — `sin_enviar → enviada` al mandar el correo. El único automático.
+2. `seguimiento/[id]/actions.ts:89` (`updateQuoteStatus`) — el desplegable de la lista.
+3. `seguimiento/[id]/actions.ts:66` (`updateQuote`) — el desplegable del editor.
+4. `lib/quotes/editQuote.ts:114-115` — el agente (BayMax), validando con `isQuoteStatus`.
+
+De los siete estados del recorrido, **uno se mueve solo y seis van a mano**. Y se nota en el
+histórico: en las 45 cotizaciones, `aceptada` y `completada` tienen **cero filas cada una**.
+Dos de los siete estados son decoración: nadie los ha usado ni una vez.
+
+Los dos casos que lo enseñan:
+
+- **CS-2026-058** — tiene **3 contratos, 1 ya firmado**, y sigue en `enviada`. En la lista de
+  seguimiento es indistinguible de las treinta que nadie ha contestado. Sale el **27 de
+  septiembre**.
+- **CS-2026-019** — está en `pago_completo` (pagó los 932 €) y tiene **2 contratos, 0
+  firmados**. Pagó entero y no ha firmado nada, y no hay una sola señal en el expediente ni
+  en la lista que lo diga. Sale el **13 de octubre**.
+
+Ese segundo caso es justo el punto 2 de CRITERIOS —«saber en qué va cada venta sin
+preguntar, qué falta y quién debe mover ficha»— y hoy la respuesta hay que buscarla abriendo
+el expediente y bajando hasta la tarjeta de contratos.
+
+**Propuesta:** que firmar el último contrato pendiente proponga `aceptada` (el sitio natural
+es donde ya se marca `contracts.status='firmado'`), y que en la lista y en la cabecera del
+expediente aparezca «1 de 3 contratos firmados» junto al estado. Lo segundo no toca estados
+de venta y resuelve la mitad del problema.
+
+### [MEDIO] `enviada` no prueba que se haya enviado nada: 33 de las 39 no tienen `email_sent_at` — dato en producción · `EstadoEnvio.tsx:43-48` vs `seguimiento/[id]/page.tsx:409`
+
+Recuento exacto de hoy:
+
+| estado | filas | con `email_sent_at` |
+|---|---|---|
+| `enviada` | 39 | **6** |
+| `pago_completo` | 2 | 0 |
+| `pago_parcial` | 1 | 0 |
+| `cancelada` | 3 | 0 |
+| `sin_enviar` | **0** | — |
+
+La causa está clara y no es un bug nuevo: la migración `0033_estado_sin_enviar.sql` cambió el
+**default** a `sin_enviar` (línea 27) pero **no rellenó nada hacia atrás**, así que las 33
+cotizaciones anteriores conservaron el `enviada` que era el default de antes. El mecanismo
+nuevo sí funciona —las 6 con `email_sent_at` (CS-2026-062, -063, -066, -081, -082, -083) son
+exactamente las que pasaron por el envío del CRM, y el `email_sent_at` coincide con el día de
+creación—.
+
+Lo que muerde es lo que se ve en pantalla. En el mismo expediente conviven:
+
+- el chip de la cabecera (`page.tsx:409`), que dice **«Enviada»** porque lee `status`;
+- y el aviso de la tarjeta de correo (`EstadoEnvio.tsx:43-48`), que dice **«Sin enviar al
+  cliente»** en ámbar porque lee `email_sent_at`.
+
+Dos insignias contradictorias, a dos palmos una de otra, en 33 de 39 expedientes. Y el
+`EstadoEnvio` es el honesto de los dos: está bien hecho, distingue las pruebas del envío de
+verdad y explica por qué (su comentario de cabecera cuenta el caso de CS-2026-034). El que
+miente es el chip.
+
+**Consecuencia práctica, y es la que le importa a B2.7:** cualquier recordatorio que se
+apoye en `email_sent_at` —que es el campo correcto— solo verá **6** de las 39 enviadas. Las
+otras 33 quedan fuera del embudo sin que nadie lo note.
+
+**Propuesta:** una pasada única que ponga `email_sent_at` en las 33 históricas (con la fecha
+que se pueda justificar, o `created_at`), o bien que el chip de la cabecera lea las dos
+cosas y muestre «Enviada · sin registro de envío» cuando no cuadren. Lo primero es una
+migración y hay que decidirlo con Nico; lo segundo es una línea de UI.
+
+### Lo que sí está bien: no hay ningún estado imposible en la base
+
+Buscadas las combinaciones que pedía la tarea, contra las 45 filas:
+
+- **`cancelada` con pagos: ninguna.** Las tres canceladas (CS-2026-002, -005, -014) tienen
+  cero cobros y cero contratos.
+- **`pago_completo` sin cobros: ninguna.** Las dos (CS-2026-019 y -034) tienen su total
+  cobrado al céntimo.
+- **Un estado inventado es imposible.** El `CHECK` de `0033_estado_sin_enviar.sql:24-25` lo
+  impide en la base, y arriba `updateQuoteStatus` (`actions.ts:87`) y el agente
+  (`editQuote.ts:111-112`) validan con `isQuoteStatus` antes de escribir. `updateQuote`
+  (`actions.ts:66`) es el único que **no** valida —`str(...) || DEFAULT_STATUS`— pero su
+  campo es un `<select>` cerrado sobre `QUOTE_STATUSES` (`QuoteEditor.tsx:304-305`) y, si
+  llegara basura, el `CHECK` la rechaza y la acción devuelve error. No es un agujero.
+- **`marcarCotizacionEnviada` está bien pensada** (`marcarEnviada.ts:32`): solo promueve
+  desde `sin_enviar`, así que reenviarle la cotización de cortesía a alguien que ya pagó no
+  le devuelve el expediente a «Enviada». Y no lanza nunca, con el motivo escrito: tumbar un
+  correo que ya salió es peor que marcar mal el expediente.
+
+Y lo que **no** considero hallazgo, por dejarlo dicho: que se pueda saltar de `sin_enviar` a
+`completada`, o volver de `cancelada` a `enviada`, sin máquina de estados que lo impida. Para
+una agencia de dos personas, poder corregir una etiqueta de un clic vale más que la rigidez.
+Lo que falta no es una máquina de estados, es que los eventos que sí ocurren —cobrar,
+firmar— muevan la etiqueta solos.
+
 ---
 
 ## Arreglos aplicados
