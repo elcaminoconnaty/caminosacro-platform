@@ -33,7 +33,8 @@
   proyectada incluye 1.696 € de canceladas y no responde a los filtros) y que la tabla enseña cuánto,
   pero no qué falta hacer.
 - **B2.7 Nadie se cae del embudo.** Hoy nada avisa de una cotización enviada hace ocho días sin respuesta ni de un saldo que vence. Di qué costaría lo mínimo útil.
-  `Estado: pendiente`
+  `Estado: en curso` — inventariando lo que ya existe (cron de contratos, email_log, plantillas) y
+  midiendo contra la base cuántos expedientes están hoy parados y desde cuándo.
 
 ---
 
