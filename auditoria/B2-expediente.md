@@ -25,7 +25,8 @@
   `Estado: hecho` — el editor escribe siempre 16 columnas sin comparar nada: una pestaña vieja devuelve
   el estado, las notas y la validez a como estaban al abrirla. Cobrar y editar no chocan.
 - **B2.5 `QuoteEditor` y sus efectos.** El linter marca ocho `setState` dentro de efectos. Comprueba si alguno pisa lo que el usuario acaba de teclear o dispara recálculos de más.
-  `Estado: pendiente`
+  `Estado: en curso` — listando los efectos de `QuoteEditor` y qué avisa el linter; el auto-fill ya lo
+  levantó B1, así que reviso el resto y por qué no se re-siembran los campos al cancelar.
 - **B2.6 La tabla de seguimiento.** Filtros, búsqueda y orden. Qué tal se porta con 500 cotizaciones (hoy hay 45). Qué falta ver de un vistazo para no tener que abrir cada una.
   `Estado: pendiente`
 - **B2.7 Nadie se cae del embudo.** Hoy nada avisa de una cotización enviada hace ocho días sin respuesta ni de un saldo que vence. Di qué costaría lo mínimo útil.
