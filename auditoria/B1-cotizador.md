@@ -28,30 +28,56 @@
 
 ## Hallazgos
 
-### [GRAVE] El editor de Seguimiento cobra el grupo impar a tarifa de doble — `src/app/(dashboard)/seguimiento/[id]/QuoteEditor.tsx:154-168`
+### [GRAVE] El auto-fill del editor de Seguimiento pisa la base tecleada a mano — `src/app/(dashboard)/seguimiento/[id]/QuoteEditor.tsx:154-168`
 
 `tarifarRuta()` (asistente, cotizador web, WordPress, endpoint del agente y `editQuote.ts`)
 reparte habitaciones: `dobles = floor(personas/2)`, el impar va a individual, y la base es
 `dobles×2×tarifa_doble + individuales×tarifa_single`. El editor de `/seguimiento/[id]` usa
 otra fórmula distinta, `catalogMatch.price_cs × people`, tanto en `recomputeFromCatalog()`
-(línea 156) como en el auto-fill que corre al abrir el formulario (línea 165).
+(línea 156) como en el auto-fill del `useEffect` (línea 161-167).
 
-Caso real en la base: **CS-2026-014**, 5 personas, «Pensión doble», Francés desde Sarria.
-`base_eur = 2525,00 €` = exactamente `5 × 505` (la tarifa doble 2026 de esa ruta, que no ha
-cambiado). El reparto correcto es 2 dobles + 1 individual = `4×505 + 682 = 2702 €`.
-**177 € menos cobrados**, y la etiqueta queda diciendo «Pensión doble» para 5 personas —
-una de las cuales no tiene con quién compartir habitación. Con más personas impares el
-hueco es el mismo por cada impar; en sentido contrario, un grupo de 3 marcado «Pensión
-individual» se autocarga a `3 × single` y cobra **354 € de más** sobre el reparto real.
+**Lo que muerde hoy no es la fórmula: es cuándo corre.** `autoLink` arranca en `true`
+(línea 99) y el `useEffect` va **antes** de cualquier guarda de `editing`, así que se
+dispara **al montar el componente** — y `page.tsx:424` monta `QuoteEditor` siempre, en cada
+visita al expediente. No hace falta ni pulsar «Editar». Si la etiqueta de la cotización
+resuelve a un slug con tarifa en catálogo, el campo Base queda cargado con el catálogo y
+`onSubmit` lo manda tal cual (`formData.set("total_eur", totalEur)`, línea 179). Entrar a
+corregir un teléfono y dar Guardar **reescribe el precio negociado con el de catálogo**,
+sin un aviso.
 
-El bloque de auto-fill se dispara solo con abrir «Editar» (`autoLink` arranca en `true`),
-así que basta entrar a corregir un teléfono y dar Guardar para que la base se reescriba
-con la fórmula mala.
+Dos casos vivos en producción, los dos en estado `enviada` (verificados contra `pricing`):
 
-**Propuesta (no se tocó: es dinero):** que el editor llame a la misma `tarifarRuta()` que
-todos los demás, o como mínimo replique el reparto `dobles×2×doble + impar×single` y
-escriba la etiqueta con `etiquetaModalidad()`. Es el único de los cinco caminos que tiene
-su propia aritmética.
+| | `base_eur` guardada | catálogo del año de salida | qué pasa al guardar |
+|---|---|---|---|
+| **CS-2026-077** | 585,00 € | `pension_single` 2026 = **625** | +40 € que el cliente no aceptó |
+| **CS-2026-060** | 800,00 € | `pension_single` 2027 = **790** | −10 € sobre lo pactado |
+
+Son precios corregidos o negociados a mano, y son justo lo que la propia plataforma tiene
+escrito como regla en `editQuote.ts:20-23`: *«cuando el año todavía no tiene tarifa, Nico
+teclea la cifra a mano en el CRM, y corregir un correo no puede borrarle ese número»*. La
+pantalla que más usa Nico viola la regla que el camino de BayMax respeta. Ese es el daño
+diario, y ya está esperando en dos expedientes enviados.
+
+**El segundo efecto, la aritmética del grupo impar.** Como la fórmula es `precio × personas`
+y no el reparto, un grupo impar se cobra entero a tarifa de doble y la etiqueta queda
+prometiendo algo imposible: para 5 personas, «Pensión doble», una de ellas no tiene con
+quién compartir habitación. La única fila de la base con ese patrón es **CS-2026-014** (5
+personas, «Pensión doble», Francés desde Sarria, `base_eur = 2525,00 €` = exactamente
+`5 × 505`, contra los `4×505 + 682 = 2702 €` del reparto correcto: 177 € de diferencia)…
+**y está `cancelada`**. Esos 177 € nunca se dejaron de cobrar. Barridas las 45 cotizaciones
+cruzando grupo impar contra el catálogo del año de salida, no hay ninguna otra: las demás
+impares son de 1 persona en individual, todas con la base correcta. Así que el reparto es un
+defecto real del código que todavía no ha mordido — lo hará con el primer grupo de 3 o de 5
+que alguien abra — pero hoy no hay dinero perdido por ahí. En sentido contrario el hueco
+existe igual: un grupo de 3 marcado «Pensión individual» se autocarga a `3 × single`, 354 €
+por encima del reparto real.
+
+Es el único de los cinco caminos con aritmética propia.
+
+**Propuesta (no se tocó: es dinero):** ver el hallazgo de fondo, «Dos editores de cotización
+con reglas distintas». No hay que replicar el reparto en la pantalla: hay que hacer que la
+pantalla llame a `actualizarCotizacion()`, que ya retarifa solo cuando cambia algo que mueve
+el precio y por eso mismo **no** pisa la base tecleada a mano.
 
 ### [GRAVE] Al editar una cotización de reparto mixto la base se queda congelada — `src/app/(dashboard)/seguimiento/[id]/QuoteEditor.tsx:59-68,124-128`
 
