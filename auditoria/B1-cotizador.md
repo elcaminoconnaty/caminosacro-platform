@@ -12,7 +12,7 @@
 ## Tareas
 
 - **B1.1 El precio, de punta a punta.** Sigue `tarifar.ts` con un caso real: temporada alta, Semana Santa, habitaciones mixtas, noche extra. ¿Los redondeos y el suplemento se aplican una sola vez? Compara el total con una cotización ya emitida.
-  `Estado: pendiente`
+  `Estado: en curso` — leo `lib/quotes/tarifar.ts` y `seasons.ts` línea a línea, reconstruyo el cálculo y lo contrasto contra cotizaciones reales de la BD (Supabase MCP, solo SELECT).
 - **B1.2 Los cuatro caminos de alta dan lo mismo.** Wizard, cotizador público, WordPress y el endpoint del agente. Mismo input → ¿mismo precio, mismas líneas, mismo estado? Donde discrepen, cuál manda.
   `Estado: pendiente`
 - **B1.3 Alta a medias.** Si falla el PDF, el correo o la inserción de líneas, ¿qué queda en la base? Busca cotizaciones sin líneas, sin código o sin cliente. No hay transacción: di qué se rompe.
