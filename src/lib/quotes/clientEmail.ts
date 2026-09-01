@@ -4,6 +4,9 @@ import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { registrarEnvio } from "@/lib/email/log";
 import { mensajeError } from "@/lib/errors";
 import { renderAndStoreQuotePdf, type ComercialClient } from "@/lib/quotes/pdf";
+import { correoCotizacionHtml } from "@/lib/quotes/emailHtml";
+import { nuevoTokenCorreo, urlVersionWeb } from "@/lib/email/versionWeb";
+import { getTravelDocTexts } from "@/lib/travelDocs/texts";
 
 /**
  * Envío del correo de cotización al cliente, con su PDF adjunto.
@@ -28,7 +31,7 @@ export async function enviarCorreoCliente(
 
   const { data: quote, error: qErr } = await supabase
     .from("quotes")
-    .select("id,code,client_name,client_email,client_phone,route_name,start_date,people,modality,total_eur,pdf_path")
+    .select("id,code,client_name,client_email,client_phone,route_name,start_date,people,modality,total_eur,pdf_path,valid_until")
     .eq("id", quoteId)
     .maybeSingle();
   if (qErr) return { error: mensajeError(qErr) };
@@ -56,6 +59,34 @@ export async function enviarCorreoCliente(
   }
 
   const nombre = String(quote.client_name || "").trim();
+  const adjuntoNombre = `Cotizacion-${quote.code}.pdf`;
+
+  // El token se saca antes de armar el HTML porque el enlace de la versión web va DENTRO
+  // de ese HTML, y luego se guarda tal cual para que la página sirva lo mismo que llegó.
+  const token = nuevoTokenCorreo();
+  // Los datos de contacto salen de settings, no del código: son los mismos que usan la
+  // documentación de viaje y su correo, y tenerlos en dos sitios es cómo terminan
+  // diciendo cosas distintas. Aquí va el WhatsApp, no el fijo español: el cliente todavía
+  // está en su casa decidiendo si compra.
+  const contacto = (await getTravelDocTexts(supabase)).contacto;
+  const html = correoCotizacionHtml({
+    code: quote.code,
+    // El cuerpo lo escribe Nico en la tarjeta del expediente: aquí solo se envuelve en la
+    // papelería de la marca. Se mete tal cual, en párrafos.
+    cuerpo: body,
+    ruta: quote.route_name ?? null,
+    fechaInicio: quote.start_date ?? null,
+    personas: Number(quote.people) || 1,
+    alojamiento: quote.modality ?? null,
+    totalEur: quote.total_eur != null ? Number(quote.total_eur) : null,
+    validaHasta: (quote.valid_until as string | null) ?? null,
+    adjunto: adjuntoNombre,
+    telefono: contacto.whatsapp || contacto.telefono || "",
+    email: contacto.email || "reservas@caminosacro.com",
+    web: contacto.web || "www.caminosacro.com",
+    urlVersionWeb: urlVersionWeb(token),
+  });
+
   const envio = await enviarCorreoWebhook({
     code: quote.code,
     nombre,
@@ -68,8 +99,11 @@ export async function enviarCorreoCliente(
     total_eur: quote.total_eur != null ? Number(quote.total_eur) : null,
     pdf_url: signed.signedUrl,
     subject,
+    // `body` sigue viajando como versión en texto plano: es lo que ve quien tenga el HTML
+    // desactivado, y ayuda a que el correo no puntúe como spam.
     body,
-    attachment_name: `Cotizacion-${quote.code}.pdf`,
+    html,
+    attachment_name: adjuntoNombre,
     // Sin aviso interno: lo mandó alguien del equipo desde el CRM, así que ya lo
     // sabe y el aviso solo duplicaba el correo en reservas@. El asunto/cuerpo se
     // dejan puestos porque, si algún día se vuelve a encender, el aviso por
@@ -102,6 +136,8 @@ export async function enviarCorreoCliente(
     adjuntos: 1,
     messageId: envio.messageId ?? null,
     error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
+    token,
+    html,
   });
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
 

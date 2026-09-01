@@ -24,6 +24,12 @@ export type EnvioRegistrado = {
   messageId?: string | null;
   error?: string | null;
   prueba?: boolean;
+  /** Token de la versión web (/correo/[token]), si el correo iba maquetado. */
+  token?: string | null;
+  /** El HTML EXACTO que se envió. No se vuelve a armar al abrir la versión web: si se
+   *  regenerara, un cambio de plantilla haría que la página dijera algo distinto de lo
+   *  que el cliente tiene en su bandeja. */
+  html?: string | null;
 };
 
 export async function registrarEnvio(
@@ -45,6 +51,8 @@ export async function registrarEnvio(
       estado,
       error: envio.error ?? null,
       prueba: envio.prueba ?? false,
+      token: envio.token ?? null,
+      html: envio.html ?? null,
     });
   } catch (e) {
     console.warn("[correo] no pude registrar el envío en email_log:", e);

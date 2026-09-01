@@ -5,6 +5,7 @@ import { mensajeError } from "@/lib/errors";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { registrarEnvio } from "@/lib/email/log";
 import { rutaAsistencia } from "@/lib/storage/paths";
+import { baseUrlApp, nuevoTokenCorreo, urlVersionWeb } from "@/lib/email/versionWeb";
 import { getTravelDocTexts } from "@/lib/travelDocs/texts";
 import { renderAndStoreTravelDoc } from "@/lib/travelDocs/render";
 import {
@@ -69,7 +70,7 @@ export async function enviarCorreoDocumentacionViaje(
     return { error: "El enlace público está anulado. Reactívalo antes de enviar el correo." };
   }
 
-  const base = baseUrl();
+  const base = baseUrlApp();
   const urlExpediente = `${base}/documentacion/${doc.token}`;
   const descarga = (clave: string) => `${urlExpediente}/descargar/${clave}`;
 
@@ -114,6 +115,7 @@ export async function enviarCorreoDocumentacionViaje(
     });
   }
 
+  const token = nuevoTokenCorreo();
   const texts = await getTravelDocTexts(supabase);
   const datos = {
     nombre: String(quote.client_name || "").trim() || "peregrino",
@@ -128,6 +130,7 @@ export async function enviarCorreoDocumentacionViaje(
     email: texts.contacto.email || "reservas@caminosacro.com",
     web: texts.contacto.web || "www.caminosacro.com",
     intro,
+    urlVersionWeb: urlVersionWeb(token),
   };
 
   // Sin adjuntos: el correo lleva solo los botones de descarga.
@@ -138,6 +141,10 @@ export async function enviarCorreoDocumentacionViaje(
   // luego se corrige un teléfono del hotel o se regenera el documento, el que el cliente
   // tiene guardado sigue diciendo lo viejo. Los botones apuntan a /documentacion/<token>,
   // que sirve SIEMPRE la versión vigente y no caduca.
+
+  // Se arma UNA vez y se guarda ese mismo: recalcularlo para el registro abriría la
+  // puerta a que la versión web y el correo enviado dejen de coincidir.
+  const html = correoDocumentacionHtml(datos);
 
   const envio = await enviarCorreoWebhook({
     code: quote.code,
@@ -154,7 +161,7 @@ export async function enviarCorreoDocumentacionViaje(
     pdf_url: null,
     subject,
     body: correoDocumentacionTexto(datos),
-    html: correoDocumentacionHtml(datos),
+    html,
     // Sin aviso interno: lo mandó alguien del equipo desde el CRM, así que ya lo sabe.
     aviso: false,
     aviso_subject: `${datos.nombre} - Documentación de viaje enviada - ${quote.code}`,
@@ -171,6 +178,8 @@ export async function enviarCorreoDocumentacionViaje(
     messageId: envio.messageId ?? null,
     error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
     prueba: esPrueba,
+    token,
+    html,
   });
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
 
@@ -179,15 +188,4 @@ export async function enviarCorreoDocumentacionViaje(
     await supabase.from("travel_docs").update({ sent_at: new Date().toISOString() }).eq("quote_id", quoteId);
   }
   return { ok: true, email: destinatario };
-}
-
-/**
- * Base pública de la app. APP_BASE_URL manda: es la misma decisión que toma el enlace de
- * firma del contrato, y por la misma razón — en local, sin ella, el correo mandaría al
- * cliente a un `localhost` que no existe fuera de esta máquina.
- */
-function baseUrl(): string {
-  const env = process.env.APP_BASE_URL;
-  if (env) return env.replace(/\/$/, "");
-  return "https://caminosacro-platform-production.up.railway.app";
 }
