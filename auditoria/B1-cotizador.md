@@ -1044,25 +1044,91 @@ Falta esto, y es concreto:
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — una sola ronda, atacando los siete puntos del veredicto en este orden,
-cada uno con su commit y corrigiendo **en su sitio** (sección Hallazgos) para que el archivo
-sea la verdad y no haya que leer tres versiones:
+`Estado: hecho` — los siete puntos del veredicto, resueltos. Todo lo que sigue se comprobó
+antes de escribirlo: contra el código, y contra `comercial` en producción (solo SELECT). Los
+hallazgos se corrigieron **en su sitio**, en la sección Hallazgos, para que este archivo sea
+la verdad y no haya que leer tres versiones. Aquí queda solo el registro de qué cambió.
 
-1. Hallazgo nuevo **GRAVE**: `updateQuote` nunca reescribe `rooms_json`. Verificar en la base
-   CS-2026-080 y en código quién lo lee después (`pilgrimEmail.ts`, `contracts/render.ts`,
-   `pdf.ts`), y anotar que `/cotizar` ni siquiera lo escribe al crear.
-2. Ensanchar el **GRAVE 1**: el auto-fill corre al montar, así que pisa cualquier base
-   tecleada a mano (CS-2026-077, CS-2026-060, las dos `enviada`), y quitarle el titular de
-   los «177 € menos cobrados» de CS-2026-014, que está `cancelada`.
-3. Añadir el hallazgo de **moneda**: `trm_history` vacía, `getTRMHoy()` con `catch {}`, COP
-   ni pintado ni archivado frente a la validez de 30 días.
-4. Correcciones de rigor: CS-2026-065 («la fila cambió», no «`base_eur` se modificó») más el
-   sospechoso latente `initialBase = base ?? total`; las gemelas nacieron con el mismo precio;
-   **45** cotizaciones, no 38.
-5. Reencuadrar la propuesta de los dos GRAVE: hay **dos editores** y `editQuote.ts` ya
-   resuelve bien las tres cosas → «la pantalla llama a `actualizarCotizacion()`».
-6. Prioridades: `rooms_json` a GRAVE; el 500 de `2026-13-45` a MENOR y el titular pasa a
-   `2026-02-31 → 9 de marzo`.
+**No se tocó código en esta ronda**: es revisión del informe.
 
-Sin tocar código: es revisión del informe. Todo se comprueba contra `comercial` (solo SELECT)
-antes de escribirlo.
+### Qué cambió, y por qué
+
+1. **Hallazgo nuevo, GRAVE — `updateQuote` nunca reescribe `rooms_json`.** El crítico tenía
+   razón: el `patch` tiene 16 campos y `rooms_json` no está en ninguno, ni la pantalla lo
+   manda. Verificado también quién lo lee después —`pilgrimEmail.ts:122` (el pedido de cupo
+   a Pilgrim), `contracts/render.ts:74` (el contrato firmado), `pdf.ts:197` (las tarjetas
+   del mixto)— y el caso vivo: CS-2026-080, `people = 14` con `rooms_json` de 8 dobles,
+   estado `enviada`. Confirmado además que es la **única** de las 15 filas con `rooms_json`
+   donde las camas no cuadran con `people`. Se añadió como segundo agujero del mismo campo
+   que `/cotizar` no lo escribe al crear, con la honestidad de que hoy es latente: en
+   producción no hay ni una fila con `source = 'web'` (39 `interna`, 5 `wordpress`,
+   1 `baymax`).
+
+2. **GRAVE 1 reescrito, con otro titular.** El crítico acertó en las dos cosas. El auto-fill
+   está en un `useEffect` sin guarda de `editing` y `page.tsx:424` monta el editor siempre:
+   corre al **montar**, así que pisa cualquier base tecleada a mano, no solo la de los
+   grupos impares. Casos vivos y `enviada`, verificados contra `pricing`: CS-2026-077
+   (585 € contra 625 € de catálogo) y CS-2026-060 (800 € contra 790 €). Y CS-2026-014 está
+   efectivamente `cancelada`: los «177 € menos cobrados» salieron de la negrita y del
+   titular, y ahora el hallazgo dice que el reparto es un defecto real que **todavía no ha
+   mordido**. El título pasó de «cobra el grupo impar a tarifa de doble» a «pisa la base
+   tecleada a mano», que es el daño diario y verificable.
+
+3. **La moneda, que no aparecía ni una vez, es ahora un MEDIO propio.** `comercial.trm_history`
+   tiene **0 filas** (verificado), así que el único camino vivo de `getTRMHoy()` es que una
+   de las dos APIs conteste en esa misma petición. Y no se puede saber por qué lleva vacía:
+   el `catch {}` de `trm.ts:31` se traga el fallo de las APIs y el `upsert` de la línea 70
+   solo desestructura `data`, nunca `error`. Cuando falla, `/cotizar` **omite la línea del
+   COP sin decir nada** (`{totalCop && …}`), mientras el CRM sí es honesto («TRM no
+   disponible»). Y `quotes` no tiene ni una columna de COP o TRM: el peso que se le muestra
+   al cliente no se archiva, aunque la cotización le prometa 30 días de validez — lo que
+   aguanta 30 días es el euro, no el peso.
+
+4. **Tres afirmaciones corregidas.** (a) De CS-2026-065 solo consta `updated_at`: se
+   reescribió como «la fila cambió y no hay forma de saber qué campo ni quién», que es
+   justamente la tesis del hallazgo, y se añadió el sospechoso latente que el crítico
+   detectó —`2780 = 2460 + 320` apunta a `initialBase = base ?? total` de
+   `QuoteEditor.tsx:90`—, dicho como lo que es: un camino real del código que hoy no se
+   puede reproducir porque no hay ninguna fila con `base_eur` nula. (b) Las gemelas del
+   duplicado **nacieron iguales**; la diferencia de precio es posterior y se le devolvió al
+   hallazgo al que pertenece. (c) Los conteos: son **45** cotizaciones. Repetido el cuadre
+   sobre las 45 — `total_eur = base + suplemento + líneas` da **0** descuadres, y
+   `cost_eur` descuadra en **una sola** fila, CS-2026-058, tal como decía el informe.
+
+5. **Nombrado el hallazgo de fondo, que era lo más valioso de la crítica.** Verificado
+   `editQuote.ts` línea a línea: `modalidadGuardada()` saca el reparto de `rooms_json`
+   (`:53-56`), solo retarifa si cambia ruta/modalidad/fecha/personas (`:143`), no guarda
+   nada si el año no tiene tarifa (`:200`) y reescribe `rooms_json` (`:212`). Es cierto: ya
+   resuelve las tres cosas. Los tres GRAVE dejaron de proponer aritmética nueva y ahora
+   apuntan todos a la misma propuesta —**que la pantalla llame a `actualizarCotizacion()`**—,
+   con la tabla de las ocho diferencias entre los dos editores. Se anota el único cabo que
+   la vuelve trabajo y no un cambio de una línea: `ParcheCotizacion` no acepta un precio a
+   mano, y la pantalla lo necesita para el año sin tarifa cargada.
+
+6. **Prioridades.** `rooms_json` entra como GRAVE. El hallazgo de la fecha imposible se
+   partió en dos: el titular es ahora **`2026-02-31 → 9 de marzo`** (MEDIO), que cotiza en
+   silencio una fecha que el cliente no pidió, y el 500 de `2026-13-45` queda aparte como
+   **MENOR**, con el motivo escrito de por qué no cuesta nada. Mismo arreglo de tres líneas
+   para los dos.
+
+7. **Coherencia del archivo.** Puestas al día las líneas de resumen de B1.1, B1.2 y B1.4, y
+   marcado con ⚠ el «no» de `rooms_json` de `/cotizar` en la tabla de los cuatro caminos,
+   que era donde el informe original lo despachaba sin comentario.
+
+### Lo que se deja explícitamente como estaba
+
+- La **advertencia de orden** del crítico sobre «la cotización enviada que nadie contesta»:
+  sigue MEDIO, que es lo que dice la letra del TABLERO, pero por plata esperada es el
+  primer hallazgo del bloque (16 de 39 vencidas y quietas, 3 aceptadas en total, verificado
+  otra vez). Eso es un aviso para `SINTESIS.md`, no un cambio de etiqueta aquí.
+- El resto de lo que el crítico dio por sólido no se reabrió: una ronda, y lo que aguanta
+  aguanta.
+
+### Propuestas menores anotadas en esta ronda (no se tocó nada)
+
+- Revisar **CS-2026-080** antes de que salga su pedido a Pilgrim: hoy declara 8 dobles para
+  14 personas, dos camas de más.
+- Que `trm.ts` deje de tragarse sus dos fallos (`catch {}` en la línea 31 y el `error` del
+  `upsert` que nunca se lee): sin eso no hay forma de saber por qué `trm_history` lleva
+  vacía toda la vida del proyecto. Es un `catch` mudo de los que el contrato manda arreglar,
+  pero está en el camino del dinero y toca decidirlo con Nico.
