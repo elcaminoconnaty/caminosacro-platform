@@ -15,9 +15,8 @@
   `Estado: hecho` — la disciplina de lo derivado se respeta (44 de 45 filas cuadran al céntimo), pero
   los 7 sitios que llaman al RPC tiran el error, y cambiar «personas» no re-cuantifica los opcionales por persona.
 - **B2.2 Pagos, saldos y monedas.** ¿La TRM que se guarda es la del día del movimiento o la de hoy? Cobrado, saldo cliente, pagado a proveedor y margen real: recalcula a mano en un expediente y compara con lo que muestra.
-  `Estado: en curso` — leyendo `addClientPayment`/`updateClientPayment` (`actions.ts:136-188`),
-  `ClientPaymentsCard`, `ProviderPaymentsCard` y el cálculo de saldo de `page.tsx`; contrastando
-  contra `client_payments` y `provider_payments` reales.
+  `Estado: hecho` — la TRM que se guarda **sí** es la del día del movimiento (bien), pero un pago que no
+  se puede convertir a euros vale cero en el saldo sin decirlo, y USD no tiene forma de convertirse.
 - **B2.3 Estados coherentes.** Busca combinaciones imposibles: pagada pero `sin_enviar`, cancelada con pagos, `pago_completo` sin cobros. Quién mueve cada estado y qué queda sin mover solo.
   `Estado: pendiente`
 - **B2.4 Dos pestañas a la vez.** Guardar el editor pisa el expediente entero o solo lo cambiado. Qué pasa si alguien edita mientras otro cobra. Guardar sin cambios.
@@ -122,6 +121,116 @@ left join lateral (
 where q.total_eur is distinct from (coalesce(q.base_eur,0)+coalesce(q.season_supplement_eur,0)+coalesce(l.lines,0))
    or q.cost_eur  is distinct from (coalesce(q.cost_base_eur,0)+coalesce(q.season_supplement_cost_eur,0)+coalesce(l.cost_lines,0));
 ```
+
+### [GRAVE] Un pago que no se puede convertir a euros vale cero en el saldo, y nadie lo dice — `seguimiento/[id]/actions.ts:141,166` · `ClientPaymentsCard.tsx:227,237-243` · `page.tsx:276-279`
+
+La conversión de un pago a euros está escrita, idéntica, en el alta y en la edición:
+
+```ts
+const amountEur = currency === "EUR" ? amount : currency === "COP" && trm ? amount / trm : null;
+```
+
+Hay **dos caminos que caen en el `null`**, y los dos están a un clic:
+
+1. **USD.** El selector de moneda ofrece EUR, COP y USD (`ClientPaymentsCard.tsx:225-227`).
+   El campo de tasa solo se dibuja `{currency === "COP" && …}` (línea 237): en USD **no
+   existe ningún campo** para convertir. La expresión no contempla USD, así que todo pago
+   en dólares nace con `amount_eur = null`. La columna es `nullable` y sin default
+   (comprobado en `information_schema`), de modo que el `insert` entra sin chistar.
+2. **COP con la tasa en blanco.** El input `trm_eur_cop` **no lleva `required`**
+   (línea 240). Registrar «4.000.000 COP» y dejar la tasa vacía guarda el pago con
+   `amount_eur = null`.
+
+Y a partir de ahí el pago desaparece del dinero:
+
+- `page.tsx:276-279` — `const v = p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0)`:
+  el pago suma **0** a «Cobrado», así que «Saldo cliente» sigue mostrando la deuda entera y
+  «Margen real» (`cobrado − pagadoPilgrim`, línea 286) sale falseado hacia abajo.
+- `actions.ts:235` — el **recibo PDF que se le entrega al cliente** calcula
+  `cobrado = Σ amount_eur` y estampa `saldoEur = total − cobrado`. El cliente recibe, con
+  membrete, un papel que dice que debe un dinero que ya pagó.
+- `finanzas/page.tsx:28` — el mismo cero en el panel de finanzas.
+
+**Y la pantalla lo esconde.** El renglón del pago muestra `{p.amount} {p.currency}`
+(línea 126) —o sea, «4.000.000 COP» bien grande— y la equivalencia en euros va detrás de
+`{p.amount_eur != null && p.currency !== "EUR" && …}` (línea 127): cuando es `null`, ese
+trozo simplemente **no se dibuja**. La lista dice que cobró y la cabecera dice que no, sin
+un error, sin un ámbar, sin nada. Es el mismo patrón mudo de `/cotizar` que B1 ya señaló,
+pero acá sobre plata ya recibida.
+
+**Honestidad sobre el caso:** en producción **no hay ninguna fila rota todavía**. Los seis
+pagos de cliente que existen son los seis en EUR con `amount_eur` puesto (verificado). Lo
+que se describe es el camino, no un daño consumado — pero el camino es «elegir COP y no
+teclear la tasa», que es exactamente la moneda en la que esta agencia cobra.
+
+**Propuesta (no se toca: es dinero):** que la conversión no pueda devolver `null` en
+silencio. Mínimo: `required` en la tasa cuando la moneda no es EUR, un campo de tasa
+también para USD (o quitar USD del selector si no se usa), y que la acción devuelva
+`{ error: "Falta la tasa para convertir el pago a euros" }` en vez de insertar. Y, para lo
+ya guardado, que el renglón pinte «sin convertir — no cuenta en el saldo» cuando
+`amount_eur` sea `null`.
+
+### [MEDIO] El único pago a una cuenta en pesos está registrado en euros, y nada lo impide — `lib/accounts.ts:18` (`accountCurrency` sin usar) · `ClientPaymentsCard.tsx:230-236`
+
+`accounts.ts` sabe la moneda de cada cuenta: `bancolombia_naty` y `bancolombia_camino` son
+COP, `santander` es EUR. El formulario incluso **imprime esa moneda en el desplegable**
+(`ClientPaymentsCard.tsx:234`: «Bancolombia Naty (COP)»). Pero `accountCurrency()`
+—exportada en la línea 18— **no se llama desde ningún sitio del código**; lo comprobé
+buscando en todo `src/`. Nada compara la moneda del pago con la moneda de la cuenta que lo
+recibió.
+
+El caso vivo: **CS-2026-019**, pago del **2026-06-30 por 20,00 EUR a `bancolombia_naty`**,
+una cuenta en pesos, con `trm_eur_cop = null`. Lo que entró a Bancolombia fueron pesos; lo
+que quedó guardado son 20 euros y ninguna tasa. La cifra en pesos que de verdad se recibió,
+y la tasa de ese día, **no están en ninguna parte**: ni en el expediente, ni en el recibo,
+ni en `trm_history` (que está vacía). Cuando toque cuadrar el extracto de Bancolombia
+contra el CRM, ese renglón no se puede cuadrar.
+
+Es literalmente el punto 4 de CRITERIOS —«en dos monedas, con la tasa del día del
+movimiento»— fallando en el único movimiento del histórico donde hacía falta.
+
+**Propuesta:** usar `accountCurrency()` donde ya existe: al elegir una cuenta COP, fijar la
+moneda del pago en COP y exigir la tasa; al elegir Santander, fijarla en EUR. Es cerrar el
+círculo con código que ya está escrito.
+
+### [MENOR] «Cobrado» está escrito tres veces, con tres fórmulas distintas — `seguimiento/[id]/page.tsx:277` · `seguimiento/[id]/actions.ts:235` · `finanzas/page.tsx:28`
+
+La misma regla, tres redacciones:
+
+| dónde | fórmula |
+|---|---|
+| expediente | `p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0)` |
+| recibo PDF | `Number(p.amount_eur) \|\| 0` |
+| finanzas | `Number(p.amount_eur) \|\| (p.currency === "EUR" ? Number(p.amount) : 0)` |
+
+Hoy las tres dan lo mismo porque los seis pagos son en EUR con `amount_eur` puesto. Pero la
+del recibo no tiene la red de seguridad de las otras dos, y el expediente usa `??` mientras
+finanzas usa `||`, que difieren cuando `amount_eur` es exactamente `0`. Es el «un dato, un
+sitio» de CRITERIOS: tres copias de una regla de dinero es garantizar que un día digan cosas
+distintas. **Propuesta:** una función `cobradoEur(pagos)` en `lib/` y que las tres la llamen.
+
+### Lo que sí está bien: la tasa que se guarda es la del movimiento
+
+Es lo primero que fui a mirar y está bien resuelto, así que queda dicho:
+
+- `client_payments` guarda **su propia** `trm_eur_cop` por fila, y el formulario la pide con
+  la etiqueta correcta: «**TRM al recibir** (COP por 1 EUR)» (`ClientPaymentsCard.tsx:239`).
+  No se usa la tasa de hoy para liquidar un pago de hace tres meses.
+- Eso concuerda con lo que promete el contrato firmado
+  (`lib/contracts/template.ts:156`): «cada pago se liquidará a la tasa de referencia vigente
+  el día del pago».
+- `getTRMHoy()` —la que sí es la de hoy, y la que B1 documentó como frágil— **no toca los
+  pagos**: en el expediente solo alimenta las variables del correo (`page.tsx:208,460`).
+  Que `trm_history` esté vacía no descuadra ningún saldo.
+- Los pagos a Pilgrim son solo en euros (`provider_payments` no tiene ni `currency` ni
+  `trm`), que es correcto: a Pilgrim se le paga en euros.
+
+**El hueco que sí queda, y es de diseño, no de bug:** el expediente tiene cinco tarjetas de
+dinero (`page.tsx:412-418`) y **las cinco están en euros**. Para una agencia que le cobra en
+pesos a un cliente colombiano, el «Saldo cliente» que ese cliente entiende —el número en
+pesos que le tiene que consignar— no está en ninguna pantalla. Se puede calcular, porque la
+TRM del día ya se consulta en esa misma página para el correo. Es una línea de texto bajo
+la tarjeta.
 
 ---
 
