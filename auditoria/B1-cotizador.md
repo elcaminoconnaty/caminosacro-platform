@@ -14,7 +14,7 @@
 - **B1.1 El precio, de punta a punta.** Sigue `tarifar.ts` con un caso real: temporada alta, Semana Santa, habitaciones mixtas, noche extra. ¿Los redondeos y el suplemento se aplican una sola vez? Compara el total con una cotización ya emitida.
   `Estado: hecho` — el suplemento se aplica una sola vez en los cuatro flujos y no hay redondeos que se acumulen, pero el **editor de Seguimiento tarifa con otra fórmula** que la del resto (`precio × personas` en vez del reparto de habitaciones) y con reparto mixto no vuelve a tarifar nunca.
 - **B1.2 Los cuatro caminos de alta dan lo mismo.** Wizard, cotizador público, WordPress y el endpoint del agente. Mismo input → ¿mismo precio, mismas líneas, mismo estado? Donde discrepen, cuál manda.
-  `Estado: en curso` — comparo `webQuote.ts`, `agentQuote.ts`, `cotizar/actions.ts` y el Wizard con el mismo input: precio, estado inicial, código, PDF, correo y `source`.
+  `Estado: hecho` — tres de los cuatro (Wizard, WordPress y agente) dan el mismo precio porque comparten `tarifarRuta()`; **`/cotizar` no**: cobra una sola modalidad a todo el grupo y cae al año anterior. Estado inicial, código y validez sí coinciden en los cuatro.
 - **B1.3 Alta a medias.** Si falla el PDF, el correo o la inserción de líneas, ¿qué queda en la base? Busca cotizaciones sin líneas, sin código o sin cliente. No hay transacción: di qué se rompe.
   `Estado: pendiente`
 - **B1.4 Validación de la entrada.** Personas fuera de rango, fecha en el pasado, ruta sin tarifa del año, correo inválido, texto larguísimo. En los endpoints públicos además: secreto, límite de peticiones, payload gigante.
@@ -129,6 +129,97 @@ notarlo. **Propuesta:** avisar en ámbar cuando la fecha de salida cae en un añ
 - Cuadre general: de las 38 cotizaciones de producción, `total_eur` coincide con
   `base + suplemento + líneas` en **las 38**. El único descuadre es el `cost_eur` de
   CS-2026-058 anotado arriba.
+
+---
+
+### [MEDIO] Los dos cotizadores públicos dan dos precios distintos para el mismo viaje — `src/app/cotizar/actions.ts:106` vs `src/lib/quotes/tarifar.ts:123-132`
+
+`/cotizar` (el cotizador público que vive en la propia plataforma) calcula
+`baseEur = precioPorPersona × people`: una sola modalidad para todo el grupo. El cotizador
+de caminosacro.com (`webQuote.ts` → `tarifarRuta()`) reparte habitaciones: pares en doble y
+el impar en individual.
+
+Caso concreto, con tarifas reales de la base: **3 personas, Francés desde Sarria, pensión,
+salida 2026-10-15**.
+- Por caminosacro.com: `2×505 + 682 = 1692 €` (etiqueta «Pensión · 1 doble + 1 individual»).
+- Por `/cotizar` eligiendo «pensión doble»: `3 × 505 = 1515 €` (etiqueta «Pensión doble»).
+
+**177 € de diferencia por la misma solicitud**, y el segundo número además promete algo
+imposible: tres personas no caben en habitaciones dobles. La discrepancia está documentada
+como decisión deliberada (`webQuote.ts:20-23`), pero el efecto para el cliente es que dos
+puertas de la misma agencia cotizan el mismo viaje a dos precios. **Manda `tarifarRuta()`**:
+es la que refleja las habitaciones que Pilgrim va a reservar de verdad.
+
+**Propuesta (no se tocó: es dinero):** o `/cotizar` pasa a `tarifarRuta()` como los otros
+tres, o deja de ofrecer «doble» para grupos impares.
+
+### [MEDIO] `/cotizar` cotiza con la tarifa del año anterior donde los otros tres se niegan — `src/app/cotizar/actions.ts:94-96`
+
+`/cotizar` usa `ratesForYearWithFallback()` y sale con la nota «Precio de referencia
+{año}…». `webQuote.ts`, `agentQuote.ts` y `editQuote.ts` usan `ratesForYear()` (coincidencia
+exacta) y devuelven `sin_tarifas_ano` (409). Mismo visitante, misma ruta, salida en un año
+sin tarifas cargadas: por una puerta se lleva un PDF con precio y por la otra un «no
+disponible». También está documentado como decisión aparte (`pricing/year.ts:18-21`), pero
+hoy nada avisa en el CRM de que esa cotización nació con una tarifa vieja salvo el texto de
+`price_note` dentro del PDF. **Propuesta:** mostrar el `price_note` como aviso ámbar en el
+expediente de Seguimiento, no solo dentro del documento.
+
+### [MENOR] El único camino que no genera el PDF es el del CRM — `src/app/(dashboard)/cotizaciones/nueva/actions.ts:96-132`
+
+`crearCotizacionWordPress`, `crearCotizacionAgente` y `crearCotizacionPublica` llaman a
+`renderAndStoreQuotePdf()` antes de responder. El asistente inserta y hace `redirect()` sin
+generar nada: la cotización aterriza en el expediente con `pdf_path` en null hasta que
+alguien pulse «Generar PDF» (la pantalla de detalle tampoco lo genera sola). En producción
+hay 2 cotizaciones internas así. No es grave porque se ve el botón, pero es un paso manual
+que los otros tres no piden.
+
+### [MENOR] `cost_eur` se escribe a mano en los cuatro caminos de alta
+
+La GUIA (§D4) dice que `cost_eur` es derivado y que un flujo nuevo debe escribir
+`cost_base_eur` + `season_supplement_cost_eur` y dejar que el RPC arme el total. Los cuatro
+lo escriben directo igual: `webQuote.ts:131`, `agentQuote.ts:145`, `cotizar/actions.ts:163`
+y `nueva/actions.ts:119`. En el alta el valor coincide (todavía no hay líneas), así que hoy
+no muerde — pero es exactamente la costumbre que produjo el `cost_eur` descuadrado de
+CS-2026-058. **Propuesta:** quitar `cost_eur`/`total_eur` de los cuatro inserts y llamar
+`recompute_quote_total` después, que ya es lo que hacen los dos caminos de edición.
+
+### [MENOR] El asistente no sabe cotizar un grupo entero en individual — `Wizard.tsx:38-41`
+
+El selector de alojamiento del asistente solo ofrece «Pensión» y «Hotel», y el reparto
+automático siempre mete a los pares en doble. El endpoint del agente sí acepta
+`pension_single`/`hotel_single` para todo el grupo (`agentQuote.ts:87`), y `tarifarRuta()`
+lo soporta con `todosIndividuales`. Dos amigas que quieren cada una su habitación se cotizan
+por Telegram pero no por la pantalla: en el asistente hay que irse a «Personalizada» y
+teclear el precio. **Propuesta:** una casilla «todos en individual» que ya está soportada
+por el motor.
+
+### Lo que coincide en los cuatro caminos
+
+Verificado leyendo los cuatro inserts, no por confianza:
+
+| | Wizard | `/cotizar` | WordPress | Agente |
+|---|---|---|---|---|
+| Motor de precio | `tarifarRuta` (replicado en cliente) | **propio** | `tarifarRuta` | `tarifarRuta` |
+| Año de tarifa | exacto | **con caída** | exacto | exacto |
+| Estado inicial | `sin_enviar` (elegible) | `sin_enviar` | `sin_enviar` | `sin_enviar` |
+| Código | `next_quote_code()` | idem | idem | idem |
+| Validez | hoy + 30 | hoy + 30 | hoy + 30 | hoy + 30 |
+| Dedup de cliente | por teléfono | por teléfono | por teléfono | por teléfono |
+| Tope de personas | 30 | 12 | 12 | 30 |
+| `rooms_json` | sí | **no** | sí | sí |
+| PDF al crear | **no** | sí | sí | sí |
+| Correo al crear | no | sí | sí | no (lo aprueba Nico) |
+
+- El reparto de habitaciones del Wizard (`Wizard.tsx:112-113,199-201`) es aritméticamente
+  idéntico al de `tarifarRuta` y produce las mismas etiquetas; el Wizard es cliente y no
+  puede llamar al módulo server-only, pero la duplicación está bien hecha.
+- `marcarCotizacionEnviada()` es el único sitio que promueve a `enviada`, y solo desde
+  `sin_enviar` (`marcarEnviada.ts:32`): un reenvío de cortesía no devuelve a «Enviada» una
+  venta ya pagada. Las 39 filas con estado avanzado y `email_sent_at` en null son todas
+  anteriores al 28-ago-2026, o sea previas a la migración 0033; no hay ninguna nueva.
+- La autenticación de los dos endpoints públicos está bien: `timingSafeEqual`, secretos
+  distintos para WordPress y para el agente, y si la variable de entorno falta se deniega
+  en vez de dejar pasar (`api/wp/auth.ts:12-20`).
 
 ---
 
