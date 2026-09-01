@@ -164,7 +164,6 @@ export default function QuoteEditor({
     if (!catalogMatch) return;
     setTotalEur((catalogMatch.price_cs * people).toFixed(2));
     setCostEur((catalogMatch.price_pilgrim * people).toFixed(2));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalogMatch, people, autoLink]);
 
   // Solo ruta + suplemento: los opcionales no se editan acá, así que esta cifra es

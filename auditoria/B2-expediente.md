@@ -25,8 +25,9 @@
   `Estado: hecho` — el editor escribe siempre 16 columnas sin comparar nada: una pestaña vieja devuelve
   el estado, las notas y la validez a como estaban al abrirla. Cobrar y editar no chocan.
 - **B2.5 `QuoteEditor` y sus efectos.** El linter marca ocho `setState` dentro de efectos. Comprueba si alguno pisa lo que el usuario acaba de teclear o dispara recálculos de más.
-  `Estado: en curso` — listando los efectos de `QuoteEditor` y qué avisa el linter; el auto-fill ya lo
-  levantó B1, así que reviso el resto y por qué no se re-siembran los campos al cancelar.
+  `Estado: hecho` — hay **un** solo efecto (el que ya levantó B1), pero se redispara en cada
+  revalidación, no solo al montar; y «Cancelar» no descarta los nueve campos controlados, que son
+  los del dinero. Quitado un `eslint-disable` muerto.
 - **B2.6 La tabla de seguimiento.** Filtros, búsqueda y orden. Qué tal se porta con 500 cotizaciones (hoy hay 45). Qué falta ver de un vistazo para no tener que abrir cada una.
   `Estado: pendiente`
 - **B2.7 Nadie se cae del embudo.** Hoy nada avisa de una cotización enviada hace ocho días sin respuesta ni de un saldo que vence. Di qué costaría lo mínimo útil.
@@ -442,11 +443,98 @@ Lo comprobé porque era la pregunta directa de la tarea, y la respuesta es tranq
 
 El único choque real es el de arriba: dos escrituras sobre la **misma** fila `quotes`.
 
+### [MEDIO] «Cancelar» descarta la mitad del formulario y se queda con la otra mitad — justo la que mueve plata — `QuoteEditor.tsx:82,209,275`
+
+El botón Cancelar es `onClick={() => setEditing(false)}` (línea 275) y nada más. Lo que pasa
+después depende de dónde viva cada campo, y el formulario está partido en dos:
+
+- **Los no controlados** —Cliente, Teléfono, Email, Notas, Estado, Validez— usan
+  `defaultValue`. Como `if (!editing)` (línea 209) devuelve la vista de solo lectura, el
+  `<form>` se desmonta entero y esos campos **sí** vuelven a su valor guardado al reabrir.
+- **Los controlados** —`routeName`, `modality`, `people`, `startDate`, `endDate`,
+  `totalEur`, `costEur`, `rates` y `autoLink` (líneas 87-101)— viven en el `useState` del
+  **componente padre**, que no se desmonta nunca. Cancelar **no los toca**. No hay ningún
+  efecto ni ninguna función que los vuelva a sembrar desde `quote`.
+
+O sea: los seis campos inocentes se descartan y los nueve que deciden el precio, la fecha y
+el número de personas se quedan con lo que se tecleó.
+
+El caso, en CS-2026-077 (base guardada 585,00 €):
+
+1. Nico entra a **Editar**, teclea `900` en Base por error.
+2. Se da cuenta y pulsa **Cancelar**. La vista de solo lectura vuelve a decir 585,00 €
+   —porque `Field` lee de `quote` (línea 248 y siguientes)—, así que parece que se descartó.
+3. Más tarde entra a **Editar** otra vez para corregir un teléfono. El campo Base muestra
+   **900,00**, y ahí no hay nada que diga que ese número no es el guardado.
+4. Guardar → 900 €.
+
+Y el auto-fill tampoco lo salva: al teclear en Base, el `onChange` de la línea 406 pone
+`autoLink = false`, así que el efecto ya no volverá a corregirlo.
+
+**Propuesta:** que Cancelar re-siembre los nueve estados desde `quote` (una función
+`resetDesdeQuote()` llamada tanto en Cancelar como al entrar a Editar). Es contenido, no
+cálculo, pero toca los campos de dinero, así que lo dejo anotado en vez de tocarlo.
+
+### [MEDIO] El auto-fill no se dispara solo al montar: se vuelve a disparar en cada revalidación de la página — `QuoteEditor.tsx:162-166` · `seguimiento/[id]/page.tsx:288-296`
+
+B1 dejó levantado el GRAVE del auto-fill que pisa la base tecleada a mano y lo describió
+como algo que ocurre **al montar el componente**. Al mirar las dependencias, ocurre más
+veces que eso, y conviene que quede dicho porque cambia cuándo hay que temerle.
+
+La cadena:
+
+- `page.tsx:288-296` construye `pricingFlat` con un `.map()` **en cada render del servidor**:
+  array nuevo, objetos nuevos.
+- `yearRates = useMemo(..., [pricing, tarifaYear])` (línea 120) depende de esa referencia →
+  se recalcula.
+- `catalogMatch = useMemo(() => yearRates.find(...), [routeName, modality, yearRates])`
+  (línea 124-129) devuelve **uno de esos objetos nuevos** → identidad nueva.
+- El efecto tiene `[catalogMatch, people, autoLink]` (línea 168) → **se vuelve a disparar**.
+
+Cualquier cosa que llame a `revalidatePath("/seguimiento/[id]")` re-renderiza el servidor y
+vuelve a lanzar el auto-fill. Y eso lo hacen, entre otras, `toggleQuoteOptional`,
+`updateQuoteLineQuantity`, `addClientPayment` y las acciones de bicis
+(`actions.ts:122,131,156`). Marcar un opcional con el formulario de edición abierto vuelve a
+sembrar Base y Costo con el catálogo, **mientras se está editando**, siempre que `autoLink`
+siga en `true` (que es su valor inicial, línea 99: solo baja a `false` si ya se tecleó en
+uno de esos dos campos en esta sesión).
+
+No lo cuento como hallazgo nuevo —el daño y la propuesta son los de B1—, pero sí como
+corrección del alcance: no es «al entrar al expediente», es «al entrar y cada vez que algo
+revalide la página».
+
+### Lo que sí está bien: solo hay un efecto, y el resto del componente no usa ninguno
+
+Los «ocho `setState` en efectos» que menciona la tarea no están todos aquí. Pasado el linter
+sobre el archivo:
+
+```
+QuoteEditor.tsx
+  165:5  error    react-hooks/set-state-in-effect
+  167:5  warning  Unused eslint-disable directive
+```
+
+**Un solo error y un solo aviso.** Los otros siete que veía el linter son de `Wizard.tsx`, y
+ya los revisó B1. En `QuoteEditor` hay exactamente **un `useEffect`** (línea 162), el del
+auto-fill, y es el que B1 levantó.
+
+El resto del componente está resuelto sin efectos y bien: `season`, `yearRates`,
+`catalogMatch`, `rateSlots` y `utilidadPreview` son `useMemo` derivados —cálculo, no estado
+duplicado—, y las nueve piezas de estado se mueven solo desde `onChange`. No hay ningún
+otro sitio donde un efecto pise lo tecleado ni dispare recálculos de más.
+
 ---
 
 ## Arreglos aplicados
 
-_(Solo lo pequeño y reversible. Un commit por arreglo.)_
+### Un `eslint-disable` muerto tapaba el aviso de al lado — `QuoteEditor.tsx:167`
+
+La línea `// eslint-disable-next-line react-hooks/exhaustive-deps` estaba mal colocada y no
+silenciaba nada: el propio linter la marcaba como *«Unused eslint-disable directive (no
+problems were reported)»*. Quitada. Después de quitarla el archivo sigue con **el mismo y
+único error** —el `set-state-in-effect` de la línea 165, que es el GRAVE de B1 y no se toca
+porque es dinero— y **cero avisos**. Un aviso menos de ruido en un archivo donde el que
+queda importa.
 
 ---
 
