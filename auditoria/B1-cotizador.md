@@ -589,9 +589,240 @@ el aviso informa, no bloquea. `npx tsc --noEmit` limpio.
 
 ## Crítica del experto
 
-`Estado: en curso` — verificando en código y en la base los dos GRAVE (fórmula de
-`QuoteEditor.tsx` y el medio recálculo con reparto mixto), luego huecos, prioridades y
-hallazgos inflados contra `CRITERIOS.md`.
+`Estado: hecho` — los dos GRAVE se sostienen (el primero es más ancho de lo que dice y su
+caso testigo está cancelado); faltan dos hallazgos del mismo peso —`rooms_json` congelado
+al editar, que alimenta el contrato y el pedido a Pilgrim, y la moneda— y hay tres
+afirmaciones que corregir. **VEREDICTO: revisar.**
+
+Todo lo que sigue está comprobado contra el código y contra la base de producción
+(`comercial`, solo SELECT). Donde corrijo al auditor, digo con qué.
+
+### 1. Los dos GRAVE son ciertos — y el primero es peor de lo que dice
+
+**Confirmado en código.** `QuoteEditor.tsx:154-168` calcula `catalogMatch.price_cs * people`
+en las dos rutas (botón y auto-fill), mientras `tarifar.ts:126` hace
+`enDoble * tarifaDoble + individuales * tarifaSingle`. `modalityToSlug()` (línea 68)
+devuelve `null` para la etiqueta mixta, y `updateQuote` (`[id]/actions.ts:58-65`) escribe
+`people`, `season_supplement_eur`, `season_kind` y `price_blocks` con `base_eur` vieja.
+Las dos mecánicas son exactamente como se describen.
+
+**Comprobado en la base.** Tarifas 2026 de Francés desde Sarria: `pension_doble` 505,
+`pension_single` 682. CS-2026-014: 5 personas, «Pensión doble», `base_eur = 2525.00` =
+505 × 5; el reparto correcto son 2702 €. La aritmética del hallazgo cuadra.
+
+**Tres correcciones, todas en contra del informe salvo la última:**
+
+a) **El caso testigo es una cotización `cancelada`.** CS-2026-014 está en estado
+   `cancelada` desde antes de la auditoría. Los 177 € nunca se dejaron de cobrar. Y es la
+   **única** fila de toda la base con grupo impar y etiqueta de doble: barrí las 45
+   cotizaciones cruzando `people % 2 = 1` contra `pricing` del año de salida y las otras
+   16 son grupos de 1 persona en individual, todas con la base correcta. Escribir «**177 €
+   menos cobrados**» en negrita sobre una cotización cancelada infla la evidencia. El
+   hallazgo sigue siendo GRAVE —el código va a morder al primer grupo de 3 o 5 que se
+   edite— pero hay que decir que hoy no ha mordido, igual que el propio informe tuvo el
+   cuidado de decirlo en el hallazgo del `client_id` nulo y en el de las rutas duplicadas.
+
+b) **El daño real del auto-fill no es el grupo impar: es que pisa cualquier precio
+   tecleado a mano, y eso sí está pasando hoy.** El efecto de `QuoteEditor.tsx:161-167`
+   arranca con `autoLink = true` y los hooks corren **antes** del `if (!editing)`, así que
+   se dispara al montar el componente, que `page.tsx:424` monta siempre — no hace falta ni
+   pulsar «Editar». Si la etiqueta resuelve a un slug con tarifa en catálogo, el campo
+   Base queda cargado con el catálogo y la base guardada se pierde en el primer Guardar.
+   Dos casos vivos, los dos `enviada`:
+   - **CS-2026-077**: `base_eur = 585.00`, catálogo `pension_single` 2026 = **625**.
+   - **CS-2026-060**: `base_eur = 800.00`, catálogo `pension_single` 2027 = **790**.
+
+   Son precios negociados o corregidos a mano. Cualquiera de las dos, abierta y guardada
+   para tocar un teléfono, revierte al catálogo sin avisar. Y esto choca de frente con la
+   regla que la propia plataforma tiene escrita en `editQuote.ts:20-23`: «cuando el año
+   todavía no tiene tarifa, Nico teclea la cifra a mano en el CRM, y **corregir un correo
+   no puede borrarle ese número**». La pantalla que más usa Nico viola la regla que el
+   camino de BayMax respeta.
+
+c) **La propuesta se queda corta, y el arreglo ya está escrito.** El informe propone «que
+   el editor llame a la misma `tarifarRuta()`» y, para el mixto, «o entiende la etiqueta o
+   bloquea el guardado». No hace falta inventar ninguna de las dos: `editQuote.ts`
+   (`actualizarCotizacion`, el camino de BayMax) ya resuelve **exactamente** este problema
+   —`modalidadGuardada()` en la línea 53 saca tipo y reparto de `rooms_json`, «el dato duro
+   que sobrevive a cualquier etiqueta mixta»—, ya retarifa solo cuando cambia algo que
+   mueve el precio, ya se niega a guardar si el año no tiene tarifa, y ya regenera el PDF.
+   El hallazgo de verdad, que el informe no nombra, es que **hay dos editores de
+   cotización que no se comportan igual**: la misma cotización editada por BayMax y editada
+   por la pantalla da resultados distintos. Eso es «un dato, un sitio» roto en el sitio más
+   caro, y convierte el arreglo en «la pantalla llama a `actualizarCotizacion()`» en vez de
+   en un rediseño.
+
+### 2. Lo que el informe afirma y no sostiene
+
+- **«CS-2026-065 … su `base_eur` se modificó el 1-sep-2026 a las 21:25»** — no se puede
+  saber eso. Lo único que hay es `updated_at`, que dice que la fila cambió, no qué columna.
+  El hallazgo cuya tesis es «no hay bitácora» usa como prueba una bitácora que no existe.
+  La observación **es correcta y el hallazgo se sostiene** (no hay `quote_history`, el PDF
+  se sobrescribe), pero hay que escribirla como lo que es: «la fila cambió y no hay forma
+  de saber qué campo ni quién».
+- **Y la aritmética de esa fila apunta a otra cosa que el informe no persiguió.**
+  CS-2026-065 tiene hoy `base_eur = 2780.00`, que es exactamente `2460 + 320`, o sea la
+  base de su gemela CS-2026-064 **más el suplemento de temporada**. No es el catálogo:
+  `hotel_doble` 2027 son 715 €, y 715 × 4 = 2860. El único camino del código que produce
+  ese número es `QuoteEditor.tsx:90` — `initialBase = quote.base_eur ?? quote.total_eur` —,
+  que siembra el campo Base con el **total** (base + suplemento + opcionales) cuando la
+  base viene nula, y al guardar el RPC vuelve a sumarle el suplemento. Hoy no hay ninguna
+  fila con `base_eur` nula, así que es un camino latente y no lo puedo probar; pero es
+  latente **y** produce el único número inexplicado de la base. Merece una línea.
+- **«las dos quedaron con precios distintos (2460 € y 2780 €)»** en el hallazgo del
+  duplicado: eso no es cierto en el momento del duplicado. Las dos nacieron iguales
+  (615 × 4 = 2460 de base, 2780 de total); la diferencia es posterior, del cambio del
+  1-sep. El duplicado se sostiene solo (mismo cliente, misma ruta, 19 s), pero atribuirle
+  una diferencia de precio que no causó es sumar un cargo que no le toca.
+- **Los conteos bailan.** «las 38 cotizaciones de la base», «de las 38 … coincide en las
+  38» conviven con «de las 45 cotizaciones de producción». Son 45. El cuadre sí se
+  sostiene —lo repetí sobre las 45 y `total_eur = base + suplemento + líneas` da 0
+  descuadres, y el único descuadre de `cost_eur` es CS-2026-058, tal cual dice el
+  informe—, pero un lector que ve «38» piensa que quedaron 7 sin mirar.
+
+Lo demás lo verifiqué y está bien: 39 `enviada`, 16 de ellas vencidas, 11 `client_id`
+nulos, 2 sin PDF, `descuadre_total = 0`, `descuadre_costo = 1`. El apartado «Lo que sí está
+bien» no es relleno: cada afirmación que revisé (suplemento una sola vez, sin redondeos,
+año exacto, temporadas que no se suman, `quote_lines.total` generada) aguanta.
+
+### 3. El hueco caro que no se miró: `rooms_json` se queda viejo, y de ahí salen el contrato y el pedido a Pilgrim
+
+Este es el que me hace pedir revisión. El informe mira `rooms_json` una sola vez, como una
+casilla «sí/no» en la tabla de los cuatro caminos de alta, y nunca pregunta **quién lo lee
+después**. Lo leen tres sitios, todos aguas abajo del dinero:
+
+- `src/lib/quotes/pilgrimEmail.ts:122` — arma la línea `Habitaciones: N dobles + N
+  individuales` **del correo con el que se le pide el cupo a Pilgrim**.
+- `src/lib/contracts/render.ts:76` — la acomodación que aparece en el **contrato que firma
+  el cliente**.
+- `src/lib/quotes/pdf.ts:199` — las tarjetas de precio del PDF en reparto mixto.
+
+Y `updateQuote` (`[id]/actions.ts:52-70`) **no lo toca nunca**. Cambiar personas, ruta,
+fecha o modalidad desde la pantalla deja el reparto congelado para siempre. `editQuote.ts:212`
+sí lo reescribe (`patch.rooms_json = t.roomsJson`): otra vez, los dos editores en desacuerdo.
+
+No es teórico. **CS-2026-080**, estado `enviada`, editada el 1-sep-2026:
+
+| | valor en la base |
+|---|---|
+| `people` | 14 |
+| `rooms_json` | `{dobles: 8, individuales: 0, tarifa_doble: 575}` |
+| camas que declara | **16** |
+| `base_eur` | 8750 = 625 × 14 (el catálogo de hoy, no los 575 de `rooms_json`) |
+
+Se creó con 16 personas y se bajó a 14 desde la pantalla. Si esa cotización pasa a
+contrato y a pedido, **le pedimos a Pilgrim 8 dobles para 14 personas** —una habitación de
+más, del orden de una plaza y media de coste— y el contrato que firma el cliente dice «8
+habitación(es) doble(s)». Es la única fila de la base con `rooms_json` incoherente, o sea
+que la tasa de aparición es «una de cada dos cotizaciones editadas con cambio de personas».
+Completa la frase de CRITERIOS sin esfuerzo: se pierde dinero con el proveedor y se pierde
+la confianza de alguien que ya firmó. Yo esto lo pongo **GRAVE**, y es del mismo párrafo de
+código que los dos GRAVE que sí se reportaron: el auditor leyó `updateQuote` entero y no se
+preguntó qué campos faltaban en el `patch`.
+
+De paso, esto le da peso al «`rooms_json`: **no**» de `/cotizar` que la tabla despacha sin
+comentario: toda cotización nacida en `/cotizar` llega al contrato y al pedido de Pilgrim
+**sin línea de habitaciones**, y encima con la etiqueta «Pensión doble» para un grupo impar.
+No es una casilla de una tabla comparativa; es el pedido al proveedor.
+
+### 4. El otro hueco: la plataforma cobra en pesos y la auditoría no menciona el peso ni una vez
+
+CRITERIOS §4 pide los números «en dos monedas, con la tasa del día del movimiento y no la
+de hoy», y `app/cotizar/**` es alcance explícito de B1. El informe no dice una palabra de
+la moneda. Lo que hay:
+
+- `src/app/cotizar/page.tsx:24` lee `getTRMHoy()` y `PublicQuoter.tsx:93` pinta
+  `totalCop = total × trmEurCop` — la única cifra que un cliente colombiano de verdad lee.
+- **`comercial.trm_history` está vacía.** Cero filas. Con la tabla vacía, `getTRMHoy()`
+  solo devuelve algo si las dos APIs externas responden en esa petición; si fallan, el
+  `catch {}` de `trm.ts:31` se las traga, devuelve `null` y **la pantalla simplemente no
+  pinta pesos**, sin un solo aviso. Que la tabla lleve vacía toda la vida del proyecto es
+  la prueba de que ese camino no ha escrito nunca. Aguas abajo, `contracts/render.ts:119-120`
+  imprime `valor_total_cop: "—"` y `trm: "—"` en el contrato.
+- El COP que se le muestra al visitante **no se guarda en la cotización**. La `valid_until`
+  le promete 30 días; el precio en euros aguanta, el número en pesos que él capturó en
+  pantalla no, y no queda registro de cuál fue. Para una agencia que vende en pesos lo que
+  paga en euros, esa es la fuga de margen clásica del oficio.
+
+No pido resolver la política de tasa aquí —eso es decisión de Nico y toca B3/B6—, pero un
+auditor de un cotizador de agencia no puede cerrar el bloque sin decir que la única moneda
+que entiende el cliente hoy no se pinta y no se archiva.
+
+### 5. Prioridad: dos cambios y una advertencia
+
+- **Sube a GRAVE:** `rooms_json` congelado en `updateQuote` (§3). Toca proveedor y
+  documento firmado.
+- **Baja a MENOR la mitad del hallazgo de la fecha imposible:** el 500 en
+  `/api/wp/quote` con `2026-13-45` no le cuesta a nadie dinero, ni un cliente, ni una hora
+  —lo dispara un integrador con el secreto, revienta antes de tocar la base y se ve en el
+  log—. Lo que sí es MEDIO, y es lo que hay que dejar en primer plano, es **`2026-02-31`
+  que se desliza a 9 de marzo y cotiza en silencio una fecha distinta de la que pidió el
+  cliente**. Mismo arreglo de tres líneas, pero el titular está puesto en la mitad menos
+  grave.
+- **Advertencia de orden, no de etiqueta:** «la cotización enviada que nadie contesta»
+  está bien clasificada como MEDIO según la letra del TABLERO (no es dinero perdido por un
+  bug), pero **por plata esperada es el primer hallazgo del bloque**: 16 de 39 vencidas y
+  quietas, 3 aceptadas en total, y la infraestructura ya montada. Cuando esto llegue a
+  `SINTESIS.md`, que no quede sepultado entre los MEDIO por orden alfabético de gravedad.
+  Y su primera mitad —pintar `valid_until` en la lista de `/seguimiento`, que ya se
+  consulta y se tira— es una columna: es el mejor retorno por línea de todo el bloque.
+
+### 6. Lo que sobra, y lo que está bien calibrado
+
+Poco sobra, la verdad. Dos matices y nada más:
+
+- **«El único camino que no genera el PDF es el del CRM»** (MENOR) es correcto pero puede
+  ser deliberado: el asistente redirige al expediente y Nico revisa antes de mandar nada.
+  Antes de «arreglarlo» conviene preguntar, no vaya a ser que se le empiece a generar PDF
+  a cotizaciones internas que nunca salen.
+- **Los 7 avisos de `setState` en efecto**: el propio hallazgo concluye que seis son ruido.
+  Es honesto, y la observación de que con 8 errores en pie `npm run lint` no sirve de
+  puerta vale más que el hallazgo. Pero es un hallazgo que se anula a sí mismo; en la
+  síntesis cabe como una línea de la sección de herramientas, no como entrada propia.
+
+Y el crédito donde toca: los apartados «Lo que sí está bien» son lo mejor del informe.
+Están verificados uno por uno contra el código y contra filas reales, no asumidos, y
+distinguen bien las decisiones deliberadas (el fallback de año de `/cotizar`, la modalidad
+única del cotizador público) de los descuidos. La tabla de los cuatro caminos y el
+diagnóstico de `next_quote_code()` con su candado de fila son trabajo de oficio. Y los tres
+arreglos aplicados son exactamente lo que el contrato pide: pequeños, reversibles y sobre
+mensajes que mentían.
+
+VEREDICTO: revisar
+
+Falta esto, y es concreto:
+
+1. **Hallazgo nuevo, GRAVE:** `updateQuote` no reescribe `rooms_json`, y de ahí salen la
+   línea «Habitaciones» del correo a Pilgrim (`pilgrimEmail.ts:122`), la acomodación del
+   contrato firmado (`contracts/render.ts:76`) y las tarjetas del PDF mixto
+   (`pdf.ts:199`). Caso vivo: CS-2026-080, 14 personas con `rooms_json` de 8 dobles (16
+   camas), estado `enviada`. Documentar el efecto sobre el pedido al proveedor y sobre el
+   contrato, y anotar que `/cotizar` ni siquiera lo escribe al crear.
+2. **Ampliar el GRAVE de `QuoteEditor`** con lo que hoy no dice: el auto-fill corre al
+   **montar** la página del expediente (`page.tsx:424` monta el editor siempre; los hooks
+   van antes del `if (!editing)`), y por tanto **pisa cualquier base tecleada a mano**, no
+   solo la de los grupos impares. Casos vivos y `enviada`: CS-2026-077 (585 € contra 625 €
+   de catálogo) y CS-2026-060 (800 € contra 790 €). Y decir explícitamente que esto
+   contradice la regla escrita en `editQuote.ts:20-23`.
+3. **Corregir la evidencia de CS-2026-014**: está `cancelada`; los 177 € no se perdieron.
+   Es la única fila de la base con ese patrón. El hallazgo sigue GRAVE por el código, pero
+   la frase en negrita tiene que decir la verdad.
+4. **Nombrar el hallazgo de fondo que atraviesa los dos GRAVE:** hay **dos editores de
+   cotización** —`QuoteEditor.tsx` + `[id]/actions.ts` y `editQuote.ts`— con reglas
+   distintas de retarifado, de etiqueta mixta y de `rooms_json`, y el segundo ya hace bien
+   las tres cosas. La propuesta pasa de «replicar el reparto» a «la pantalla llama a
+   `actualizarCotizacion()`», que es reuso, no obra nueva.
+5. **Añadir la moneda al bloque:** `comercial.trm_history` está vacía, `getTRMHoy()` se
+   traga el fallo en un `catch {}` y el COP no se pinta en `/cotizar` ni se archiva en la
+   cotización que se le promete al cliente por 30 días. Aunque el arreglo viva en otro
+   bloque, la omisión es de B1 (§4 de CRITERIOS, y `app/cotizar/**` es alcance de B1).
+6. **Arreglar tres afirmaciones**: (a) «`base_eur` se modificó» en CS-2026-065 → «la fila
+   cambió y no hay forma de saber qué campo ni quién», y añadir que `2780 = 2460 + 320`
+   apunta al `initialBase = base ?? total` de `QuoteEditor.tsx:90` como sospechoso latente;
+   (b) quitar del hallazgo del duplicado que las gemelas «quedaron con precios distintos»
+   —nacieron iguales—; (c) cuadrar los conteos: son **45** cotizaciones, no 38.
+7. **Reetiquetar** el hallazgo de la fecha imposible para que el titular sea `2026-02-31 →
+   9 de marzo` (MEDIO) y el 500 quede como el detalle MENOR que es.
 
 ---
 
