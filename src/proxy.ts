@@ -11,7 +11,13 @@ import { createServerClient } from "@supabase/ssr";
 // /api/agente son los endpoints con los que BayMax cotiza: secreto propio
 // (x-cs-api-key vs AGENTE_API_SECRET). Sin esto el proxy los manda a /login con
 // un 307 y el agente recibe una página de sesión en vez de su JSON.
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato", "/api/cron", "/api/agente"];
+// /documentacion es la documentación de viaje del peregrino: autentica por el token
+// único de la URL (ver src/app/documentacion/[token]). Es el enlace que va en el correo
+// y que el cliente abre durante el viaje; sin esto lo mandaría a iniciar sesión en el CRM.
+const PUBLIC_PATHS = [
+  "/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato",
+  "/api/cron", "/api/agente", "/documentacion",
+];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

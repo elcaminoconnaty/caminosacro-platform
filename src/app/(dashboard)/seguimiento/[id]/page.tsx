@@ -15,7 +15,7 @@ import EmailPreviewCard from "./EmailPreviewCard";
 import OptionalsCard, { type OptionalCatalog, type OptionalLine } from "./OptionalsCard";
 import BikesCard, { type BikeLine } from "./BikesCard";
 import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice } from "@/lib/bikes/catalog";
-import HotelsCard, { type InitialHotel } from "./HotelsCard";
+import TravelDocCard, { type NocheInicial, type HotelOpcion, type TravelDocEstado } from "./TravelDocCard";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
@@ -126,7 +126,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     { data: optsCatalog },
     { data: quoteLines },
     { data: seasonSetting },
-    { data: hotelsData },
+    { data: nightsData },
+    { data: travelDoc },
+    { data: hotelOptions },
     { data: contractRows },
     { data: travelers },
     { data: bikeRows },
@@ -158,11 +160,19 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .eq("quote_id", id)
       .in("type", ["optional", "bike"]),
     supabase.from("settings").select("value").eq("key", "season_supplements").maybeSingle(),
+    // Las noches del viaje. El hotel NO se lee acá: la tarjeta solo guarda a cuál apunta
+    // cada noche, y el documento resuelve la ficha contra comercial.hotels al generarse.
     supabase
       .from("quote_hotels")
-      .select("night_date,city,hotel_name,address,contact,notes,position")
+      .select("day,night_date,stage_label,km,city,hotel_id,room_label,regimen,notes,position")
       .eq("quote_id", id)
       .order("position"),
+    supabase
+      .from("travel_docs")
+      .select("token,doc_pdf_path,doc_generated_at,insurance_pdf_path,luggage_tag_pdf_path,sent_at,revoked_at,services")
+      .eq("quote_id", id)
+      .maybeSingle(),
+    supabase.from("hotels").select("id,name,city").eq("active", true).order("city").order("name"),
     // Una cotización puede tener N contratos, uno por viajero.
     supabase.from("contracts").select("*").eq("quote_id", id),
     supabase
@@ -199,6 +209,36 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const pilgrimMail = pilgrimArmado.ok
     ? pilgrimArmado.correo
     : { subject: "", body: "", adjuntos: [], pendientes: [], total: 0 };
+
+  // Estado del expediente de documentación. Todavía puede no existir: se crea al generar
+  // el documento, al subir el seguro o al activar el enlace, lo que pase primero.
+  const doc = travelDoc as {
+    token: string | null; doc_pdf_path: string | null; doc_generated_at: string | null;
+    insurance_pdf_path: string | null; luggage_tag_pdf_path: string | null;
+    sent_at: string | null; revoked_at: string | null; services: string[] | null;
+  } | null;
+  const estadoDocumentacion: TravelDocEstado = {
+    token: doc?.token ?? null,
+    docPath: doc?.doc_pdf_path ?? null,
+    docGeneratedAt: doc?.doc_generated_at ?? null,
+    insurancePath: doc?.insurance_pdf_path ?? null,
+    luggageTagPath: doc?.luggage_tag_pdf_path ?? null,
+    sentAt: doc?.sent_at ?? null,
+    revokedAt: doc?.revoked_at ?? null,
+    services: Array.isArray(doc?.services) ? (doc!.services as string[]) : [],
+  };
+
+  // El enlace del cliente sale con APP_BASE_URL, la misma base que usa el de firma del
+  // contrato: en local, sin ella, se copiaría un localhost que no le sirve a nadie.
+  const appBaseUrl = (process.env.APP_BASE_URL || "").replace(/\/$/, "")
+    || "https://caminosacro-platform-production.up.railway.app";
+
+  // La Asistencia en Viaje es genérica y se genera desde Configuración: la tarjeta avisa
+  // si todavía no existe, porque sin ella el correo sale con un botón de descarga muerto.
+  const { data: asistenciaFiles } = await supabase.storage
+    .from("comercial-docs")
+    .list("generico", { search: "Asistencia-en-Viaje-Camino-Sacro.pdf" });
+  const asistenciaLista = (asistenciaFiles || []).length > 0;
 
   const cobrado = (cps || []).reduce((s, p) => {
     const v = p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0);
@@ -413,11 +453,17 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       />
 
       {isFullyPaid(quote.status) && (
-        <HotelsCard
+        <TravelDocCard
           quoteId={id}
-          initialHotels={((hotelsData as unknown) as InitialHotel[]) || []}
-          pdfPath={quote.hotels_pdf_path ?? null}
-          pdfFilename={basename(quote.hotels_pdf_path ?? null)}
+          quoteCode={quote.code}
+          clientName={quote.client_name ?? null}
+          clientEmail={quote.client_email ?? ""}
+          routeName={quote.route_name ?? null}
+          hotels={((hotelOptions as unknown) as HotelOpcion[]) || []}
+          initialNights={((nightsData as unknown) as NocheInicial[]) || []}
+          estado={estadoDocumentacion}
+          baseUrl={appBaseUrl}
+          asistenciaLista={asistenciaLista}
         />
       )}
 

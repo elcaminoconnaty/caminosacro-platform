@@ -5,7 +5,7 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
-import { rutaCotizacion, rutaHoteles, rutaRecibo, sinBucket } from "@/lib/storage/paths";
+import { rutaCotizacion, rutaRecibo, sinBucket } from "@/lib/storage/paths";
 import { alternarOpcional, cambiarCantidadOpcional } from "@/lib/quotes/optionals";
 import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
 import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
@@ -412,147 +412,13 @@ export async function enviarCorreoPilgrim(
   return r;
 }
 
-// ---------------- LISTADO DE HOTELES ----------------
-
-export type HotelInput = {
-  night_date: string | null;
-  city: string | null;
-  hotel_name: string | null;
-  address: string | null;
-  contact: string | null;
-  notes: string | null;
-};
-
-function addDays(isoDate: string, days: number): string {
-  const d = new Date(isoDate + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-// Reemplaza por completo el listado de hoteles de una cotización.
-export async function saveQuoteHotels(quoteId: string, rows: HotelInput[]) {
-  const supabase = await createCommercialClient();
-  const { error: delErr } = await supabase.from("quote_hotels").delete().eq("quote_id", quoteId);
-  if (delErr) return { error: mensajeError(delErr) };
-  const clean = rows.filter((r) => r.city || r.hotel_name || r.address || r.contact || r.notes || r.night_date);
-  if (clean.length > 0) {
-    const payload = clean.map((r, i) => ({
-      quote_id: quoteId,
-      position: i,
-      night_date: r.night_date || null,
-      city: r.city || null,
-      hotel_name: r.hotel_name || null,
-      address: r.address || null,
-      contact: r.contact || null,
-      notes: r.notes || null,
-    }));
-    const { error: insErr } = await supabase.from("quote_hotels").insert(payload);
-    if (insErr) return { error: mensajeError(insErr) };
-  }
-  revalidatePath(`/seguimiento/${quoteId}`);
-  return { ok: true };
-}
-
-// Sugiere filas a partir del itinerario de la ruta (no guarda; el usuario las edita y guarda).
-export async function prefillHotelsFromItinerary(quoteId: string): Promise<{ rows?: HotelInput[]; error?: string }> {
-  const supabase = await createCommercialClient();
-  const { data: quote } = await supabase
-    .from("quotes")
-    .select("route_name,start_date")
-    .eq("id", quoteId)
-    .maybeSingle();
-  if (!quote?.route_name) return { error: "La cotización no tiene ruta asignada." };
-
-  const { data: r } = await supabase.from("routes").select("id").eq("name", quote.route_name).maybeSingle();
-  if (!r) return { error: "No se encontró la ruta en el catálogo." };
-
-  const { data: st } = await supabase
-    .from("route_stages")
-    .select("day,to_place,accommodation")
-    .eq("route_id", r.id)
-    .order("day");
-
-  const stages = (st || []) as Array<{ day: number; to_place: string | null; accommodation: string | null }>;
-  // Una noche por cada etapa con alojamiento (excluye "Fin de servicios").
-  const nights = stages.filter((s) => s.accommodation);
-  const rows: HotelInput[] = nights.map((s, i) => ({
-    night_date: quote.start_date ? addDays(quote.start_date, i) : null,
-    city: s.accommodation,
-    hotel_name: null,
-    address: null,
-    contact: null,
-    notes: null,
-  }));
-  return { rows };
-}
-
-export async function generateHotelsPdf(quoteId: string) {
-  const supabase = await createCommercialClient();
-  const [{ data: quote }, { data: hotelsRaw }] = await Promise.all([
-    supabase
-      .from("quotes")
-      .select("code,client_name,route_name,start_date,end_date,people,status,hotels_pdf_path")
-      .eq("id", quoteId)
-      .maybeSingle(),
-    supabase
-      .from("quote_hotels")
-      .select("night_date,city,hotel_name,address,contact,notes,position")
-      .eq("quote_id", quoteId)
-      .order("position"),
-  ]);
-  if (!quote) return { error: "Cotización no encontrada" };
-
-  const hotels = ((hotelsRaw || []) as Array<HotelInput & { position: number }>).map((h) => ({
-    night_date: h.night_date,
-    city: h.city,
-    hotel_name: h.hotel_name,
-    address: h.address,
-    contact: h.contact,
-    notes: h.notes,
-  }));
-
-  const React = await import("react");
-  const { renderToBuffer } = await import("@react-pdf/renderer");
-  const { HotelsPDF } = await import("@/lib/hotelsPdf");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const element = React.createElement(HotelsPDF as any, {
-    quote: {
-      code: quote.code,
-      client_name: quote.client_name,
-      route_name: quote.route_name,
-      start_date: quote.start_date,
-      end_date: quote.end_date,
-      people: quote.people,
-    },
-    hotels,
-  });
-
-  let buffer: Buffer;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    buffer = await renderToBuffer(element as any);
-  } catch (e) {
-    console.error("[generateHotelsPdf] render falló:", e);
-    return { error: mensajeError(e as Error, "No se pudo generar el PDF de hoteles.") };
-  }
-
-  const pdfPath = rutaHoteles(quote.code, quote.client_name, quote.route_name);
-
-  if (quote.hotels_pdf_path && quote.hotels_pdf_path !== pdfPath) {
-    await removeStoragePath(supabase, quote.hotels_pdf_path);
-  }
-
-  const { error: upErr } = await supabase.storage
-    .from("comercial-hotels")
-    .upload(sinBucket(pdfPath), buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
-  if (upErr) return { error: mensajeError(upErr) };
-
-  const { error: dbErr } = await supabase.from("quotes").update({ hotels_pdf_path: pdfPath }).eq("id", quoteId);
-  if (dbErr) return { error: mensajeError(dbErr) };
-
-  revalidatePath(`/seguimiento/${quoteId}`);
-  return { ok: true };
-}
+// El listado de hoteles vivía acá: una tabla de texto libre por cotización y un PDF con
+// solo esa tabla. Lo reemplazó la documentación de viaje (migración 0030), que arma el
+// documento completo leyendo el hotel del catálogo comercial.hotels. Ver
+// ./travelDocActions.ts y @/lib/travelDocs/render.ts.
+//
+// `quotes.hotels_pdf_path` y el bucket comercial-hotels se conservan sin escribirse: los
+// PDF ya generados siguen ahí y el borrado de una cotización sigue limpiándolos.
 
 export async function uploadQuotePdf(quoteId: string, formData: FormData) {
   const supabase = await createCommercialClient();

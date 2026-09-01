@@ -19,6 +19,14 @@ export type CorreoPayload = {
   // Si van en null, el workflow arma su propio asunto/cuerpo por defecto.
   subject: string | null;
   body: string | null;
+  // Cuerpo maquetado en HTML (el correo de documentación de viaje). `body` viaja igual
+  // como versión en texto plano, que es lo que ve quien tenga el HTML desactivado.
+  //
+  // OJO: el nodo "Validar y Preparar" del workflow tiene que copiarlo a
+  // brevoBody.htmlContent. Mientras ese parche no esté aplicado el correo sale en texto
+  // plano — feo, pero con los enlaces completos y sin romper nada.
+  // Ver scripts/n8n_correo_html.md.
+  html?: string;
   // Nombre del archivo adjunto (para que diga "Contrato-..." y no "Cotizacion-...").
   attachment_name?: string;
   // Varios adjuntos (el correo a Pilgrim lleva un pasaporte por viajero). Si viene,

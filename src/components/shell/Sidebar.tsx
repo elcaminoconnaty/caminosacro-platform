@@ -2,18 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  MessageCircle,
-  UserRound,
-  FileText,
-  ListChecks,
-  CalendarDays,
-  BookOpen,
-  Images,
-  Wallet,
-  Coins,
-  Settings,
-} from "lucide-react";
+import { BedDouble, BookOpen, CalendarDays, Coins, FileText, Images, ListChecks, MessageCircle, Settings, UserRound, Wallet } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type NavItem = {
@@ -31,6 +20,7 @@ const NAV: NavItem[] = [
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
   { href: "/finanzas", label: "Finanzas", icon: Wallet },
   { href: "/catalogo", label: "Catálogo", icon: BookOpen },
+  { href: "/hoteles", label: "Hoteles", icon: BedDouble },
   { href: "/contenido", label: "Contenido", icon: Images },
   { href: "/tokens", label: "Tokens & Costo", icon: Coins },
   { href: "/configuracion", label: "Configuración", icon: Settings },

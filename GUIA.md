@@ -34,8 +34,11 @@ app/
 │   │   ├── seguimiento/          ← lista de cotizaciones
 │   │   │   └── [id]/             ← vista detalle (editar, pagos, opcionales, PDF)
 │   │   ├── catalogo/             ← editor de precios + etapas + cartas bienvenida
+│   │   ├── hoteles/              ← catálogo de alojamientos con fotos (doc. de viaje)
 │   │   ├── tokens/               ← consumo de tokens IA y costo USD
-│   │   └── configuracion/        ← (placeholder) plantillas email, suplementos
+│   │   └── configuracion/        ← firma, Pilgrim, textos de la documentación de viaje
+│   ├── contrato/[token]/         ← firma pública del contrato (sin sesión)
+│   ├── documentacion/[token]/    ← documentación de viaje del peregrino (sin sesión)
 │   ├── login/                    ← magic link sign in
 │   └── auth/                     ← callback OAuth y signout
 ├── src/components/shell/         ← Sidebar y Topbar
@@ -45,7 +48,11 @@ app/
 │   ├── format.ts                 ← formateo de eur/cop/fechas
 │   ├── seasons.ts                ← detección temporada alta + Semana Santa
 │   ├── tokens.ts                 ← cálculo de costos por bot
+│   ├── pdfChrome.tsx             ← fuentes, paleta y cabecera/pie comunes de los PDF
 │   ├── quotePdf.tsx              ← generador PDF de cotización
+│   ├── travelDocPdf.tsx          ← generador del Documento de Viaje
+│   ├── asistenciaPdf.tsx         ← generador de la Asistencia en Viaje (genérica)
+│   ├── travelDocs/               ← datos, render y correo de la documentación de viaje
 │   └── cover.jpg                 ← foto de portada del PDF (NO borrar)
 ├── src/proxy.ts                  ← protección de rutas (era middleware en Next 15)
 ├── supabase/migrations/          ← migraciones SQL versionadas
@@ -53,6 +60,8 @@ app/
     ├── seed.ts                   ← seed inicial (catálogo, opcionales, PDFs Abril)
     ├── enrich.ts                 ← rellenar nombres/teléfonos desde xlsx
     ├── add_routes.ts             ← cargar rutas master con etapas
+    ├── docs_smoke.tsx            ← render de prueba de los PDF de documentación
+    ├── seed_hoteles_sarria_santiago.ts  ← alta de los alojamientos del Francés
     └── cleanup_orphans.ts        ← borrar archivos huérfanos de Storage
 ```
 
@@ -480,7 +489,11 @@ Así, todo lo de un cliente queda junto y navegable desde el explorador de Supab
 
 ```
 comercial-quotes/     2026/CS-2026-034/CS-2026-034_Amalia_Matallana_Frances.pdf
-comercial-hotels/     2026/CS-2026-034/CS-2026-034_hoteles_Amalia.pdf
+comercial-docs/       2026/CS-2026-034/Documento-Viaje-CS-2026-034_Amalia_....pdf
+comercial-docs/       2026/CS-2026-034/Seguro-Viaje-CS-2026-034.pdf
+comercial-docs/       2026/CS-2026-034/Etiqueta-Equipaje-CS-2026-034.pdf
+comercial-docs/       generico/Asistencia-en-Viaje-Camino-Sacro.pdf
+comercial-hotel-fotos/ siete-en-el-camino/1.jpg
 comercial-receipts/   2026/CS-2026-034/REC-CS-2026-034-1_Amalia.pdf
 comercial-contracts/  2026/CS-2026-034/Contrato-CS-2026-034.pdf  (+ -firmado)
 comercial-passports/  2026/CS-2026-034/Pasaporte-CS-2026-034-<ts>.jpg
@@ -489,6 +502,12 @@ comercial-welcome/    cartas-bienvenida/...
 fotos-instagram/      camino-sacro/2026/06/DDC_3232.jpg
 ```
 
+- `comercial-docs/generico/` es la única carpeta fuera del patrón año/código: la
+  Asistencia en Viaje es genérica y hay UNA sola, para que corregir un teléfono valga
+  también para los viajes ya enviados.
+- `comercial-hotel-fotos` (fotos del catálogo de hoteles) **no** es `comercial-hotels`.
+  Ese último es el bucket del PDF viejo de tabla de hoteles; ya no se escribe y se
+  conserva solo para no perder lo generado antes de la migración 0030.
 - **Quién decide la ruta**: `src/lib/storage/paths.ts`, único lugar. Si hay que
   cambiar la estructura, se cambia ahí y se recorre el script de abajo.
 - En la BD las rutas se guardan **con el bucket adelante** (`comercial-quotes/2026/...`).
@@ -543,6 +562,93 @@ git add .                         # stagear todo
 git commit -m "mensaje"           # commit
 git push                          # subir a GitHub
 git log --oneline -10             # últimos 10 commits
+```
+
+---
+
+## 12. Documentación de viaje
+
+Lo que recibe el peregrino cuando ya pagó: cuatro documentos y un enlace que no caduca.
+Vive en la tarjeta **Documentación de viaje** del expediente (`/seguimiento/[id]`), que
+solo aparece si la cotización está en `pago_completo` o `completada`.
+
+### Los cuatro documentos
+
+| Documento | De dónde sale |
+|---|---|
+| **Documento de viaje** | Lo genera la plataforma. Alojamientos noche a noche con fotos, servicios incluidos, condiciones y contacto. |
+| **Asistencia en viaje** | Lo genera la plataforma, **una sola vez para todos** (Configuración → Asistencia en Viaje). |
+| **Seguro de viaje** | Lo emite la aseguradora. Se sube con el botón «Cargar PDF». |
+| **Etiqueta de transporte de equipaje** | La emite el transportista. Se sube igual. |
+
+### La regla: un dato, un lugar
+
+| Dato | Vive en |
+|---|---|
+| Nombre, dirección, teléfono, email, fotos y observaciones **fijas** del hotel | `comercial.hotels` — el módulo **/hoteles** |
+| Qué hotel toca cada noche, fecha, etapa, km, habitación, régimen, observación **de esa noche** | `comercial.quote_hotels` |
+| Servicios, condiciones y contacto del documento | `comercial.settings`, clave `travel_doc` |
+| Textos y teléfonos de la asistencia | `comercial.settings`, clave `asistencia_viaje` |
+
+`quote_hotels.hotel_id` **manda siempre**. Las columnas de texto libre que quedan
+(`hotel_name`, `address`, `contact`) son archivo de lo generado antes de la migración
+0030: la tarjeta obliga a elegir del catálogo. Si el Hostal Suso cambia de teléfono, se
+corrige en `/hoteles` y queda bien en todos los viajes, pasados y futuros.
+
+### Cómo se arma un viaje
+
+1. **/hoteles** — cargar los alojamientos con sus datos y hasta 3 fotos (las que dibuja
+   el documento). El campo **Ciudad** debe parecerse a la localidad de la etapa: es lo
+   que usa el prellenado. No hace falta que sea idéntico — «Pedrouzo» empareja con
+   «O Pedrouzo (O Pino)» y «Santiago» con «Santiago de Compostela»
+   (`src/lib/travelDocs/lugares.ts`).
+2. En el expediente, **Prellenar desde itinerario**: trae día, etapa y km de
+   `route_stages` y propone el hotel de cada noche. Las que quedan sin hotel se marcan
+   en ámbar.
+3. Revisar habitación, régimen y notas puntuales, marcar los **servicios incluidos**
+   («Proponer según opcionales» los deduce de las líneas contratadas) y **Generar documento**.
+4. Subir el seguro y la etiqueta cuando lleguen.
+5. **Enviar documentación**. Antes conviene una prueba: la casilla «Enviar a otra
+   dirección» no marca el expediente como enviado.
+
+### El enlace que no caduca
+
+Los botones del correo NO apuntan a Supabase: apuntan a
+`/documentacion/<token>/descargar/<documento>`, que firma la URL **en cada clic**. Una
+URL firmada de Storage caduca a los pocos días y el peregrino abre esto durante el viaje
+y meses después. El token vive en `comercial.travel_docs` y se puede anular («Anular») o
+rotar («Generar enlace nuevo»); anularlo deja muerto el enlace que ya tiene el cliente.
+
+La ruta `/documentacion` es pública en `src/proxy.ts`: autentica por el token, no por
+sesión. Si se saca de esa lista, el cliente termina en la pantalla de login del CRM.
+
+### Ojo con las condiciones
+
+Los porcentajes y los gastos de gestión de `settings.travel_doc` tienen que decir **lo
+mismo** que la cláusula sexta del contrato (`src/lib/contracts/template.ts`): hoy, 150 €
+por persona y 15/50/80 %. **No** son los de Pilgrim (100 € y 5/10/30/50 %). Si se cambia
+la política, hay que cambiarla en los dos sitios; si no, al cliente le llega un documento
+que contradice lo que firmó.
+
+### El correo va en HTML
+
+Requiere un parche de una línea en el nodo «Validar y Preparar» del workflow de n8n —
+ver `scripts/n8n_correo_html.md`. Sin él, el correo sale en texto plano con los enlaces
+completos: se ve peor, no se rompe nada.
+
+### Probar los PDF sin navegador
+
+```bash
+SMOKE_OUT=/tmp npx tsx --env-file=.env.local scripts/docs_smoke.tsx
+```
+
+Renderiza el Documento de Viaje y la Asistencia con los textos reales de `settings` y
+datos de ejemplo. Sirve para ver un cambio de maquetación sin tocar una cotización.
+
+Para sembrar los seis alojamientos del Sarria → Santiago:
+
+```bash
+FOTOS_DIR=/ruta/con/fotos npx tsx --env-file=.env.local scripts/seed_hoteles_sarria_santiago.ts
 ```
 
 ---

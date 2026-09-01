@@ -1,6 +1,8 @@
-import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
+import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
 import fs from "node:fs";
 import path from "node:path";
+// Fuentes, paleta y cabecera/pie de la marca. Importarlo registra las fuentes.
+import { C, SERIF, SERIF_BOLD, SANS, SANS_BOLD, PageHeader, PageFooter } from "@/lib/pdfChrome";
 import { FIANZA_POR_BICI_EUR } from "@/lib/bikes/catalog";
 // Las condiciones del alquiler se importan del archivo de seed a propósito, no se copian:
 // son texto que va firmado al cliente y tiene que decir LO MISMO acá, en el catálogo público
@@ -8,59 +10,11 @@ import { FIANZA_POR_BICI_EUR } from "@/lib/bikes/catalog";
 // supabase ni node—, así que traerlo no arrastra nada raro al bundle del PDF.
 import { CONDICIONES_ALQUILER } from "@/lib/bikes/data";
 
-// Inter TTFs locales. Soporta Unicode amplio (flechas, símbolos) que las fuentes built-in
-// de PDF (Adobe Standard Encoding) no incluyen.
-const FONT_DIR = path.join(process.cwd(), "src/lib/fonts");
-Font.register({
-  family: "Inter",
-  fonts: [
-    { src: path.join(FONT_DIR, "Inter-Regular.ttf"), fontWeight: 400 },
-    { src: path.join(FONT_DIR, "Inter-Italic.ttf"), fontWeight: 400, fontStyle: "italic" },
-  ],
-});
-Font.register({
-  family: "Inter-Bold",
-  fonts: [
-    { src: path.join(FONT_DIR, "Inter-Bold.ttf"), fontWeight: 400 },
-    { src: path.join(FONT_DIR, "Inter-BoldItalic.ttf"), fontWeight: 400, fontStyle: "italic" },
-  ],
-});
-
-// SERIF se mantiene en Times built-in (solo se usa para títulos/números, sin chars unicode raros).
-const SERIF = "Times-Roman";
-const SERIF_BOLD = "Times-Bold";
-const SANS = "Inter";
-const SANS_BOLD = "Inter-Bold";
-
-const C = {
-  verde: "#1a3a2a",
-  verdeM: "#2d5a3d",
-  oro: "#f0c060",
-  oroH: "#e0a840",
-  gris: "#f7f5f0",
-  borde: "#e8e3d8",
-  txt: "#1a1a1a",
-  sec: "#666666",
-  white: "#ffffff",
-  greenL: "#eef3eb",
-  amberL: "#fef8ee",
-  amberT: "#633806",
-  pinkL: "#fdf2f2",
-  pinkT: "#9c2424",
-};
-
 const s = StyleSheet.create({
   // Layout base
   page: { fontFamily: SANS, fontSize: 9.5, color: C.txt, paddingTop: 70, paddingBottom: 44, paddingHorizontal: 32 },
-  // Header en páginas 2+
-  pageHeader: {
-    position: "absolute", top: 24, left: 32, right: 32, flexDirection: "row",
-    justifyContent: "space-between", alignItems: "flex-start",
-  },
+  // La columna izquierda de la cabecera; la de páginas interiores vive en pdfChrome.
   hLeft: { flexDirection: "column" },
-  hBrand: { fontFamily: SERIF_BOLD, fontSize: 11, color: C.verde },
-  hSub: { fontFamily: SANS, fontSize: 6.5, color: C.sec, marginTop: 1.5 },
-  hPage: { fontFamily: SANS, fontSize: 7, color: C.sec },
 
   // ===== COVER =====
   coverPage: { position: "relative", padding: 0, backgroundColor: C.verde, fontFamily: SANS },
@@ -247,13 +201,6 @@ const s = StyleSheet.create({
   validityWarnTitle: { fontFamily: SANS_BOLD, fontSize: 9, color: C.amberT, marginBottom: 3 },
   validityWarnText: { fontFamily: SANS, fontSize: 8.5, color: C.amberT, lineHeight: 1.4 },
 
-  pageFooter: {
-    position: "absolute", bottom: 18, left: 32, right: 32,
-    flexDirection: "row", justifyContent: "space-between",
-    paddingTop: 6, borderTopWidth: 0.5, borderTopColor: C.borde,
-  },
-  pageFooterText: { fontFamily: SANS_BOLD, fontSize: 8, color: C.txt },
-  pageFooterRight: { fontFamily: SANS, fontSize: 8, color: C.sec },
 });
 
 // =============== TYPES ===============
@@ -635,7 +582,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
       {/* ============ DETAIL ============ */}
       <Page size="A4" style={s.page}>
         <PageHeader />
-        <PageFooter quoteCode={quote.code} />
+        <PageFooter referencia={quote.code} />
 
         <Text style={s.detailEyebrow}>{subtituloRuta}</Text>
         <Text style={s.detailTitle}>{quote.route_name}</Text>
@@ -734,7 +681,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
       {/* ============ SERVICIOS + RESUMEN + CONDICIONES ============ */}
       <Page size="A4" style={s.page}>
         <PageHeader />
-        <PageFooter quoteCode={quote.code} />
+        <PageFooter referencia={quote.code} />
 
         <Text style={s.h2}>Servicios incluidos y no incluidos</Text>
         <View style={s.servicesRow} wrap={false}>
@@ -997,7 +944,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
       {/* ============ CONDICIONES (cont) + CTA ============ */}
       <Page size="A4" style={s.page}>
         <PageHeader />
-        <PageFooter quoteCode={quote.code} />
+        <PageFooter referencia={quote.code} />
 
         <Text style={s.condTitle}>Confirmación y gestión de la reserva</Text>
         <Text style={s.condText}>En el momento de planificación del viaje no se gestionan reservas con los alojamientos; quedan sujetos a disponibilidad hasta que se realice el pago inicial.</Text>
@@ -1077,30 +1024,6 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
         </View>
       </Page>
     </Document>
-  );
-}
-
-function PageHeader() {
-  return (
-    <View style={s.pageHeader} fixed>
-      <View style={s.hLeft}>
-        <Text style={s.hBrand}>Camino Sacro</Text>
-        <Text style={s.hSub}>Agencia de peregrinaciones · Respaldado por El Camino con Naty</Text>
-      </View>
-      <Text
-        style={s.hPage}
-        render={({ pageNumber, totalPages }) => `Pág ${pageNumber} de ${totalPages}`}
-      />
-    </View>
-  );
-}
-
-function PageFooter({ quoteCode }: { quoteCode: string }) {
-  return (
-    <View style={s.pageFooter} fixed>
-      <Text style={s.pageFooterText}>Camino Sacro · {quoteCode}</Text>
-      <Text style={s.pageFooterRight}>Respaldado por El Camino con Naty</Text>
-    </View>
   );
 }
 

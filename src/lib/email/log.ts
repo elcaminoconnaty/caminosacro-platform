@@ -17,7 +17,7 @@ import type { ComercialClient } from "@/lib/quotes/pdf";
 export type EnvioRegistrado = {
   quoteId?: string | null;
   code?: string | null;
-  tipo: "cliente" | "pilgrim" | "contrato" | "lead";
+  tipo: "cliente" | "pilgrim" | "contrato" | "lead" | "documentacion";
   destinatario: string;
   asunto?: string | null;
   adjuntos?: number;
