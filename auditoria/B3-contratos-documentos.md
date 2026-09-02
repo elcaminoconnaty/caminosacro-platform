@@ -12,7 +12,9 @@
 ## Tareas
 
 - **B3.1 Las rutas por token.** `/contrato`, `/documentacion`, `/correo`: entropía del token, caducidad, revocación, y **qué se filtra** — mira qué datos de terceros aparecen en cada página y en los nombres de archivo.
-  `Estado: pendiente`
+  `Estado: en curso` — leyendo cómo se generan y se validan los tres tokens (entropía, unicidad,
+  caducidad, revocación), qué expone cada página pública sin sesión y qué datos personales viajan
+  en los nombres de archivo de Storage. Comprobación cruzada contra `PUBLIC_PATHS` de `proxy.ts`.
 - **B3.2 La firma como prueba.** Qué se guarda de la firma y si serviría en una disputa: quién, cuándo, desde dónde, sobre qué texto exacto. Ojo al límite de peticiones (ya se supo que va por token y no por IP).
   `Estado: pendiente`
 - **B3.3 Los cinco generadores de PDF.** Textos largos, nombres larguísimos, 20 viajeros, campos vacíos. Busca desbordes, solapes y datos que se quedan en blanco sin avisar. Renderiza de verdad con `scripts/docs_smoke.tsx`.
