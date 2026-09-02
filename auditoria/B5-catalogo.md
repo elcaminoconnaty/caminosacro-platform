@@ -35,7 +35,8 @@
   de los 16 tiene precio 2027** (con respaldo avisado en ámbar, eso sí) y `optional_services` arrastra dos
   columnas de precio muertas.
 - **B5.5 Bicis.** Tarifa por bici × ruta × año, la fianza que no entra al total, el encadenado por `parent_quote_id`.
-  `Estado: pendiente`
+  `Estado: en curso` — cobertura real de la matriz bici × ruta × año, cómo se trata la fianza (que no debe
+  entrar al total pero sí decirse), y el encadenado `parent_quote_id` con la cotización madre.
 - **B5.6 Hoteles.** Módulo recién hecho: duplicados, ciudades que no casan con las etapas, hoteles sin fotos, qué pasa al borrar uno en uso.
   `Estado: pendiente`
 - **B5.7 Integridad referencial.** Borrar una ruta con cotizaciones, un opcional en uso, una bici cotizada. Qué protege la base y qué no.
