@@ -85,16 +85,22 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 |---|---|---|---|---|---|
 | B1 | Cotizador y alta | `B1-cotizador.md` | `hecho` | `hecho` | `hecho` |
 | B2 | Expediente y estados | `B2-expediente.md` | `hecho` | `hecho` | `hecho` |
-| B3 | Contratos y documentos | `B3-contratos-documentos.md` | `hecho` | `pendiente` | `—` |
-| B4 | Correo | `B4-correo.md` | `hecho` | `pendiente` | `—` |
-| B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `pendiente` | `—` |
-| B6 | Datos y plataforma | `B6-datos-plataforma.md` | `hecho` | `pendiente` | `—` |
-| B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `pendiente` | `—` |
+| B3 | Contratos y documentos | `B3-contratos-documentos.md` | `hecho` | `en curso` | `—` |
+| B4 | Correo | `B4-correo.md` | `hecho` | `en curso` | `—` |
+| B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `en curso` | `—` |
+| B6 | Datos y plataforma | `B6-datos-plataforma.md` | `hecho` | `en curso` | `—` |
+| B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `en curso` | `—` |
 | B8 | Síntesis | `SINTESIS.md` | `pendiente` | `—` | `—` |
 
 Valores: `pendiente` · `en curso` · `hecho`. En Revisión, además: `—` (no hizo falta).
 
-> **Estado a 2-sep-2026:** los **siete bloques de auditoría están cerrados**. B1 y B2 tienen
+> **Estado a 2-sep-2026 (tarde):** lanzados **en paralelo los cinco críticos de B3 a B7**.
+> B3, B4 y B5 se retoman desde la nota `en curso` que dejaron los agentes que murieron por el
+> límite; B6 y B7 arrancan de cero. Cada crítico toca **solo su archivo de bloque**: el tablero
+> lo mueve quien orquesta. Cuando los cinco cierren con veredicto, van las revisiones que hagan
+> falta y después B8.
+
+> **Estado anterior:** los **siete bloques de auditoría están cerrados**. B1 y B2 tienen
 > además su crítica y su revisión. Las críticas de **B3 a B7 están pendientes a propósito**:
 > las auditorías de esos cinco bloques las escribió el mismo agente en una sola sesión, y
 > criticarse a uno mismo no tiene independencia — cada archivo deja anotado, en su sección de
