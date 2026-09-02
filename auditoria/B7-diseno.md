@@ -34,7 +34,8 @@
   que **esos dos son justamente los que pueden mentir**. Todo lo accionable —si el correo salió, cuántos
   contratos hay firmados, si se pidió el cupo— vive del sexto scroll para abajo.
 - **B7.5 Los módulos pequeños.** `finanzas` (134 líneas), `calendario`, `tokens`, `clara`, `isabel` (un placeholder). Cuáles aportan, cuáles estorban y cuál merece crecer.
-  `Estado: pendiente`
+  `Estado: en curso` — qué hace cada uno de verdad, con qué datos, y el juicio pedido: aporta / estorba /
+  merece crecer, con el motivo.
 - **B7.6 Clics por tarea.** Cuenta los de las tres tareas de todos los días: cotizar, cobrar, mandar documentación. Di dónde sobran.
   `Estado: pendiente`
 - **B7.7 Accesibilidad de lo básico.** Foco visible, etiquetas en los campos, objetivos tocables, y que no se dependa solo del color para decir algo.
