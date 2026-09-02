@@ -17,7 +17,9 @@
   enlace ya firmado ve **«Enlace no válido»**, porque firmar pone el token en `null` y deja
   inalcanzable la rama amable. Y dos de las tres páginas no fijan `Referrer-Policy`.
 - **B3.2 La firma como prueba.** Qué se guarda de la firma y si serviría en una disputa: quién, cuándo, desde dónde, sobre qué texto exacto. Ojo al límite de peticiones (ya se supo que va por token y no por IP).
-  `Estado: pendiente`
+  `Estado: en curso` — revisando qué queda guardado de cada firma (firmante, sello de tiempo, IP,
+  user-agent, hash del PDF), si el hash prueba **el texto exacto** que se firmó, si se puede firmar
+  dos veces o fuera de plazo, y el rate limit por token e IP.
 - **B3.3 Los cinco generadores de PDF.** Textos largos, nombres larguísimos, 20 viajeros, campos vacíos. Busca desbordes, solapes y datos que se quedan en blanco sin avisar. Renderiza de verdad con `scripts/docs_smoke.tsx`.
   `Estado: pendiente`
 - **B3.4 Storage.** Rutas y políticas de los buckets, archivos huérfanos, qué se borra al borrar una cotización. **Pasaportes**: quién puede llegar a ellos y por cuánto tiempo.
