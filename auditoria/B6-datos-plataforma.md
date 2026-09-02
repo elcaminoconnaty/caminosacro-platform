@@ -44,8 +44,11 @@
   plantilla de correo use una variable que nadie produce. Las tres ya se han roto de verdad —están
   documentadas en B1, B3 y B4— y las tres se cubren con **una tarde y un solo `npm i -D vitest`**.
 - **B6.7 Copias y recuperación.** Qué pasa si alguien borra una cotización por error o se pierde un bucket. Qué hay hoy y qué falta.
-  `Estado: en curso` — qué respaldo tiene de verdad el proyecto de Supabase (plan, retención, PITR), qué se
-  puede recuperar de un borrado accidental y qué no, y si los buckets entran en esa copia.
+  `Estado: hecho` — **el plan de recuperación de la plataforma es una frase de la GUIA que probablemente no
+  es cierta.** Dice que el plan gratuito de Supabase hace backups diarios con 7 días de retención; el propio
+  `next.config.ts` deja escrito que este proyecto **no tiene funciones de plan pago** («comprobado»), y en el
+  plan gratuito los backups automáticos no existen. Además, **Storage nunca entra** en la copia de la base,
+  en ningún plan: los pasaportes y los contratos firmados no tienen copia. Primera verificación de Nico.
 
 ---
 
@@ -163,6 +166,62 @@ con lo de B4.4 —que el respaldo apunta al dominio de Railway y no al de la mar
 arreglo es el mismo: una sola función que resuelva la base pública, que se plante si no está
 configurada, y que use el dominio de marca.
 
+### [GRAVE] No hay ninguna copia de seguridad propia, y la única que se da por hecha probablemente no existe — `GUIA.md:354-356,540`
+
+La GUIA responde la pregunta de esta tarea en dos sitios, y las dos veces con la misma
+afirmación:
+
+> «Backup de la DB — Supabase hace **backups automáticos diarios** (free tier 7 días).»
+> «Backup: Supabase tiene snapshot diario automático»
+
+Esa frase es lo único que sostiene la recuperación de todo el negocio, y hay tres motivos
+para no creerla:
+
+1. **El plan gratuito de Supabase no incluye backups automáticos.** Los diarios con 7 días de
+   retención son del plan Pro; en el gratuito la pantalla de Backups es una invitación a
+   pagar.
+2. **Este proyecto da todas las señales de estar en el gratuito**, y no es una suposición mía:
+   `next.config.ts` lo deja escrito al explicar por qué no se usa el optimizador de imágenes
+   de Supabase — «Las transformaciones de imagen de Supabase (`/render/image/`) devuelven 403
+   porque son **de plan pago** — comprobado».
+3. **Y aunque el plan fuera Pro, Storage no entra.** Las copias de Supabase son de la base de
+   datos; los objetos de los buckets van por su lado. O sea que las **fotos de pasaporte**,
+   los **contratos firmados**, los recibos y los PDF de cotización **no tienen copia en
+   ninguna hipótesis**.
+
+**Lo que sí es seguro, y lo comprobé:** la plataforma **no tiene ningún respaldo propio**. No
+hay `pg_dump` en `scripts/`, no hay exportación a CSV, no hay un cron de copia —en
+`api/cron/` sigue habiendo un solo endpoint, el de recordatorios— y no hay nada en n8n que
+saque datos. Si mañana la base no está, no hay de dónde volver.
+
+**Qué pasa hoy con un borrado por error**, juntando lo que ya documentaron B3.4 y B3.6:
+
+- `deleteQuote` **no comprueba nada**: borra igual una cotización con contrato firmado y
+  dinero cobrado, tras un `confirm()` que no menciona ni una cosa ni la otra. Hoy hay **tres
+  expedientes así**.
+- Las cascadas se llevan pagos, contratos, viajeros, documentación y líneas. **Nada de eso es
+  recuperable** sin una copia.
+- Y lo que **sí** sobrevive es lo peor: los archivos quedan huérfanos en Storage —ya hay dos
+  pasaportes de cotizaciones borradas—, o sea que se pierde el registro y se conserva el dato
+  personal. Exactamente al revés de lo que uno querría.
+
+Es GRAVE por la definición del TABLERO —«se corrompen datos»— y porque el coste no es
+proporcional al error: un clic de más sobre la fila equivocada de `/seguimiento` borra una
+venta cobrada y firmada sin vuelta atrás.
+
+**Propuesta, por orden de lo que cuesta:**
+
+- **(a) Confirmar el plan hoy.** Dashboard → Database → Backups. Si dice que no hay, toda la
+  sección de la GUIA está mintiendo y hay que corregirla en el mismo minuto: es peor un plan
+  de recuperación falso que ninguno, porque impide que alguien monte uno.
+- **(b) Un `pg_dump` semanal a un sitio que no sea Supabase**, disparado por el Schedule de
+  n8n que ya existe. Con 2,5 MB de base, la copia entera cabe en un correo.
+- **(c) Las guardas de borrado de B3.6** —no dejar borrar un expediente con contrato firmado
+  o pagos—, que es lo que evita necesitar la copia.
+- **(d) Una copia de los buckets sensibles**, aunque sea manual y trimestral:
+  `comercial-passports` y `comercial-contracts` son 10 MB entre los dos y son los únicos
+  irreemplazables.
+
 ### [MEDIO] Las tres roturas silenciosas que hay que cubrir, y su prueba mínima — no hay runner de tests en el proyecto
 
 No hay ni infraestructura: `package.json` no tiene script `test` ni vitest ni jest. Así que el
@@ -233,6 +292,17 @@ extremo a extremo con navegador. Para dos personas y un producto que se desplieg
 es maquinaria que se abandona en un mes. Estas tres son ficheros sueltos, corren en segundos
 sin base de datos —salvo la tercera, que solo lee dos filas— y cubren exactamente los tres
 sitios donde esta auditoría **ya encontró** roturas que nadie había visto.
+
+### Verificación urgente para Nico
+
+Solo se puede hacer desde la cuenta de Supabase y es la de más valor de toda la auditoría:
+
+1. **Dashboard → Database → Backups**: ¿hay backups automáticos o no? De la respuesta depende
+   si la plataforma tiene plan de recuperación o no tiene ninguno.
+2. Si no los hay: corregir `GUIA.md:354-356` y `:540` antes que nada, y montar el (b) de
+   arriba.
+3. Y en cualquier caso, asumir que **Storage no está cubierto** y decidir qué se hace con
+   `comercial-passports` y `comercial-contracts`.
 
 ### Lo que sí está bien: los 13 endpoints, uno por uno
 
