@@ -34,8 +34,11 @@
   emisor de correo— **quedó desactualizada y su prueba de regresión hoy fallaría por diseño**. Al final,
   la lista de verificaciones que solo puede hacer Nico.
 - **B4.5 El secreto compartido.** `QUOTE_EMAIL_WEBHOOK_SECRET` está en claro dentro del nodo de n8n. Evalúa el riesgo real y qué costaría mitigarlo. No lo cambies.
-  `Estado: en curso` — leyendo el workflow real para ver cómo se compara el secreto, qué puede hacer quien
-  lo tenga, y si el payload restringe de dónde se descargan los adjuntos. Sin tocar nada.
+  `Estado: hecho` — el secreto en claro no es el problema principal: lo es **el radio de acción de quien lo
+  tenga**. El nodo toma destinatario, asunto, cuerpo HTML y la **URL del adjunto** tal cual vienen del
+  payload, sin ninguna lista blanca, así que ese secreto no abre «mandar cotizaciones»: abre **mandar
+  cualquier correo, a cualquiera, desde `reservas@caminosacro.com`, con cualquier adjunto**. Y hoy es
+  legible por API. Mitigación: dos cambios pequeños, ninguno tocado.
 - **B4.6 El cron de recordatorios.** Qué pasa si corre dos veces el mismo día, si no corre, o si el envío falla a mitad de la lista. ¿Manda duplicados?
   `Estado: pendiente`
 
@@ -295,6 +298,83 @@ No se pueden comprobar desde aquí y conviene que queden apuntadas en un solo si
 4. **Si el parche de HTML del workflow está pegado o no** (`scripts/n8n_correo_html.md`). De
    eso depende que el correo de documentación y el de cotización salgan maquetados o como un
    muro de texto. Se ve entrando al nodo «Validar y Preparar».
+
+### [MEDIO] El secreto del webhook no protege «mandar cotizaciones»: protege «mandar cualquier correo como Camino Sacro» — nodo «Validar y Preparar» del workflow `HgErNCbopi95CdiI`
+
+Leí el workflow en producción. La comprobación del secreto es la primera línea del nodo y
+está bien puesta —si no coincide, lanza y la petición se rechaza—, pero lo que hay **después**
+es lo que define el riesgo. Del payload se toman **tal cual**, sin validar contra nada:
+
+| campo del payload | a dónde va |
+|---|---|
+| `email` | el destinatario (`to`), cualquier dirección |
+| `subject` | el asunto, texto libre |
+| `body` / `html` | el cuerpo, **HTML arbitrario** |
+| `attachments[].url` o `pdf_url` | **la URL de la que Brevo se descarga el adjunto**, sin lista blanca de dominio |
+
+El remitente sí es fijo (`Camino Sacro <reservas@caminosacro.com>`) y eso es lo que convierte
+esto en un problema en vez de en una curiosidad: quien tenga el secreto puede mandar **un
+correo cualquiera, a quien quiera, con el HTML que quiera y un adjunto traído de donde quiera,
+firmado con la reputación y —si el DKIM está puesto, que es la verificación pendiente de
+B4.4— con la autenticación de dominio de la agencia**. Es un relé de phishing con la marca
+puesta. El daño no sería para la plataforma: sería para los clientes de Camino Sacro y para la
+reputación del dominio, que es lo que tarda meses en recuperarse.
+
+**Dónde está hoy el secreto**, que es lo que hay que sopesar:
+
+1. **En claro dentro del nodo de código** (`const SECRET = '…'`), o sea visible para cualquiera
+   que abra el workflow en el canvas de n8n.
+2. **En el JSON del workflow**, que se puede leer por la API de n8n. Lo comprobé sin querer al
+   hacer esta auditoría: pedir el detalle del workflow **me devolvió el secreto en texto
+   plano**. Cualquier integración, agente o token con acceso de lectura a ese n8n lo tiene.
+3. En las variables de Railway de la app y en el `.env.local` de la máquina de desarrollo, que
+   es donde sí corresponde.
+
+No hay ningún indicio de que se haya usado indebidamente y el n8n está detrás de su propio
+login. El hallazgo no es «esto está comprometido», es que **el radio de acción es mucho mayor
+de lo que el nombre del secreto sugiere** y que hoy vive en el sitio más fácil de leer de los
+tres.
+
+**Propuesta (no se tocó nada, como pide la tarea). Dos cambios, en este orden:**
+
+1. **Acotar el daño antes que el secreto**, porque es lo que de verdad lo reduce: exigir que
+   `attachments[].url` y `pdf_url` apunten al host de Supabase del proyecto. Son tres líneas
+   en el mismo nodo (`if (!a.url.startsWith('https://<proyecto>.supabase.co/')) return null`).
+   Con eso, quien tenga el secreto puede como mucho mandar texto en nombre de la agencia; no
+   puede colgarle un adjunto arbitrario a un correo que parece nuestro. Y no rompe nada: todos
+   los adjuntos que la plataforma manda hoy salen de ahí.
+2. **Sacar el secreto del nodo**: leerlo de una variable de entorno del servicio de n8n
+   (`$env.QUOTE_EMAIL_WEBHOOK_SECRET`) en vez de tenerlo literal. Deja de estar en el JSON del
+   workflow y deja de salir por la API. Y, ya puestos, rotarlo cuando se haga —lleva tiempo
+   siendo legible por API—, coordinando el cambio con la variable de Railway de la app, que es
+   el único consumidor.
+
+Un apunte menor, por coherencia y no por riesgo: la comparación es `recibido !== SECRET`, una
+igualdad de cadenas normal, mientras que los endpoints propios de la plataforma usan
+`timingSafeEqual` (`api/wp/auth.ts:12-20`, que B1 elogió). Contra un secreto de 48 caracteres
+hexadecimales y por internet, un ataque de tiempo no es practicable, así que no lo cuento como
+hallazgo; pero es la misma decisión resuelta de dos maneras en la misma plataforma.
+
+### Lo que sí está bien: el workflow hace lo que dice y lo deja escrito
+
+Leído entero, no por confianza:
+
+- **El secreto se comprueba antes que nada** y el fallo **lanza**, así que la petición muere
+  ahí: no hay camino en que un payload sin secreto llegue a Brevo.
+- **Valida el destinatario** (`if (!email || email.indexOf('@') === -1) throw`) antes de armar
+  nada, con el código de la cotización en el mensaje de error.
+- **El `Respond to Webhook` cuelga de «Enviar por Brevo»**, no del nodo de preparación. Eso es
+  exactamente lo que hace que el `messageId` signifique algo, tal como promete
+  `lib/email/webhook.ts`: si Brevo falla, el nodo HTTP lanza, no hay respuesta y el webhook
+  devuelve 500. La cadena de confianza está bien montada de punta a punta.
+- **El parche de HTML está aplicado y bien aplicado**: `textContent` se conserva y
+  `htmlContent` solo se añade `if (html)`. El correo sale multiparte, como debe.
+- **El `If` del aviso interno está puesto y con el criterio escrito** en la nota adhesiva del
+  canvas, que además coincide con el comentario del código de la app. Es el arreglo que ya
+  estaba documentado en la memoria del proyecto y quedó bien cerrado.
+- **La nota del canvas es documentación de verdad**: explica las dos ramas, el criterio del
+  aviso, los adjuntos múltiples y hasta el resultado de la prueba con 20 pasaportes (4,7 MB) y
+  la advertencia de que los PDF no se comprimen.
 
 ### Lo que sí está bien: la higiene de entregabilidad
 
