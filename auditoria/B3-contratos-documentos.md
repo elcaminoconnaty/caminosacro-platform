@@ -29,9 +29,10 @@
   y **ningún PDF desactiva el guionado** de `@react-pdf`, así que ya hoy se parten palabras a la mitad con
   una ruta real del catálogo.
 - **B3.4 Storage.** Rutas y políticas de los buckets, archivos huérfanos, qué se borra al borrar una cotización. **Pasaportes**: quién puede llegar a ellos y por cuánto tiempo.
-  `Estado: en curso` — políticas RLS de los doce buckets, cruce de los objetos reales de Storage contra las
-  rutas guardadas en la base para encontrar huérfanos, qué borra `deleteQuote`, y el ciclo de vida del
-  pasaporte (quién llega, por cuánto tiempo, y si queda copia tras borrar el expediente).
+  `Estado: hecho` — los buckets son privados y están bien organizados, pero **borrar una cotización deja
+  atrás el pasaporte y el contrato firmado**: en Storage hay hoy pasaportes de CS-2026-044 y CS-2026-048,
+  dos cotizaciones que ya no existen. `deleteQuote` solo borra 2 de los 8 tipos de archivo del expediente,
+  y el contrato que esas personas firmaron les promete el derecho de supresión.
 - **B3.5 Coherencia entre los tres documentos.** Cotización, contrato y documentación de viaje salen de los mismos datos: comprueba que dicen lo mismo (precio, fechas, personas, condiciones) en un expediente real.
   `Estado: pendiente`
 - **B3.6 Qué pasa al borrar.** Borrar una cotización con contratos firmados, documentación enviada y archivos de Pilgrim. ¿Cascadas correctas? ¿Se puede borrar algo que no debería borrarse?
@@ -92,6 +93,91 @@ navegador y no de la plataforma, la página de documentación es **de token perm
 caduca nunca, solo se revoca), y la vacuna es una entrada en `headers()` de `next.config.ts`
 que además cubriría lo que se añada mañana. El propio proyecto ya demostró que sabe hacerlo,
 en `/correo`.
+
+### [GRAVE] Borrar una cotización deja atrás el pasaporte y el contrato firmado — `seguimiento/[id]/actions.ts:100-116`
+
+`deleteQuote` borra de Storage exactamente **dos** archivos:
+
+```ts
+const { data: q } = await supabase.from("quotes").select("pdf_path, hotels_pdf_path")…
+await removeStoragePath(supabase, q.pdf_path);
+await removeStoragePath(supabase, q.hotels_pdf_path);
+const { error } = await supabase.from("quotes").delete().eq("id", id);
+```
+
+Las tablas hijas sí caen en cascada —`contracts`, `travel_docs`, `client_payments`,
+`provider_payments`, `quote_lines`, `quote_travelers`—, y con ellas desaparecen **las filas
+que guardaban la ruta de cada archivo**. Los archivos, no. Quedan en Storage sin una sola
+referencia en la base, invisibles desde el producto:
+
+| lo que queda huérfano | columna que se borró en cascada |
+|---|---|
+| **la foto del pasaporte** | `contracts.passport_path` |
+| el contrato firmado y el sin firmar | `contracts.signed_pdf_path`, `contracts.pdf_path` |
+| documento de viaje, seguro, etiqueta de equipaje | `travel_docs.*_pdf_path` |
+| los recibos de pago | `client_payments.receipt_path` |
+| los documentos que mandó Pilgrim | subcarpeta `pilgrim/` del expediente |
+
+**No es teórico: ya pasó.** Cruzando `storage.objects` contra las rutas guardadas:
+
+- En `comercial-passports` hay **2 fotos de pasaporte de cotizaciones que ya no existen**:
+  `2026/CS-2026-044/Pasaporte-CS-2026-044-…jpg` y
+  `2026/CS-2026-048/Pasaporte-CS-2026-048-…jpg`. Comprobado: no hay ninguna fila en `quotes`
+  con esos códigos. Alguien borró esos dos expedientes y las fotos del documento de identidad
+  de esas personas siguen ahí.
+- En `comercial-contracts` hay **4 PDF de contrato** en la misma situación, todos de
+  cotizaciones borradas.
+- En `comercial-quotes`, 3 PDF huérfanos (esos sí, solo dinero de almacenamiento).
+
+**Por qué es GRAVE y no una tarea de limpieza.** El contrato que esas personas firmaron dice,
+en su cláusula de tratamiento de datos (`contracts/template.ts:262`), que *«EL VIAJERO podrá
+ejercer sus derechos de conocer, actualizar, rectificar y **suprimir** sus datos, y revocar
+la autorización, escribiendo a reservas@caminosacro.com»*. Hoy la plataforma **no puede
+cumplir esa promesa**: borrar el expediente —que es la única herramienta de borrado que
+existe— deja precisamente el dato más sensible, la imagen del pasaporte, y encima lo deja
+donde ya nadie lo puede encontrar, porque el índice que decía dónde estaba se fue con la
+cascada. Es una obligación de la Ley 1581 que la propia empresa se impuso por escrito y que
+el software incumple en silencio.
+
+Matiz honesto: los buckets son **privados** (verificado en `storage.buckets`), así que no hay
+nada expuesto a internet. El problema no es una filtración; es que el dato sobrevive al
+registro que lo justificaba y nadie sabe que está ahí.
+
+**Propuesta (no se toca: es borrado de datos y hay que decidirlo con Nico):** que
+`deleteQuote` lea, antes de borrar, las rutas de las tablas hijas —son cinco `select` a
+tablas que ya se van a borrar— y las quite de Storage; y una consulta de arqueo, del mismo
+estilo que la de B2, que liste objetos de Storage sin fila que los referencie. La segunda
+mitad hace falta igual, porque ya hay huérfanos de antes.
+
+### [MENOR] El pasaporte se sube antes de que la firma quede registrada — `contrato/[token]/actions.ts:120-131`
+
+El orden de `firmarContrato` es: **1)** subir el pasaporte, **2)** renderizar el PDF firmado,
+**3)** subirlo, **4)** el `update` condicional que cierra el contrato. Si algo falla en 2, 3
+o 4 —o si el `update` no encuentra fila porque otra pestaña ganó la carrera— **el pasaporte
+ya está en el bucket** y nada lo borra ni lo referencia. El viajero ve un mensaje de error,
+reintenta, y sube otra copia con otra marca de tiempo.
+
+Es el mecanismo que alimenta el hallazgo de arriba desde el otro lado. Contribuye a que en
+`comercial-passports` haya **30 objetos y solo 3 referenciados**; la mayor parte de esa
+diferencia son las pruebas de julio (`CS-TEST-*`, 27 archivos), pero el patrón es el mismo y
+en un caso real produce copias del pasaporte de alguien que nadie sabe que existen.
+
+**Propuesta:** subir el pasaporte **después** del `update` condicional, o borrarlo si alguno
+de los pasos siguientes falla — el patrón que `bikeQuote.ts:248-252` ya usa bien.
+
+### [MENOR] `scripts/cleanup_orphans.ts` no limpia huérfanos: borra un archivo concreto a mano
+
+El nombre promete una herramienta de mantenimiento. El contenido son catorce líneas que
+borran **un** archivo con el nombre escrito a fuego:
+
+```ts
+const { data, error } = await sb.storage.from("comercial-quotes").remove(["CS-2026-002.pdf"]);
+```
+
+Fue un apaño puntual y se quedó. El riesgo no es que haga daño —no lo hace— sino que su
+nombre dice que el problema de los huérfanos está atendido cuando no lo está: es
+exactamente el script que alguien buscaría al leer el hallazgo de arriba. **Propuesta:**
+renombrarlo a lo que hace, o convertirlo en el arqueo de verdad que hace falta.
 
 ### [MEDIO] La cabecera del documento de viaje se vuelve ilegible con un nombre de ruta largo — `src/lib/travelDocPdf.tsx` (cabecera fija de página)
 
@@ -162,6 +248,26 @@ Va como MENOR y no como MEDIO porque hace falta bastante más de lo que hay en p
 código de la cotización, que aparece otras veces en el documento. Mismo origen que el
 hallazgo de arriba y mismo tipo de arreglo: reservarle alto al bloque o limitar las líneas
 del titular.
+
+### Lo que sí está bien: Storage está bien pensado
+
+- **Los nueve buckets `comercial-*` son privados** (`public = false`, verificado en
+  `storage.buckets`). Los únicos públicos son los tres del Estudio de Contenido, fuera de
+  alcance. Nada del expediente de un cliente se sirve por URL abierta.
+- **Un solo sitio decide dónde vive cada archivo.** `lib/storage/paths.ts` es el módulo más
+  disciplinado que he leído en la plataforma: estructura `{bucket}/{año}/{código}/`, un
+  comentario que explica el porqué de cada excepción, saneado de nombres sin tildes ni
+  signos, y marca de tiempo donde los nombres se repiten de verdad —los documentos de
+  Pilgrim, «manda el mismo nombre al confirmar y otra vez corregido dos semanas después, y
+  el segundo no puede pisar al primero»—. Todo lo de un cliente queda junto y navegable.
+- **El sufijo de posición en los contratos está bien resuelto**: en un grupo hay un contrato
+  por viajero y sin ese sufijo se pisarían el PDF; el viajero 1 conserva el nombre de siempre
+  para no romper los contratos que ya existían.
+- **Las políticas RLS son coherentes**: cada bucket tiene sus cuatro políticas
+  (SELECT/INSERT/UPDATE/DELETE) para el rol `authenticated`, sin excepciones ni huecos. Que
+  cualquier usuario autenticado pueda leer cualquier pasaporte es proporcionado hoy —la
+  plataforma tiene dos usuarios y los dos son los dueños—, pero conviene saberlo el día que
+  entre una tercera cuenta (una asistente, un contador): no hay separación por persona.
 
 ### Lo que sí está bien: los cinco generadores aguantan lo que se les eche
 
