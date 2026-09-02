@@ -28,8 +28,11 @@
   esté y salir; para ir a cualquier otra hay que teclear la URL. Las tablas sí desbordan con scroll, que
   es lo correcto.
 - **B7.4 El expediente de un vistazo.** Abre uno: ¿se sabe en diez segundos qué falta por hacer? Hoy son doce tarjetas apiladas sin jerarquía. Propón el orden y el resumen que faltan.
-  `Estado: en curso` — contando las tarjetas y su orden real, qué dice cada una y qué haría falta leer para
-  responder «¿qué falta por hacer aquí?»; luego la propuesta de orden y de resumen.
+  `Estado: hecho` — son **once tarjetas** (trece con bicis y documentación), y **el orden está bien pensado
+  y documentado**: sigue el recorrido real de la venta. Lo que falta no es orden, es **resumen**: en los
+  primeros diez segundos solo se ven el chip de estado y cinco cifras de dinero, y esta auditoría demostró
+  que **esos dos son justamente los que pueden mentir**. Todo lo accionable —si el correo salió, cuántos
+  contratos hay firmados, si se pidió el cupo— vive del sexto scroll para abajo.
 - **B7.5 Los módulos pequeños.** `finanzas` (134 líneas), `calendario`, `tokens`, `clara`, `isabel` (un placeholder). Cuáles aportan, cuáles estorban y cuál merece crecer.
   `Estado: pendiente`
 - **B7.6 Clics por tarea.** Cuenta los de las tres tareas de todos los días: cotizar, cobrar, mandar documentación. Di dónde sobran.
@@ -72,7 +75,57 @@ fácil de no notar porque en una pantalla buena y con buena luz se lee.
 leyéndose como dorado y pasa AA. Cambiar las 36 clases es un buscar-y-reemplazar. El dorado
 actual se queda para fondos oscuros, rellenos y bordes, donde ya cumple.
 
-### [MEDIO] En el celular no hay forma de navegar: la barra lateral desaparece y no la sustituye nada — `components/shell/Sidebar.tsx:32` · `(dashboard)/layout.tsx`
+### [MEDIO] Lo primero que se ve del expediente son las dos cosas que pueden estar mal — `seguimiento/[id]/page.tsx:407-418`
+
+El expediente es, en este orden: cabecera con el chip de estado → cinco tarjetas de dinero →
+**once tarjetas** apiladas (editor, opcionales, bicis, documentos, correo al cliente,
+contratos, correo a Pilgrim, archivos de Pilgrim, documentación de viaje, pagos de cliente,
+pagos a Pilgrim).
+
+**El orden no es el problema, y conviene decirlo**: está elegido a conciencia y comentado en
+el código —«la cotización con su correo → el contrato → el correo a Pilgrim → los hoteles →
+los pagos. Sigue el recorrido real de una venta: los contratos se firman ANTES del correo a
+Pilgrim, que es justo cuando entran los números de pasaporte que ese correo necesita»—. Es
+una decisión de oficio, no un apilamiento casual.
+
+El problema es **qué cabe en los primeros diez segundos**, que es exactamente lo que pregunta
+la tarea. Lo que se ve sin bajar es:
+
+1. **El chip de estado.** B2 demostró que miente en 33 de 39 casos (`enviada` sin
+   `email_sent_at`) y que CS-2026-004 dice `pago_parcial` con los 970 € cobrados.
+2. **Cinco cifras de dinero.** B2 demostró que dos de ellas —«Margen real» y, por dentro,
+   «Saldo proveedor»— se calculan restando pagos a Pilgrim que casi nunca se registran, y B7.1
+   que las destacadas se pintan con un contraste de 2,13.
+
+Y lo que **no** se ve sin recorrer once tarjetas es todo lo accionable:
+
+| pregunta | dónde está hoy |
+|---|---|
+| ¿el correo llegó de verdad? | tarjeta 5 de 11 (`EmailPreviewCard`) |
+| ¿cuántos contratos hay firmados? | tarjeta 6 — CS-2026-058 tiene 1 de 3 y no se ve |
+| ¿se le pidió el cupo a Pilgrim? | tarjeta 7 |
+| ¿se mandó la documentación de viaje? | tarjeta 9, y **está oculta** salvo que el estado diga pagado (el GRAVE de B2) |
+| ¿hasta cuándo vale la cotización? | dentro del editor |
+
+O sea: la respuesta a «¿se sabe en diez segundos qué falta por hacer?» es **no**, y el motivo
+no es el desorden sino que **la cabecera resume el pasado (cuánto vale) y no el futuro (qué
+toca)**.
+
+**Propuesta — una franja «Qué falta», debajo de la cabecera y antes del dinero.** Es la
+hermana de la columna «Falta» que proponen B2.6 y B2.7, aplicada a un expediente, y se calcula
+con datos que **la página ya tiene cargados** (los trae en su `Promise.all` de 20 consultas):
+no hace falta ni una consulta nueva.
+
+Cuatro señales, en este orden:
+
+1. **Envío** — «sin registro de envío» / «enviada el 3 de sep» (de `email_log`, ver B4).
+2. **Firma** — «1 de 3 contratos firmados» (de `contractRows`, ya cargado).
+3. **Cobro** — «faltan 485 € de 970» (de `saldoCliente`, ya calculado en la línea 283).
+4. **Siguiente paso** — «pedir cupo a Pilgrim» / «generar documentación» / «vence en 4 días».
+
+Con eso, y **usando el saldo en vez de la etiqueta** para decidir qué se muestra —que es lo
+que ya propone el GRAVE de B2—, el expediente contesta la pregunta sin bajar. No hace falta
+reordenar ni una tarjeta.: la barra lateral desaparece y no la sustituye nada — `components/shell/Sidebar.tsx:32` · `(dashboard)/layout.tsx`
 
 El shell del panel tiene **dos** componentes y nada más:
 
