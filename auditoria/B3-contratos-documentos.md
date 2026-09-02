@@ -753,7 +753,56 @@ ya recibió una oferta**, que son dos de las cuatro puertas de GRAVE del TABLERO
 3. Avisar a la clienta de CS-2026-081 antes de que acepte, y decidir con Nico qué se hace con esa
    oferta.
 
-_(sigue: umbrales de maquetación, lo no mirado, y el listón del oficio)_
+### 3. Los umbrales de maquetación: el número es bueno, la descripción no
+
+Rendericé el Documento de Viaje con `@react-pdf` a doce longitudes de nombre de ruta, con el
+**nombre de cliente más largo que existe hoy** (35 caracteres) y un correo de 32, y medí las cajas
+con `pdftotext -bbox` en vez de mirarlas. Resultado:
+
+| caracteres del nombre de ruta | ¿se pisan? | ¿se sale del margen derecho? |
+|---|---|---|
+| 51 (`Camino Portugués - Viana do Castelo (personalizada)`, el más largo real) | no, sobran 35 pt | no |
+| 55 | no, sobran 9 pt | no |
+| **56** | al filo (1,5 pt) | **sí, +0,2 pt** |
+| **58** | **sí, +7,5 pt** | sí, +4 pt |
+| 65 (el ejemplo del auditor) | sí | sí, +8 pt |
+| 74 | sí | **+29 pt: el bloque del cliente se sale del papel** (A4 mide 595,3 pt y el texto llega a 592) |
+| 78 | — | **+35 pt: el correo queda cortado por el borde de la hoja** (llega a 598,2) |
+
+**El umbral exacto está entre 56 y 58 caracteres**, no «unos 60»: el auditor lo estimó a ojo y se
+quedó a dos caracteres. Buen ojo — el hallazgo es correcto y el margen real hasta el catálogo de
+hoy es de **cinco caracteres**, no de nueve. Con un nombre de cliente más corto el umbral sube;
+con uno más largo baja. O sea que el defecto no es «una ruta de más de 60», es «ruta + cliente que
+juntos pasan de ~92 caracteres», y **ninguno de los dos campos tiene tope** (B1 ya lo dejó dicho).
+
+Dos correcciones a la descripción, una que resta y otra que suma:
+
+- **Resta: no es «la cabecera que se repite en todas las páginas».** La cabecera `fixed` es
+  `PageHeader` de `pdfChrome.tsx:76`, y solo lleva «Camino Sacro» y el número de página; esa está
+  bien. El bloque que se rompe es el `clientBar` de `travelDocPdf.tsx:476`, que aparece **una sola
+  vez, en la página del itinerario**. La frase «la cabecera rota se repite en todas sus páginas»
+  del informe es falsa y hay que quitarla: es el argumento con el que se justifica la etiqueta.
+- **Suma: el solape no es el peor de los dos fallos.** Antes de pisarse, el bloque del cliente
+  **se va por fuera del margen derecho**, y a partir de ~74 caracteres se sale del papel: el
+  teléfono y el correo del cliente quedan cortados por el borde de la hoja, no tapados por otro
+  texto. Eso el auditor no lo vio, y es lo que de verdad se lleva un dato por delante. Viene de
+  que `clientBar` es un `flexDirection:"row"` con `justifyContent:"space-between"` y ningún hijo
+  con ancho máximo: en Yoga, sin `flexShrink`, la columna derecha se desplaza fuera de la caja en
+  vez de comprimirse.
+
+**Etiqueta: se queda en MEDIO**, pero por otro motivo del que dice el informe. Pierde fuerza (es
+una página, no todas) y gana precisión (se pierde el teléfono y el correo del cliente por el borde
+del papel, en el documento que el peregrino lleva en el Camino).
+
+La propuesta del auditor (`maxLines` con elipsis o ancho fijo a las dos columnas) es la correcta;
+añadiría **`flexShrink: 1` y un `maxWidth` a la columna derecha**, que es lo que impide el
+desborde del papel aunque el nombre de la ruta se recorte bien.
+
+**Lo del guionado, confirmado.** `grep -rn "registerHyphenationCallback" src/ scripts/` no devuelve
+nada: el corte de palabra por guion está activo en los cinco generadores. La propuesta de una línea
+sigue en pie y es de las pocas de este bloque que se pueden aplicar sin decidir nada con Nico.
+
+_(sigue: lo que el auditor no miró, y el listón del oficio)_
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
