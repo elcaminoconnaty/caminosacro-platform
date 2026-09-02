@@ -54,7 +54,17 @@
 
 ## Hallazgos
 
-### [MEDIO] No hay forma de dar acceso limitado: una tercera cuenta lo ve todo, incluidos los pasaportes — las 27 policies de `comercial` + las de Storage
+### [MENOR] No hay forma de dar acceso limitado: una tercera cuenta lo ve todo, incluidos los pasaportes — las 27 policies de `comercial` + las de Storage
+
+> **Etiqueta corregida en la revisión: MEDIO → MENOR.** El análisis y la propuesta se conservan
+> íntegros; lo que cambia es la gravedad. Motivo, del crítico: `CRITERIOS.md:63-64` excluye
+> literalmente los «permisos por rol» de lo que es un hallazgo; no se puede completar la frase
+> «esto hace que se pierda ___» (hoy: nada — dos usuarios, los dos dueños, con derecho a ver
+> todo lo que ven); y no se cumple ninguna de las tres condiciones de MEDIO del TABLERO (no
+> engaña, no se rompe en un caso realista —hace falta contratar a alguien, que es un cambio de
+> negocio, no un uso de la plataforma— y no cuesta el triple). Es «deuda que hoy no muerde» con
+> un disparador conocido: MENOR de libro. La distinción importa porque B8 ordena por gravedad, y
+> un MEDIO aquí desplazaría hacia abajo cosas que sí muerden hoy.
 
 El modelo es de una sola pieza y perfectamente uniforme: **RLS activo en las 27 tablas**,
 **una policy en cada una**, y las 27 conceden a `authenticated` sin más condición que estar
@@ -77,13 +87,28 @@ primer minuto y sin poder evitarlo:
 Y al revés: alguien que solo tenga que cargar precios o preparar documentación de viaje no
 puede tener una cuenta que haga solo eso.
 
-Va como MEDIO y no más porque **hoy no hay daño**: son dos usuarios y los dos son dueños. Lo
+Va como MENOR porque **hoy no hay daño**: son dos usuarios y los dos son dueños. Lo
 anoto porque el coste de arreglarlo crece con el tiempo —cada tabla nueva hereda el patrón— y
 porque el disparador no es hipotético: la primera contratación lo activa. **Propuesta:** no
 hace falta un sistema de roles. Con una tabla `perfiles(user_id, rol)` y **dos** policies
 distintas en las tres tablas sensibles —`contracts`, `client_payments`, `provider_payments`—
-más el bucket de pasaportes, se cubre el 90 % del riesgo. Decidirlo antes de crear la tercera
-cuenta, no después.
+más el bucket de pasaportes, se cubre el 90 % del riesgo. **Decidirlo antes de crear la tercera
+cuenta, no después** — y el motivo de oficio que añade el crítico: en Lemax o Tourwriter el rol se
+define al alta y nadie lo piensa; aquí el momento de pensarlo es el día que Nico le pase una clave
+a alguien para que cargue tarifas, y ese día se decide en treinta segundos y mal si no está
+escrito antes.
+
+### [NOTA PARA B8] El MEDIO de los tests no es un hallazgo independiente: son tres hallazgos de B1, B3 y B4 contados otra vez
+
+El MEDIO de más abajo —«Las tres roturas silenciosas que hay que cubrir, y su prueba mínima»— **no
+se baja de etiqueta**: el contenido es de lo mejor del bloque (tres roturas concretas, cada una con
+su prueba mínima y su coste en líneas, que es exactamente lo que pedía B6.6 y lo contrario de
+«falta un test»). Pero **las tres roturas ya están levantadas en B1, B3 y B4** con sus propias
+etiquetas. Si la síntesis suma este MEDIO a aquellos, el mismo problema cuenta dos veces y la
+lista de gravedad queda inflada.
+
+**Para B8:** tratarlo como **la respuesta a la tarea B6.6 y el plan de arreglo** de esos tres
+hallazgos, no como una entrada más de la lista de gravedad.
 
 ### [MENOR] `AGENTE_API_SECRET` es obligatoria, no está documentada y no se puede encontrar con un grep — `api/agente/auth.ts:11` vs `.env.example`
 
