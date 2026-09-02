@@ -22,7 +22,9 @@
   y `pilgrim` están declarados en el propio tipo y nunca se escriben. Y el peso del HTML **no importa**:
   11 kB de media, 160 kB la tabla entera; ni con mil correos al año llega a molestar.
 - **B4.3 Plantillas y variables.** Una `{{variable}}` sin valor deja un hueco en el correo del cliente. Busca las que puedan quedar vacías y los textos que afirman cosas que ya no son ciertas.
-  `Estado: pendiente`
+  `Estado: en curso` — inventario de las plantillas (las dos de `comercial.email_templates` y las que viven
+  en código), qué hace el sustituidor con una variable sin valor, y contraste de lo que afirman los textos
+  contra lo que la plataforma hace de verdad hoy.
 - **B4.4 Que llegue y no a spam.** Versión en texto plano, tamaño, enlaces, remitente. SPF/DKIM no se pueden comprobar desde aquí: anótalo como verificación pendiente de Nico.
   `Estado: pendiente`
 - **B4.5 El secreto compartido.** `QUOTE_EMAIL_WEBHOOK_SECRET` está en claro dentro del nodo de n8n. Evalúa el riesgo real y qué costaría mitigarlo. No lo cambies.
