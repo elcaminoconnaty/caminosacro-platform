@@ -28,7 +28,8 @@
   N+1: el único bucle sospechoso resuelve los hoteles con un `.in()` y cachea las fotos, con el incidente
   que lo motivó anotado al lado. Las imágenes están optimizadas a conciencia. La base entera pesa 2,5 MB.
 - **B6.4 Secretos y configuración.** Qué claves llegan al navegador, qué hay en `.env`, qué pasa si falta `APP_BASE_URL` en producción.
-  `Estado: pendiente`
+  `Estado: en curso` — qué variables llevan prefijo `NEXT_PUBLIC_` y por tanto llegan al navegador, si algún
+  secreto se cuela en un componente de cliente, y qué hace cada camino cuando falta `APP_BASE_URL`.
 - **B6.5 Los endpoints públicos.** `/api/wp`, `/api/agente`, `/api/cron`: autenticación, límite de peticiones, validación del cuerpo, y qué devuelven cuando algo va mal.
   `Estado: pendiente`
 - **B6.6 Cero tests.** No pidas «más tests». Di **las tres cosas** cuya rotura silenciosa costaría más caro y qué prueba mínima las cubriría.
