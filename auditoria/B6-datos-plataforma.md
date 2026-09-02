@@ -521,8 +521,25 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente` — **sin empezar a propósito**, como en B3, B4 y B5: la auditoría la
-escribió este mismo agente. Lo que más agradecería que revisen:
+`Estado: en curso` — crítico independiente (veterano de CRMs de agencia + oficio de datos).
+Plan de verificación, en este orden; cada conclusión se escribe aquí en cuanto se tiene:
+
+1. **Plan de Supabase** (MCP: `list_organizations`, `get_organization`, `get_project`,
+   `get_cost`; Railway como respaldo) para confirmar o tumbar el GRAVE de las copias. Y
+   juzgar qué etiqueta merece «Storage sin copia + sin respaldo propio» aunque el plan fuera Pro.
+2. **RLS y policies**: contar de verdad tablas con RLS y policies (`pg_policies`,
+   `pg_class.relrowsecurity`), incluidas las de `storage.objects`. Buscar tablas sin policy
+   (RLS activo y cero policies = tabla muerta para el panel) o con `USING (true)` a `public`/`anon`.
+3. **Muestra hostil del cliente de servicio**: 3-4 sitios de `createAdminClient()` donde un
+   token o un id de la URL decida qué se lee/escribe, buscando IDOR.
+4. **Recuento de endpoints**: enumerar `route.ts` bajo `src/app/api/` y contrastar con los 13.
+5. **Rastro de auditoría** (punto 7 de CRITERIOS) y **protección de pasaportes**: qué queda
+   registrado de quién cambió el precio, cuándo salió el correo, qué versión aceptó el cliente;
+   y retención/exposición de `comercial-passports`.
+6. Juicio sobre el MEDIO de permisos con dos dueños.
+
+<!-- nota del auditor, se conserva -->
+Lo que el auditor pidió que le revisen:
 
 - El **GRAVE de las copias**: se apoya en que el proyecto está en el plan gratuito de
   Supabase, que **no pude verificar** desde aquí (leer las variables de Railway está
