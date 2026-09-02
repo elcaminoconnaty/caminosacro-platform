@@ -17,8 +17,10 @@
   bien… **menos uno, que se usa 36 veces**: `text-dorado-oscuro` da **2,13** sobre tarjeta blanca donde hace
   falta 4,5 (o 3 si es grande). Y es el color de los KPI de dinero y de los avisos ámbar.
 - **B7.2 Los tres estados que siempre faltan.** Vacío, cargando y error, pantalla por pantalla. Lista las que se quedan mudas.
-  `Estado: en curso` — pantalla por pantalla del panel: si tiene estado vacío con texto propio, si el error de
-  la consulta se muestra o se descarta, y si hay señal de «cargando» en las acciones que tardan.
+  `Estado: hecho` — la mayoría de pantallas tiene los tres estados, y `/seguimiento` los tiene **muy** bien
+  (distingue «sin cotizaciones» de «ninguna coincide con los filtros»). La que se queda muda es **`/finanzas`**,
+  y es la peor de la lista: descarta el error de sus dos consultas y, si fallan, pinta **0 € cobrado, 0 €
+  pagado, 0 € de margen** como si fuera la verdad.
 - **B7.3 Desde el celular.** El expediente, las tablas anchas y el wizard en 390 px. Es donde Nico atiende cuando no está en el escritorio.
   `Estado: pendiente`
 - **B7.4 El expediente de un vistazo.** Abre uno: ¿se sabe en diez segundos qué falta por hacer? Hoy son doce tarjetas apiladas sin jerarquía. Propón el orden y el resumen que faltan.
@@ -65,6 +67,43 @@ fácil de no notar porque en una pantalla buena y con buena luz se lee.
 leyéndose como dorado y pasa AA. Cambiar las 36 clases es un buscar-y-reemplazar. El dorado
 actual se queda para fondos oscuros, rellenos y bordes, donde ya cumple.
 
+### [MEDIO] La pantalla de finanzas descarta sus errores y enseña ceros como si fueran datos — `finanzas/page.tsx:18-21`
+
+Es la pantalla que responde «¿cuánto entró y cuánto salió?», y sus dos únicas consultas se
+leen así:
+
+```ts
+const [{ data: cpRaw }, { data: ppRaw }] = await Promise.all([
+  supabase.from("client_payments").select("amount,currency,amount_eur,account"),
+  supabase.from("provider_payments").select("amount_eur,account"),
+]);
+const clientPays = (cpRaw ?? []) as ClientPay[];
+const providerPays = (ppRaw ?? []) as ProviderPay[];
+```
+
+Ni una de las dos desestructura `error`. Si una falla —sesión caducada, RLS, la base sin
+responder— `?? []` la convierte en una lista vacía y la página **se pinta igual**, sin un
+solo aviso.
+
+Y hay dos formas de que mienta, la segunda peor que la primera:
+
+1. **Si fallan las dos**: «Cobrado 0 €», «Pagado a Pilgrim 0 €», «Margen de caja 0 €». Es
+   evidentemente falso para quien sabe que entró dinero, así que se nota.
+2. **Si falla solo la de proveedores**: `totalPagadoEur = 0` y el **margen de caja pasa a ser
+   igual a todo lo cobrado**. Un número grande, redondo y creíble, que nadie tiene motivo
+   para dudar. Ese es el modo de fallo caro.
+
+Es exactamente el patrón que B1 ya encontró en el asistente —«un catálogo que no responde se
+veía igual que un catálogo vacío», y allí **sí se arregló**— pero aquí sobre la pantalla de
+dinero. Y se junta con lo que B2 dejó dicho: que `finanzas` es una de las tres copias de la
+regla de «Cobrado», y que los pagos a Pilgrim casi no se registran, así que esa pantalla ya
+parte de una base frágil.
+
+**Propuesta:** la misma que se aplicó en `cotizaciones/nueva/page.tsx`: recoger los dos
+`error` y, si alguno falla, un aviso rojo arriba diciendo qué no se pudo leer — y **no pintar
+los KPI**, porque un cero es una afirmación. Es el arreglo más barato de todo B7 y protege el
+número más caro.
+
 ### [MENOR] Los estados (error, aviso, neutro) no están en el sistema: son clases sueltas de Tailwind — todo el frontend del CRM
 
 La paleta **de marca** está perfectamente tokenizada: bosque, dorado, crema, taupe, tinta,
@@ -92,6 +131,30 @@ no se parecen entre sí.
 No rompe nada y por eso es MENOR. **Propuesta:** cuatro tokens más —`--color-error`,
 `--color-error-bg`, `--color-aviso`, `--color-aviso-bg`— elegidos con el contraste ya
 calculado, y sustituir. Es el mismo trabajo que ya se hizo bien con la marca.
+
+### Lo que sí está bien: los tres estados, pantalla por pantalla
+
+Recorridas las 15 pantallas del panel. El resumen honesto es que **solo una se queda muda**, y
+que la principal es un ejemplo de cómo se hace:
+
+- **`/seguimiento` tiene los tres, y el vacío está partido en dos**: «Sin cotizaciones aún» y
+  «Ninguna cotización coincide con los filtros» (`QuotesTable.tsx:277-281`). Esa distinción es
+  la que casi nadie hace y es justo la que evita que alguien crea que perdió los datos cuando
+  lo que tiene es un filtro puesto. Además el error de carga tiene mensaje **específico** para
+  el caso del schema no expuesto (`page.tsx:101-109`), que es el fallo real que se sufrió.
+- **`/catalogo`, `/hoteles`, `/clara`, `/tokens` y `/calendario`** recogen y muestran el error
+  de sus consultas.
+- **`cotizaciones/nueva`** lo tiene desde el arreglo de B1: distingue «el catálogo está
+  vacío» de «el catálogo falló», y avisa expresamente de que no se teclee un precio a mano
+  dando por hecho que la tarifa no existe.
+- **El estado «cargando» está donde tarda**: el botón de crear se deshabilita y cambia a
+  «Creando…» (`Wizard.tsx:710-713`), las filas ocupadas van en opacidad
+  (`QuotesTable.tsx:229`), y el buscador de cliente por teléfono tiene sus tres estados
+  («Buscando…», «✓ Cliente existente», «Cliente nuevo»).
+- **`/cotizaciones` no necesita los tres estados**: son 24 líneas sin datos, una portada que
+  manda a `/seguimiento` y explica por qué («el listado completo vive en Seguimiento»). Está
+  bien resuelta, no es un hueco.
+- **`/isabel` es un placeholder declarado**, no una pantalla a medias: dice lo que es.
 
 ### Lo que sí está bien: los contrastes de todo lo demás
 
