@@ -24,9 +24,10 @@
   redondeando a precio comercial. Lo único: la bitácora del catálogo **no dice quién** en 40 de sus 67
   entradas.
 - **B5.3 Rutas sin etapas.** Las de bici desde Oporto y Oviedo no tienen etapas cargadas. Mira qué sale en el PDF y en el prellenado de la documentación cuando faltan.
-  `Estado: en curso` — inventario de qué rutas activas no tienen etapas, y **renderizando el PDF de verdad**
-  con una de ellas para ver qué sale en el itinerario, en el cuadro de días/noches/km y en el prellenado de
-  la documentación de viaje.
+  `Estado: hecho` — **el código lo resuelve bien**: el PDF pone «—» en etapas y dice «Itinerario detallado en
+  preparación», y el prellenado devuelve un error claro en vez de una lista vacía. El problema es de datos y
+  es **más grande de lo que dice la tarea**: no son dos rutas de bici, son **cuatro rutas sin etapas y tres
+  de ellas publicadas en la web** — se suma `Portugués desde Vigo`, que es de senderismo.
 - **B5.4 Opcionales.** Precios por año, opcionales activos sin precio, unidades y cantidades. Qué pasa si se desactiva uno que está en cotizaciones vivas.
   `Estado: pendiente`
 - **B5.5 Bicis.** Tarifa por bici × ruta × año, la fianza que no entra al total, el encadenado por `parent_quote_id`.
@@ -100,6 +101,68 @@ usado**, no solo una nota de texto, y escribirlo también cuando el precio se te
 con el año de salida — es la misma columna «Falta» que proponen B2.6 y B2.7; y (c) una
 consulta de arqueo que liste las cotizaciones vivas cuya base no cuadra con el catálogo de su
 año de salida. Con las 12 de 2027 encima, la (c) se puede correr hoy.
+
+### [MEDIO] Tres rutas publicadas en la web se venden sin itinerario — `comercial.route_stages` (dato, no código)
+
+La tarea apuntaba a las dos rutas de bici. Son **cuatro** las rutas activas sin una sola
+etapa cargada, y **tres están publicadas en el cotizador público** (`web = true`):
+
+| ruta | modalidad | web | días/noches | km | etapas |
+|---|---|---|---|---|---|
+| **Portugués Bici Oporto** | bici | **sí** | 7 / 6 | 240 | **0** |
+| **Primitivo Bici Oviedo** | bici | **sí** | 9 / 8 | 311 | **0** |
+| **Portugués desde Vigo** | senderismo | **sí** | 7 / 6 | 100 | **0** |
+| Espiritual desde Tui | senderismo | no | 8 / 7 | 146 | **0** |
+
+`Portugués desde Vigo` no estaba en el enunciado y es la que más llama la atención: es una
+ruta a pie, publicada, con tarifas 2026 completas y sin itinerario.
+
+**Qué sale, renderizado de verdad** (PDF generado con los datos reales de `Portugués Bici
+Oporto`, 2 personas, salida 2-nov-2026):
+
+- El cuadro de arriba sale **correcto y honesto**: «7 días · 6 noches», «240 km», dificultad
+  «Media» y un **«—» en ETAPAS** en vez de un cero o un hueco. Las fechas también cuadran
+  («2 – 8 de Noviembre 2026»), porque sin etapas el cálculo cae en `route.days`, que aquí sí
+  coincide.
+- La sección Itinerario dice: *«Itinerario detallado en preparación. Te lo enviamos confirmado
+  al reservar.»* Es una frase escrita a propósito para este caso, no un fallo.
+- El resto de la página queda en blanco: el documento pierde su parte más vendedora.
+
+**Y el prellenado de la documentación también avisa bien**: `prefillTravelNights` corta con
+«La ruta no tiene etapas con alojamiento cargadas en el catálogo»
+(`travelDocActions.ts:53`), en vez de proponer una lista vacía.
+
+**O sea que no hay ningún hallazgo de código: el hallazgo es comercial.** Hoy un visitante
+puede cotizar y comprar por la web un Primitivo en bici de 9 días y 311 km —una ruta de
+1.000 € largos— y recibir una oferta cuyo itinerario dice «en preparación». El itinerario
+etapa por etapa es lo que se está vendiendo, y en tres de las once rutas publicadas no
+existe. Después, al preparar su documentación de viaje, habrá que teclear las 6 u 8 noches a
+mano porque el prellenado no puede ayudar.
+
+Ninguna de las cuatro tiene cotizaciones todavía, así que **no ha mordido**. Pero están
+publicadas, con precio, y son cotizables hoy.
+
+**Propuesta:** cargar las etapas de las cuatro (es dato, no código), y mientras tanto quitar
+el `web = true` de las tres publicadas para que no se puedan cotizar desde fuera. Y, para que
+no vuelva a pasar, un aviso en `/catalogo` en la ruta que esté publicada con cero etapas —del
+mismo estilo que el que propongo para el año de tarifa incompleto.
+
+### Lo que sí está bien: los itinerarios que existen están completos y bien formados
+
+Comprobado sobre las 27 rutas activas:
+
+- **Todas las rutas con etapas tienen exactamente las noches que dicen tener.** Crucé
+  `routes.nights` contra el número de etapas con `accommodation`, que es el criterio que usa
+  el prellenado (`travelDocActions.ts:51`: «una noche por etapa CON alojamiento; las etapas
+  de "fin de servicios" no lo traen»). En las 23 rutas con itinerario cargado, **la cuenta da
+  exacta en las 23**: cero descuadres. Ese era el fallo silencioso que fui a buscar —una ruta
+  que propusiera 5 noches para un viaje de 7— y no existe.
+- **El patrón «N+1 etapas, N con alojamiento» se respeta sin excepción**: cada ruta tiene una
+  etapa más que noches, que es la de fin de servicios. La disciplina de carga del catálogo es
+  buena.
+- **Los tres consumidores de las etapas degradan bien cuando faltan**: el PDF (mensaje en vez
+  de tabla vacía), el prellenado (error explícito) y el cuadro de estadísticas («—»). Ninguno
+  imprime un cero, un `undefined` ni una tabla con cabecera y nada debajo.
 
 ### [MENOR] La bitácora del catálogo dice qué cambió pero no quién, en 40 de 67 entradas — `comercial.pricing_history` · trigger `pricing_audit`
 
