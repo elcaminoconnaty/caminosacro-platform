@@ -12,7 +12,9 @@
 ## Tareas
 
 - **B4.1 El punto único de fallo.** Si n8n o Brevo caen, ¿qué ve quien pulsa enviar? ¿Hay reintento, cola o se pierde? Un `ok` que no prueba nada ya causó tres solicitudes dadas por enviadas que nunca llegaron.
-  `Estado: pendiente`
+  `Estado: en curso` — leyendo `lib/email/webhook.ts` de punta a punta: qué se considera éxito, qué pasa con
+  un timeout o un 5xx de n8n, si hay reintento o cola, y qué ve en pantalla quien pulsó enviar. Cruce con
+  `email_log` en producción para ver si el registro distingue enviado de intentado.
 - **B4.2 `email_log` sirve para lo que se creó.** ¿Registra todos los caminos? ¿Se puede reconstruir qué se mandó, a quién y con qué? El HTML guardado hace crecer la tabla: mira cuánto y si importa.
   `Estado: pendiente`
 - **B4.3 Plantillas y variables.** Una `{{variable}}` sin valor deja un hueco en el correo del cliente. Busca las que puedan quedar vacías y los textos que afirman cosas que ya no son ciertas.
