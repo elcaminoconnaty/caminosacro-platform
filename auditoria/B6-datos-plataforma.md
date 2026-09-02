@@ -34,8 +34,10 @@
   con acceso dinámico es invisible a un grep: los once endpoints de BayMax devuelven 401 sin que nada diga
   por qué. Y `APP_BASE_URL` se comporta de **tres maneras distintas** cuando falta.
 - **B6.5 Los endpoints públicos.** `/api/wp`, `/api/agente`, `/api/cron`: autenticación, límite de peticiones, validación del cuerpo, y qué devuelven cuando algo va mal.
-  `Estado: en curso` — inventario de los endpoints reales y, en cada uno, las cuatro columnas: autenticación,
-  límite de peticiones, validación del cuerpo y qué devuelve al fallar. Lo que B1 ya cubrió no se repite.
+  `Estado: hecho` — **los 13 endpoints del CRM tienen autenticación, sin excepción**, y los topes de página
+  están acotados donde importa. El hueco es de validación de fechas: `/api/agente/cotizaciones` pasa `desde`
+  y `hasta` sin comprobar a la consulta, y una fecha mal formada acaba en un **500 «interno»** — y el
+  consumidor de ese endpoint es **BayMax**, o sea un modelo que no puede corregirse con ese mensaje.
 - **B6.6 Cero tests.** No pidas «más tests». Di **las tres cosas** cuya rotura silenciosa costaría más caro y qué prueba mínima las cubriría.
   `Estado: pendiente`
 - **B6.7 Copias y recuperación.** Qué pasa si alguien borra una cotización por error o se pierde un bucket. Qué hay hoy y qué falta.
@@ -103,6 +105,39 @@ así que el inventario y el código no se pueden contrastar automáticamente.
 exista, para distinguir «clave mal puesta» de «clave sin configurar». Las dos cosas son
 pequeñas y no tocan la seguridad.
 
+### [MENOR] Una fecha mal formada le devuelve a BayMax un 500 que no le dice nada — `api/agente/cotizaciones/route.ts:32-33,50-54`
+
+`GET /api/agente/cotizaciones` acepta `desde` y `hasta` y los mete directamente en la
+consulta:
+
+```ts
+const desde = (url.searchParams.get("desde") ?? "").trim();
+…
+if (desde) consulta = consulta.gte("start_date", desde);
+```
+
+Sin comprobar que sean fechas. Un `desde=2026-9-1`, un `desde=hace un mes` o un
+`desde=2026-13-45` hacen que Postgres rechace la consulta, y el manejo es:
+
+```ts
+if (error) return Response.json({ ok: false, error: "interno" }, { status: 500 });
+```
+
+Es el mismo patrón que B1 levantó en `/api/wp/quote` —un dato mal formado del que llama
+convertido en error de servidor— pero aquí con un agravante propio: **quien consume este
+endpoint es BayMax**, un modelo de lenguaje que arma la URL a partir de lo que Nico le
+escribe por Telegram («las que salen el mes que viene»). Es exactamente el cliente que más
+probablemente mande `2026-9-1` en vez de `2026-09-01`, y el que **más necesita un mensaje
+accionable**: con `{"error":"interno"}` y un 500, el agente no puede saber que el problema es
+suyo ni reintentar bien; lo más probable es que le diga a Nico que la plataforma falló.
+
+Y es una lástima porque el resto del endpoint **sí** valida así de bien: `estado` se
+comprueba con `isQuoteStatus` y devuelve un **422** con `«Estado desconocido: X»`. La pieza
+está ahí al lado.
+
+**Propuesta:** las mismas tres líneas que propone B1 —comprobar que el ISO existe de verdad—
+y devolver 422 con el nombre del parámetro, igual que ya se hace con `estado`.
+
 ### [MENOR] `APP_BASE_URL` hace tres cosas distintas cuando falta — `email/versionWeb.ts:25` · `contractActions.ts:445` · `api/cron/recordatorios-contrato/route.ts:62`
 
 Es la variable que decide a qué dirección apuntan los enlaces que se le mandan al cliente, y
@@ -123,6 +158,44 @@ Va como MENOR porque hoy la variable está puesta y los tres caminos coinciden. 
 con lo de B4.4 —que el respaldo apunta al dominio de Railway y no al de la marca— porque el
 arreglo es el mismo: una sola función que resuelva la base pública, que se plante si no está
 configurada, y que use el dominio de marca.
+
+### Lo que sí está bien: los 13 endpoints, uno por uno
+
+Inventario completo, leído endpoint por endpoint y no por muestreo. Lo que B1 ya cubrió
+(`/api/wp/quote`, `/api/agente/cotizacion`) no se repite aquí; lo que sigue es el mapa entero:
+
+| endpoint | método | auth | tope | validación | al fallar |
+|---|---|---|---|---|---|
+| `/api/wp/quote` | POST | `x-cs-api-key` | 60/h por IP del cuerpo ⚠ (B1) | zod completo | 422 / 409 / 500 (B1) |
+| `/api/wp/lead` | POST | `x-cs-api-key` | sí | zod completo | JSON con motivo |
+| `/api/wp/pricing` | GET | `x-cs-api-key` | — | sin cuerpo | JSON |
+| `/api/agente/cotizacion` | POST | `AGENTE_API_SECRET` | — | zod completo | 422 / 409 / 404 |
+| `/api/agente/cotizacion/[id]` | GET · PATCH | idem | — | zod (10 reglas) | 404 / 422 / 409 |
+| `/api/agente/cotizacion/[id]/opcionales` | POST | idem | — | zod | mensaje accionable |
+| `/api/agente/cotizacion/[id]/bicis` | GET · POST | idem | — | zod | idem |
+| `/api/agente/cotizacion/[id]/correo-cliente` | POST | idem | — | zod | idem |
+| `/api/agente/cotizacion/[id]/correo-pilgrim` | POST | idem | — | zod | idem |
+| `/api/agente/cotizacion/[id]/pdf` | POST | idem | — | sin cuerpo | JSON |
+| `/api/agente/catalogo` | GET | idem | — | sin cuerpo | JSON |
+| `/api/agente/cotizaciones` | GET | idem | `limite` acotado 1..100 | parcial ⚠ (arriba) | 422 / 500 |
+| `/api/cron/recordatorios-contrato` | POST | `CRON_SECRET` | — | sin cuerpo | 401 / 500 con motivo |
+
+- **Autenticación en los 13, sin ninguna excepción**, y las tres familias con secretos
+  **distintos**, con el motivo escrito: «filtrar uno no abre la puerta del otro». Las tres
+  comparan con `timingSafeEqual` y **deniegan si la variable de entorno falta**.
+- **Los topes de página están puestos donde se puede pedir mucho**: `/api/agente/cotizaciones`
+  acota `limite` entre 1 y 100 aunque le manden `999999`, y limita a `MAX_FILAS = 1000` lo que
+  trae de la base, con el razonamiento comentado.
+- **La búsqueda del agente reusa `coincideCotizacion`**, la misma función que el buscador del
+  CRM, «si algo aparece en la pantalla tiene que aparecer por Telegram». Un dato, un sitio.
+- **Los mensajes de error de los endpoints del agente son accionables**, que es lo que un
+  modelo necesita: `sin_tarifas_ano` con el año, `ruta_sin_precio`, `personas_fuera_de_rango`
+  con el rango, `modalidad_desconocida` listando las cuatro válidas. Es una API pensada para
+  que quien la llame pueda corregirse solo — por eso duele más el 500 «interno» de arriba.
+- **`/api/contenido/*` no tiene autenticación propia** y está fuera de alcance (Estudio de
+  Contenido), pero lo comprobé porque cuelga de `/api`: **no está en `PUBLIC_PATHS`**
+  (`proxy.ts:19-22`), así que el proxy de sesión lo protege como cualquier página del panel.
+  No es un agujero.
 
 ### Lo que sí está bien: al navegador no llega ni un secreto
 
