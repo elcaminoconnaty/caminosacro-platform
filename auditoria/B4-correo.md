@@ -718,6 +718,95 @@ una fila en `quotes` sin precio con `status = 'sin_enviar'`— y registrar el en
 `email_log` con `tipo: "lead"`, que ya está declarado. Mientras eso no exista, como mínimo que
 el `console.error` se acompañe de un aviso a Nico por otro canal.
 
+### [Etiqueta confirmada: MEDIO] El secreto del webhook — la etiqueta aguanta, y por una razón que el auditor no usó
+
+Releí el nodo «Validar y Preparar» del workflow `HgErNCbopi95CdiI`. **Todo lo que describe el
+auditor es exacto**: `to`, `subject`, `textContent`, `htmlContent` y `attachment[].url` salen del
+payload sin ninguna validación, y el `sender` está fijo en
+`Camino Sacro <reservas@caminosacro.com>`. La descripción del radio de acción es correcta.
+
+**Contra el argumento de rebaja** («no hay indicio de compromiso y n8n está tras su login»), dos
+hechos que lo desarman:
+
+1. **El login de n8n no protege el webhook.** La URL
+   `https://primary-production-d866.up.railway.app/webhook/cotizacion-correo` es pública y no
+   pide credencial alguna: el propio `Recibir Cotización` lo dice («No credentials required for
+   this webhook»). El login protege *leer* el secreto; no protege *usarlo*. El único control es
+   la cadena.
+2. **Está comprobado que se puede disparar desde fuera con un `curl` a pelo.** Las ejecuciones
+   35875 y 35876 (28-ago, 16:30) son exactamente eso: dos POST desde `curl/8.1.2`, IP
+   residencial colombiana, con `x-webhook-secret: secreto-malo`. Fueron una prueba propia y el
+   nodo las rechazó como debe, pero dejan demostrado que el camino de ataque no es teórico:
+   quien tenga la cadena tiene el emisor.
+
+Y **una vía de fuga que el auditor no vio**, que además cambia la mitigación: el secreto no solo
+sale por `GET /workflows/:id` — sale también por la **API de ejecuciones**. El detalle de la
+ejecución 35875 devuelve el `jsCode` completo del nodo, con el `const SECRET = '…'` literal, y
+la ejecución trae `redaction: { policy: "none" }`. O sea que **cada ejecución guardada es otra
+copia del secreto en claro**, y quitar `workflow:read` a un token no bastaría. Eso hace que la
+propuesta 2 del auditor (sacarlo a `$env`) sea **más** necesaria de lo que él la pintó, y que la
+rotación no sea un «ya puestos»: el histórico de ejecuciones conserva el valor viejo.
+
+**No sube a GRAVE:** hace falta tener el secreto, no hay indicio de que se haya filtrado fuera
+del equipo, y ningún dato de cliente se expone por esta vía. **No baja a MENOR:** la consecuencia
+—phishing firmado con el DKIM de la agencia— no es «deuda que hoy no muerde», es lo único de
+esta auditoría que tarda meses en repararse. **MEDIO es la etiqueta correcta.**
+
+Sobre el orden de la mitigación, coincido con el auditor: la lista blanca de la URL del adjunto
+primero. Añado un tercer paso barato: **poner un Error Workflow** en `HgErNCbopi95CdiI`. Hoy
+`settings` no tiene ninguno, así que un rechazo o un fallo de Brevo deja una ejecución en rojo
+que nadie mira — y el rechazo de un secreto malo es justo la señal que uno querría ver llegar.
+
+### [MEDIO] Un adjunto que Brevo rechaza no se lleva solo el correo del viajero: se lleva también el aviso a Nico — workflow `HgErNCbopi95CdiI`, conexiones
+
+El auditor documentó bien el camino del HEIC (`PASSPORT_TYPES` lo acepta → Brevo devuelve 400 →
+el correo entero muere). Le falta la mitad que lo empeora, y está en las conexiones del
+workflow, no en el código de la app.
+
+«Validar y Preparar» tiene **dos salidas paralelas**: `Enviar por Brevo` y
+`¿Avisar a Reservas?`. Con `executionOrder: v1` y los nodos en `[448,0]` y `[448,192]`, el de
+Brevo corre primero; el nodo HTTP **no tiene `onError`**, así que un 400 aborta la ejecución
+entera. La rama del aviso interno **nunca llega a correr**.
+
+Para el correo de contrato firmado eso importa mucho, porque ese payload **sí** pide aviso (no
+manda `aviso: false`) y su aviso es el `Firmó {nombre} — {code}` con el hash SHA-256. Resultado
+concreto: **el viajero sube un pasaporte HEIC, firma, y ni él recibe su copia ni Nico recibe el
+aviso de que alguien firmó.** Los dos únicos avisos del evento se apagan con el mismo 400, y
+como no hay fila en `email_log` (hallazgo anterior) no queda absolutamente nada. El único rastro
+sería una ejecución roja en n8n que, sin Error Workflow, nadie mira.
+
+Es el mismo hallazgo del auditor pero con el radio completo, y es lo que a mi juicio lo sostiene
+en MEDIO sin discusión.
+
+**No se toca** (es el workflow en producción). **Propuesta:** invertir el orden —el aviso interno
+antes que Brevo— o poner `onError: continueRegularOutput` en «Enviar por Brevo» para que el
+aviso salga igual. Y, del lado de la app, lo que el auditor ya propuso: llamar a
+`adjuntosNoSoportados()` antes de mandar el contrato firmado, que es lo que evita el 400 de raíz.
+
+### [MENOR] La columna `active` de las plantillas solo la mira uno de los dos caminos — `seguimiento/[id]/page.tsx:153` vs `quoteEmail.ts:33-37`
+
+El auditor elogia que los dos constructores de variables «no han divergido» y lo comprueba clave
+por clave. Es cierto. Pero comprobó las variables, no la **consulta**, y ahí sí divergen:
+
+```ts
+// quoteEmail.ts:33  — el camino automático
+.from("email_templates").select("subject,body_md").eq("slug","cotizacion_enviada").eq("active", true)
+// page.tsx:153      — la tarjeta del CRM
+.from("email_templates").select("subject,body_md").eq("slug","cotizacion_enviada")   // sin active
+```
+
+Poner `active = false` en `cotizacion_enviada` —que es lo que cualquiera haría para «apagar» una
+plantilla— produce dos comportamientos opuestos: la tarjeta del CRM **la sigue mostrando y
+enviando**, y los caminos automáticos (`webQuote`, `cotizar/actions`, el borrador de BayMax)
+devuelven `null` y **dejan de mandar correo en silencio**, porque `armarCorreoCotizacion` exige
+plantilla y cotización o no devuelve nada. Un interruptor que apaga lo que no debía y deja
+encendido lo que sí.
+
+Comprobado en la base: hay **dos** plantillas, `cotizacion_enviada` y `recordatorio_pago`, y las
+**dos** están `active = true`. Nadie ha usado el interruptor todavía, que es por lo que no ha
+mordido. **Propuesta:** añadir `.eq("active", true)` en `page.tsx:153`, y que la tarjeta muestre
+un aviso si no hay plantilla activa en vez de caer al respaldo mínimo sin decirlo.
+
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
 
