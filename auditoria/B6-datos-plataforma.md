@@ -44,7 +44,8 @@
   plantilla de correo use una variable que nadie produce. Las tres ya se han roto de verdad —están
   documentadas en B1, B3 y B4— y las tres se cubren con **una tarde y un solo `npm i -D vitest`**.
 - **B6.7 Copias y recuperación.** Qué pasa si alguien borra una cotización por error o se pierde un bucket. Qué hay hoy y qué falta.
-  `Estado: pendiente`
+  `Estado: en curso` — qué respaldo tiene de verdad el proyecto de Supabase (plan, retención, PITR), qué se
+  puede recuperar de un borrado accidental y qué no, y si los buckets entran en esa copia.
 
 ---
 
