@@ -542,8 +542,13 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente` — **sin empezar a propósito**, igual que en B3 y B4: la auditoría la
-escribió este mismo agente. Lo que más agradecería que revisen:
+`Estado: en curso` — crítico independiente. Plan: (1) rehacer contra producción los cuatro
+números del bloque (2 de 11 rutas con 2027, cero tarifas bajo costo en 74 filas, 26 % de
+cobertura de hoteles con 6/6 en Sarria, 4 rutas sin etapas); (2) recalcular la cobertura
+ejecutando `hotelParaLugar` de verdad, no con SQL; (3) juzgar las etiquetas de la fianza y
+de `errors.ts`; (4) buscar el GRAVE que falta. Escribo según avanzo.
+
+Lo que la auditoría pedía que revisen:
 
 - El **MEDIO de la fianza ausente del contrato**: si merece esa etiqueta dado que aún no hay
   ningún contrato de bici firmado.
