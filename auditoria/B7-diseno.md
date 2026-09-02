@@ -22,8 +22,11 @@
   y es la peor de la lista: descarta el error de sus dos consultas y, si fallan, pinta **0 € cobrado, 0 €
   pagado, 0 € de margen** como si fuera la verdad.
 - **B7.3 Desde el celular.** El expediente, las tablas anchas y el wizard en 390 px. Es donde Nico atiende cuando no está en el escritorio.
-  `Estado: en curso` — anchos mínimos y desbordes horizontales, qué columnas quedan fuera de pantalla en 390 px,
-  tamaño de los objetivos tocables y si la navegación funciona sin escritorio.
+  `Estado: hecho` — **en el celular no hay navegación.** La barra lateral es `hidden md:flex`, o sea que
+  desaparece por debajo de 768 px, y **no hay nada que la sustituya**: ni menú, ni cajón, ni pestañas. El
+  único control de la barra superior es «Salir». En un teléfono se puede leer la pantalla en la que uno
+  esté y salir; para ir a cualquier otra hay que teclear la URL. Las tablas sí desbordan con scroll, que
+  es lo correcto.
 - **B7.4 El expediente de un vistazo.** Abre uno: ¿se sabe en diez segundos qué falta por hacer? Hoy son doce tarjetas apiladas sin jerarquía. Propón el orden y el resumen que faltan.
   `Estado: pendiente`
 - **B7.5 Los módulos pequeños.** `finanzas` (134 líneas), `calendario`, `tokens`, `clara`, `isabel` (un placeholder). Cuáles aportan, cuáles estorban y cuál merece crecer.
@@ -67,6 +70,45 @@ fácil de no notar porque en una pantalla buena y con buena luz se lee.
 `--color-dorado-texto` alrededor de `#8a6410` da ~5,3 sobre blanco y ~5,0 sobre crema, sigue
 leyéndose como dorado y pasa AA. Cambiar las 36 clases es un buscar-y-reemplazar. El dorado
 actual se queda para fondos oscuros, rellenos y bordes, donde ya cumple.
+
+### [MEDIO] En el celular no hay forma de navegar: la barra lateral desaparece y no la sustituye nada — `components/shell/Sidebar.tsx:32` · `(dashboard)/layout.tsx`
+
+El shell del panel tiene **dos** componentes y nada más:
+
+```tsx
+<div className="min-h-screen flex bg-crema text-fg">
+  <Sidebar />                    {/* className="hidden md:flex w-60 …" */}
+  <div className="flex-1 flex flex-col min-w-0">
+    <Topbar email={…} />         {/* TRM · correo · botón Salir */}
+    <main …>{children}</main>
+  </div>
+</div>
+```
+
+`Sidebar` es **`hidden md:flex`**: por debajo de 768 px no se dibuja. Y `Topbar` no tiene
+navegación — contiene la TRM del día, el correo del usuario y un botón **«Salir»**. Buscado
+en todo el shell y en el layout: **no hay hamburguesa, ni cajón, ni pestañas, ni un solo
+`md:hidden` de navegación**.
+
+O sea que en un teléfono de 390 px, dentro del CRM:
+
+- se ve la pantalla en la que uno haya entrado;
+- el único control de navegación disponible es **cerrar sesión**;
+- para pasar de `/seguimiento` a `/catalogo`, a `/finanzas` o a crear una cotización hay que
+  **escribir la URL a mano**.
+
+Y CRITERIOS dice que el celular es donde Nico atiende cuando no está en el escritorio. B2 ya
+había rozado esto al anotar que las once columnas de la tabla obligan a arrastrar de lado;
+el problema real es anterior: **no se puede llegar a la tabla**.
+
+Va como MEDIO por la letra del TABLERO —no se pierde plata ni lo ve un cliente— pero **por
+impacto diario es lo más grande de B7**: no es que una pantalla se vea apretada, es que el
+producto no se puede usar en el dispositivo donde se atiende.
+
+**Propuesta:** la más barata que resuelve el 90 % es una fila de enlaces en la `Topbar`,
+visible solo en móvil (`md:hidden`), con las cuatro pantallas de todos los días —Seguimiento,
+Nueva cotización, Catálogo, Finanzas—. Son unas quince líneas y no toca el escritorio. Un
+cajón con hamburguesa es mejor y cuesta una tarde; la fila de enlaces se puede tener hoy.
 
 ### [MEDIO] La pantalla de finanzas descarta sus errores y enseña ceros como si fueran datos — `finanzas/page.tsx:18-21`
 
@@ -132,6 +174,28 @@ no se parecen entre sí.
 No rompe nada y por eso es MENOR. **Propuesta:** cuatro tokens más —`--color-error`,
 `--color-error-bg`, `--color-aviso`, `--color-aviso-bg`— elegidos con el contraste ya
 calculado, y sustituir. Es el mismo trabajo que ya se hizo bien con la marca.
+
+### Lo que sí está bien: lo demás del móvil está contemplado
+
+Salvo la navegación, el trabajo responsive está hecho y no es de adorno:
+
+- **Las tablas anchas desbordan con scroll propio, no rompen la página**: `overflow-x-auto`
+  en la tabla de Seguimiento (`QuotesTable.tsx:210`), en la de bicis, en la de noches del
+  Documento de Viaje y en los dos paneles de itinerario. El `min-w-0` del contenedor del
+  layout está puesto, que es justo lo que evita que un hijo ancho estire toda la página —un
+  detalle que casi siempre falta.
+- **Hay 80 usos de breakpoints** repartidos (44 `md:`, 19 `sm:`, 15 `lg:`, 2 `xl:`), o sea que
+  las pantallas se pensaron en más de un tamaño, no se dejaron al azar.
+- **Los campos que no deben encogerse tienen ancho mínimo declarado** (`min-w-[220px]` en el
+  buscador, `min-w-[10rem]`/`[14rem]` en los selectores del contrato y del correo a Pilgrim),
+  así que en móvil se apilan en vez de aplastarse.
+- **El `main` reduce su margen en pantallas pequeñas** (`px-6 lg:px-10`), que es el detalle que
+  hace que en 390 px no se pierda un tercio del ancho en aire.
+- **Y el proyecto ya probó de verdad en un teléfono**: `next.config.ts` tiene
+  `allowedDevOrigins` con las redes locales y el comentario cuenta por qué —«imprescindible
+  para probar la firma en un celular de verdad»—, y el `bodySizeLimit` de 15 MB salió de que
+  «la foto de pasaporte de un celular pesa 3-8 MB». La página pública de firma, que es la que
+  usa el cliente, sí está pensada para móvil.
 
 ### Lo que sí está bien: los tres estados, pantalla por pantalla
 
