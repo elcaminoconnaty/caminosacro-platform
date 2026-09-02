@@ -28,9 +28,11 @@
   Salva el caso real que esas 33 se mandan desde la tarjeta del CRM, que enseña el texto antes. Y la
   plantilla `recordatorio_pago` usa `{{saldo_eur}}`, que **no existe en ningún constructor de variables**.
 - **B4.4 Que llegue y no a spam.** Versión en texto plano, tamaño, enlaces, remitente. SPF/DKIM no se pueden comprobar desde aquí: anótalo como verificación pendiente de Nico.
-  `Estado: en curso` — versión en texto plano de los correos maquetados, peso del HTML, enlaces (absolutos,
-  dominio correcto, sin caducar), remitente único, y la lista de verificaciones de dominio que solo puede
-  hacer Nico.
+  `Estado: hecho` — la higiene de entregabilidad está bien: siempre viaja texto plano, el HTML es liviano
+  (11 kB), sin imágenes remotas y con enlaces absolutos que no caducan. Dos cosas: el respaldo del dominio
+  público es la URL de **Railway**, no `caminosacro.com`, y `scripts/n8n_correo_html.md` —la guía del único
+  emisor de correo— **quedó desactualizada y su prueba de regresión hoy fallaría por diseño**. Al final,
+  la lista de verificaciones que solo puede hacer Nico.
 - **B4.5 El secreto compartido.** `QUOTE_EMAIL_WEBHOOK_SECRET` está en claro dentro del nodo de n8n. Evalúa el riesgo real y qué costaría mitigarlo. No lo cambies.
   `Estado: pendiente`
 - **B4.6 El cron de recordatorios.** Qué pasa si corre dos veces el mismo día, si no corre, o si el envío falla a mitad de la lista. ¿Manda duplicados?
@@ -230,6 +232,98 @@ alojamiento reciben descripciones distintas según por dónde se creó su cotiza
 explica el matiz importante («pensión mayormente; donde no haya, hotel») es la que casi nunca
 sale. **Propuesta:** comparar contra el tipo y la habitación por separado, como ya hace
 `modalityToSlug()` en el editor, en vez de contra la etiqueta completa.
+
+### [MENOR] La guía para parchear el único emisor de correo quedó desactualizada — `scripts/n8n_correo_html.md`
+
+El workflow de n8n es el emisor único de **todo** el correo, y `update_workflow` por SDK
+«descarta las credenciales de los dos nodos HTTP», así que los parches se pegan a mano
+siguiendo esa guía. Es, literalmente, el procedimiento sobre el punto único de fallo de la
+plataforma. Su apartado «Después de aplicarlo — probar la regresión» dice, en el paso 2:
+
+> «Reenviar una **cotización** desde el CRM → debe seguir llegando **en texto plano**, con
+> `Cotizacion-….pdf` adjunto.»
+
+y remata: «Los tres últimos no mandan `html`, así que **si alguno cambia de aspecto, el parche
+quedó mal pegado**.»
+
+Eso ya no es cierto. El commit `bba0277` («El correo de la cotización también va maquetado,
+con versión web») hizo que `clientEmail.ts:121` mande `html`, igual que el de documentación.
+Con el parche bien pegado, la cotización **llega maquetada** — y la guía dice que eso
+significa que está mal.
+
+O sea: quien siga el procedimiento al pie de la letra concluirá que rompió el emisor único y
+revertirá un parche correcto, apagando el HTML de los dos correos. **Propuesta:** actualizar
+el paso 2 (la cotización ahora también va maquetada) y dejar la lista de «los que no mandan
+`html`» reducida a contrato y Pilgrim. Es editar dos frases de un documento, no código.
+
+### [MENOR] El dominio público de respaldo es el de Railway, no el de la marca — `lib/email/versionWeb.ts:25-28` · `contrato/[token]/actions.ts:258`
+
+`baseUrlApp()` toma `APP_BASE_URL` y, si no está, cae en un literal:
+
+```ts
+return "https://caminosacro-platform-production.up.railway.app";
+```
+
+Y el aviso interno de la firma trae ese mismo host **escrito a fuego** en el cuerpo del
+correo (`actions.ts:258`), sin pasar por ninguna función.
+
+El correo sale de `reservas@caminosacro.com` y sus enlaces —la versión web, y en el flujo de
+firma el enlace donde se pide **subir el pasaporte**— apuntarían a un `*.up.railway.app`. Un
+dominio de enlace distinto al del remitente es una de las señales que pesan en los filtros de
+correo, y para una persona que pasa el ratón por encima antes de subir su documento de
+identidad, es exactamente la pinta de un fraude.
+
+**Honestidad sobre el alcance:** no pude comprobar qué vale `APP_BASE_URL` en producción —leer
+las variables de Railway está bloqueado desde aquí— así que **puede que hoy ya apunte a
+`caminosacro.com` y esto sea solo el respaldo**. Lo que sí es seguro es que el literal del
+aviso interno es la URL de Railway y que el respaldo del código también. Queda como
+verificación de Nico, abajo. **Propuesta:** que el respaldo sea el dominio de marca y que el
+aviso interno use `baseUrlApp()` en vez del literal.
+
+### Verificaciones que solo puede hacer Nico
+
+No se pueden comprobar desde aquí y conviene que queden apuntadas en un solo sitio:
+
+1. **SPF, DKIM y DMARC de `caminosacro.com`** delegados a Brevo. Sin DKIM firmado por el
+   dominio propio, Gmail marca «enviado por sendinblue.com» bajo el remitente, que es la
+   pinta clásica de suplantación. Es la comprobación de más valor de esta lista.
+2. **`APP_BASE_URL` en Railway**: que apunte al dominio de marca y no al `*.up.railway.app`
+   (ver el hallazgo de arriba).
+3. **Reputación del remitente en Brevo**: si `reservas@caminosacro.com` está verificado como
+   remitente y qué tasa de rebote/spam lleva.
+4. **Si el parche de HTML del workflow está pegado o no** (`scripts/n8n_correo_html.md`). De
+   eso depende que el correo de documentación y el de cotización salgan maquetados o como un
+   muro de texto. Se ve entrando al nodo «Validar y Preparar».
+
+### Lo que sí está bien: la higiene de entregabilidad
+
+Casi todo lo que suele fallar aquí está resuelto, y con el motivo escrito:
+
+- **Siempre viaja una versión en texto plano.** El payload lleva `body` (texto) y `html`
+  aparte, con el comentario correcto en `clientEmail.ts:118-119`: «es lo que ve quien tenga el
+  HTML desactivado, y **ayuda a que el correo no puntúe como spam**». Y el parche del
+  workflow está redactado para **añadir** `htmlContent` dejando `textContent` intacto, no para
+  sustituirlo: el correo sale multiparte, que es lo correcto.
+- **El HTML es liviano y sin imágenes remotas.** Medido en `email_log`: 11 kB de media, 14 kB
+  el mayor — muy por debajo de los ~102 kB donde Gmail recorta el mensaje. Y **cero etiquetas
+  `<img>`** en los dos generadores (`emailHtml.ts` y `travelDocs/html.ts`): todo es texto,
+  tablas y estilos en línea, así que no hay hotlinking, ni píxeles de seguimiento, ni imágenes
+  que el cliente tenga que «mostrar» para entender el correo.
+- **Los enlaces son absolutos y no caducan.** La versión web y las descargas van a rutas
+  propias por token (`/correo/[token]`, `/documentacion/[token]`), no a URL firmadas de
+  Supabase que expirarían: la firma se emite fresca en cada clic (ver B3). Un correo de hace
+  seis meses sigue funcionando.
+- **Remitente único y coherente**: `Camino Sacro <reservas@caminosacro.com>` con `replyTo` a
+  la misma dirección, definido en un solo sitio (el nodo «Validar y Preparar»). No hay flujos
+  mandando desde direcciones distintas.
+- **El modo prueba desvía sin tocar al destinatario real** (`pruebaEmail`), y queda marcado
+  como `prueba` en `email_log`: se puede ensayar un envío de 20 contratos sin escribirle a
+  nadie.
+
+Lo único que **no** hay, y va sin llamarlo hallazgo porque hoy es correcto: ninguna cabecera
+`List-Unsubscribe` ni enlace de baja. Estos correos son transaccionales —una cotización que
+el cliente pidió, un contrato que firmó, su documentación de viaje— y ahí no corresponde. El
+día que salga el primer envío comercial a una lista, sí hará falta.
 
 ### Lo que sí está bien: las plantillas y sus dos constructores
 
