@@ -18,8 +18,10 @@
   cosas: `route_catalogs` tiene 7 filas y **no la lee nadie**, y `contracts` es la **única** tabla hija de
   `quotes` sin índice por `quote_id`. Arreglado de paso un mensaje de error que listaba mal los estados.
 - **B6.2 Permisos.** Todas las tablas tienen una policy `auth_all` para cualquier autenticado. Con dos usuarios da igual; di qué se rompería con un tercero. Y dónde se usa `service_role` y si hace falta.
-  `Estado: en curso` — inventario de las policies reales (¿RLS activo en las 27 tablas?), qué podría hacer
-  una tercera cuenta, y los sitios donde se usa el cliente admin: si cada uno lo necesita de verdad.
+  `Estado: hecho` — RLS **activo en las 27 tablas**, una policy por tabla, todas para `authenticated`, sin
+  una sola excepción; y el cliente de servicio se usa **solo donde no hay sesión** (los 23 sitios
+  revisados uno a uno, ninguno sobra). Con las 2 cuentas de hoy el modelo es correcto. La respuesta a la
+  pregunta de la tarea: una tercera cuenta **no se puede acotar**, entraría viendo los pasaportes.
 - **B6.3 Rendimiento.** El expediente lanza dieciséis consultas por carga. Listados sin paginar, N+1, imágenes sin optimizar. Mide antes de opinar.
   `Estado: pendiente`
 - **B6.4 Secretos y configuración.** Qué claves llegan al navegador, qué hay en `.env`, qué pasa si falta `APP_BASE_URL` en producción.
@@ -34,6 +36,67 @@
 ---
 
 ## Hallazgos
+
+### [MEDIO] No hay forma de dar acceso limitado: una tercera cuenta lo ve todo, incluidos los pasaportes — las 27 policies de `comercial` + las de Storage
+
+El modelo es de una sola pieza y perfectamente uniforme: **RLS activo en las 27 tablas**,
+**una policy en cada una**, y las 27 conceden a `authenticated` sin más condición que estar
+autenticado. Lo mismo en Storage (B3.4): los nueve buckets `comercial-*` dan
+SELECT/INSERT/UPDATE/DELETE a `authenticated`. No hay ni una columna de rol, ni un
+`owner_id`, ni un `auth.uid()` en ninguna condición.
+
+**Con dos cuentas es la decisión correcta** —hoy hay exactamente 2 usuarios en `auth.users`,
+los dos dueños del negocio, y montar permisos finos para ellos sería burocracia—. La
+pregunta de la tarea es qué pasa con un tercero, y la respuesta es concreta: **no hay término
+medio**. Crear una cuenta para una asistente, un contador o un practicante le da, desde el
+primer minuto y sin poder evitarlo:
+
+- las **fotos de pasaporte** de todos los viajeros (bucket `comercial-passports`);
+- todos los contratos firmados, con su `signer_ip` y su firma manuscrita;
+- todos los pagos, saldos y márgenes, y el costo que se le paga a Pilgrim —o sea la
+  estructura de márgenes completa del negocio;
+- capacidad de **borrar** cualquier cotización, con las consecuencias que documenta B3.6.
+
+Y al revés: alguien que solo tenga que cargar precios o preparar documentación de viaje no
+puede tener una cuenta que haga solo eso.
+
+Va como MEDIO y no más porque **hoy no hay daño**: son dos usuarios y los dos son dueños. Lo
+anoto porque el coste de arreglarlo crece con el tiempo —cada tabla nueva hereda el patrón— y
+porque el disparador no es hipotético: la primera contratación lo activa. **Propuesta:** no
+hace falta un sistema de roles. Con una tabla `perfiles(user_id, rol)` y **dos** policies
+distintas en las tres tablas sensibles —`contracts`, `client_payments`, `provider_payments`—
+más el bucket de pasaportes, se cubre el 90 % del riesgo. Decidirlo antes de crear la tercera
+cuenta, no después.
+
+### Lo que sí está bien: el uso del cliente de servicio está justificado en los 23 sitios
+
+Revisé uno a uno los archivos que llaman a `createAdminClient()` y **ninguno sobra**: todos
+son caminos donde, por definición, no hay sesión de usuario que pueda pasar por RLS.
+
+| dónde | por qué no hay sesión |
+|---|---|
+| `/contrato/[token]`, `/documentacion/[token]`, `/correo/[token]` y el descargador | el viajero no tiene cuenta; el token es la autenticación (B3.1) |
+| `/cotizar` (página y acción) | visitante anónimo de la web |
+| `api/wp/**`, `api/agente/**` | servidor a servidor con secreto compartido |
+| `api/cron/recordatorios-contrato` | lo despierta n8n, no una persona |
+| `lib/trm.ts` | lo llama la página pública del cotizador |
+| `lib/quotes/{webQuote,agentQuote}.ts` | los usan los dos anteriores |
+
+Dos comprobaciones que hice esperando encontrar algo y salieron limpias:
+
+- **`lib/quotes/pdf.ts` importa `createAdminClient` pero no lo instancia**: lo usa solo para
+  construir el tipo `ComercialClient`, que es la unión del cliente de sesión y el de servicio.
+  Todas sus funciones **reciben** el cliente por parámetro, así que desde el CRM corre con la
+  sesión de quien lo pidió, y desde el cotizador público con el de servicio. Es el patrón
+  correcto y está bien hecho.
+- **`createAdminClient` falla cerrado**: si `SUPABASE_SERVICE_ROLE_KEY` no está, **lanza**
+  (`admin.ts:5`) en vez de devolver un cliente anónimo que fallaría más tarde con un error
+  incomprensible. Y no persiste sesión ni refresca token, que es lo que toca en un cliente de
+  servidor.
+
+Y el reparto general es sano: **el panel usa `createCommercialClient()`** (sesión, sujeto a
+RLS) y el servicio queda para las puertas públicas. No encontré ni un sitio del dashboard que
+se salte RLS por comodidad.
 
 ### [MENOR] `route_catalogs` tiene datos y no la lee nadie — `comercial.route_catalogs` (migración `0001_init_comercial.sql:262`)
 
