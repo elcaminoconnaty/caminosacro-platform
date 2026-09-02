@@ -34,7 +34,8 @@
   emisor de correo— **quedó desactualizada y su prueba de regresión hoy fallaría por diseño**. Al final,
   la lista de verificaciones que solo puede hacer Nico.
 - **B4.5 El secreto compartido.** `QUOTE_EMAIL_WEBHOOK_SECRET` está en claro dentro del nodo de n8n. Evalúa el riesgo real y qué costaría mitigarlo. No lo cambies.
-  `Estado: pendiente`
+  `Estado: en curso` — leyendo el workflow real para ver cómo se compara el secreto, qué puede hacer quien
+  lo tenga, y si el payload restringe de dónde se descargan los adjuntos. Sin tocar nada.
 - **B4.6 El cron de recordatorios.** Qué pasa si corre dos veces el mismo día, si no corre, o si el envío falla a mitad de la lista. ¿Manda duplicados?
   `Estado: pendiente`
 
