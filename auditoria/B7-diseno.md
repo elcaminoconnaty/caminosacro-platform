@@ -17,7 +17,8 @@
   bien… **menos uno, que se usa 36 veces**: `text-dorado-oscuro` da **2,13** sobre tarjeta blanca donde hace
   falta 4,5 (o 3 si es grande). Y es el color de los KPI de dinero y de los avisos ámbar.
 - **B7.2 Los tres estados que siempre faltan.** Vacío, cargando y error, pantalla por pantalla. Lista las que se quedan mudas.
-  `Estado: pendiente`
+  `Estado: en curso` — pantalla por pantalla del panel: si tiene estado vacío con texto propio, si el error de
+  la consulta se muestra o se descarta, y si hay señal de «cargando» en las acciones que tardan.
 - **B7.3 Desde el celular.** El expediente, las tablas anchas y el wizard en 390 px. Es donde Nico atiende cuando no está en el escritorio.
   `Estado: pendiente`
 - **B7.4 El expediente de un vistazo.** Abre uno: ¿se sabe en diez segundos qué falta por hacer? Hoy son doce tarjetas apiladas sin jerarquía. Propón el orden y el resumen que faltan.
