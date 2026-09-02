@@ -29,7 +29,9 @@
   es **más grande de lo que dice la tarea**: no son dos rutas de bici, son **cuatro rutas sin etapas y tres
   de ellas publicadas en la web** — se suma `Portugués desde Vigo`, que es de senderismo.
 - **B5.4 Opcionales.** Precios por año, opcionales activos sin precio, unidades y cantidades. Qué pasa si se desactiva uno que está en cotizaciones vivas.
-  `Estado: pendiente`
+  `Estado: en curso` — opcionales activos sin precio del año, coherencia de unidades contra cómo se calcula
+  la cantidad, y qué le pasa a una cotización viva cuando se desactiva o se reprecia un opcional que ya
+  tiene contratado.
 - **B5.5 Bicis.** Tarifa por bici × ruta × año, la fianza que no entra al total, el encadenado por `parent_quote_id`.
   `Estado: pendiente`
 - **B5.6 Hoteles.** Módulo recién hecho: duplicados, ciudades que no casan con las etapas, hoteles sin fotos, qué pasa al borrar uno en uso.
