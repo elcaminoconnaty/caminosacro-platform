@@ -18,7 +18,8 @@
   nunca deja una base en cero—, pero **de las 12 solo 2 llevan `price_note`**: el resto se tecleó a mano y
   no queda constancia de con qué año se calculó.
 - **B5.2 Márgenes.** La regla de markup y su aplicación masiva. Comprueba que ninguna tarifa quedó vendiéndose por debajo del costo.
-  `Estado: pendiente`
+  `Estado: en curso` — la regla de markup en `lib/pricing/**`, cómo se aplica en masa, y barrido de las tres
+  tablas de precio (rutas, opcionales y bicis) buscando márgenes negativos o sospechosamente bajos.
 - **B5.3 Rutas sin etapas.** Las de bici desde Oporto y Oviedo no tienen etapas cargadas. Mira qué sale en el PDF y en el prellenado de la documentación cuando faltan.
   `Estado: pendiente`
 - **B5.4 Opcionales.** Precios por año, opcionales activos sin precio, unidades y cantidades. Qué pasa si se desactiva uno que está en cotizaciones vivas.
