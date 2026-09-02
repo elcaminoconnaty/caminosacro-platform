@@ -746,8 +746,7 @@ queda importa.
 
 ## Crítica del experto
 
-`Estado: en curso` — escritas las secciones 1 a 3; faltan el lado del proveedor, el borrado
-de pagos y el veredicto.
+`Estado: hecho` — dos huecos de peso y un reparto de gravedad que corregir. **VEREDICTO: revisar.**
 
 Todo lo que sigue está comprobado contra el código y contra `comercial` en producción (solo
 SELECT). Donde corrijo al auditor, digo con qué. Es un informe bueno: la disciplina de
@@ -874,6 +873,109 @@ Lo verifiqué y aguanta, así que queda dicho para que la revisión no gaste tie
 - Los apartados de filtros/orden/estados vacíos son buen trabajo de oficio y no tengo nada
   que añadirles.
 
+
+### 4. El hueco grande: el bloque mira solo la mitad del dinero
+
+`B2.2` se titula «Pagos, saldos y monedas» y el expediente tiene **cinco** tarjetas de
+dinero, de las cuales dos son del proveedor: «Pagado a Pilgrim» y «Saldo proveedor»
+(`page.tsx:284`). El informe las nombra una vez, de pasada, para decir que los pagos a
+Pilgrim son solo en euros —correcto— y **no vuelve al tema**. Todo el análisis de saldos, y
+todo B2.7, es el lado del cliente.
+
+Lo que se ve al mirar el otro lado, con la misma consulta que el informe hizo para el
+cliente pero cambiando `client_payments` por `provider_payments`:
+
+- Hay **6 pagos a Pilgrim en total, 2.617,00 €**, contra **47.750,00 €** de costo en las
+  cotizaciones no canceladas.
+- **15 salidas en los próximos 60 días con saldo pendiente con Pilgrim, por 23.992,00 €**, y
+  todas menos una con **cero euros pagados al proveedor**. Entre ellas CS-2026-008 y
+  CS-2026-056, que salen **el 5 de septiembre** —dentro de cuatro días—, y **CS-2026-080,
+  7.350,00 €, que sale el 18 de octubre**.
+
+Vale la misma cautela que el informe se aplica a sí mismo en el lado del cliente: casi
+seguro la mayoría de esas quince nunca cuajaron, y lo más probable es que a Pilgrim se le
+pague por fuera del CRM. **Ese es justamente el hallazgo.** Si el CRM no registra lo que se
+le paga al proveedor, entonces «Saldo proveedor» y «Margen real» —dos de las cinco tarjetas
+de la pantalla que se usa todos los días— son cifras sin respaldo, y la conciliación con
+Pilgrim que pide CRITERIOS no existe ni puede existir. El informe verifica al céntimo que
+`cobrado` cuadra y no se pregunta ni una vez si `pagadoPilgrim` significa algo.
+
+Y hay un detalle de esquema que lo confirma: `provider_payments` no tiene `receipt_number`
+ni `currency` ni `trm` —bien lo segundo— pero tampoco **ninguna referencia a la factura de
+Pilgrim más allá de un `invoice_number` de texto libre**, y nada la enlaza con el correo de
+pedido que B1 documentó (`pilgrimEmail.ts`). Pedir el cupo, recibir la factura y pagarla son
+tres cosas que la plataforma toca por separado y no cruza.
+
+**Lo que le pido a la revisión:** un hallazgo propio del lado del proveedor. No hace falta
+diseñar la conciliación —eso es B6— pero sí decir que la mitad proveedor del expediente hoy
+no se alimenta, con los números de arriba, y que por tanto «Margen real» es el KPI menos
+fiable de la pantalla. Es tan «Pagos y saldos» como lo otro.
+
+### 5. Lo que nadie miró: borrar un pago no deja rastro, y reutiliza el número de recibo
+
+`deleteClientPayment` (`actions.ts:190-203`) hace un `delete` duro de la fila **y borra el
+PDF del recibo de Storage** (`removeStoragePath`). No hay copia, no hay papelera, no hay
+`deleted_at`. Y ninguna de las dos tablas de pagos tiene columna de autor: las columnas de
+`client_payments` son `id, quote_id, paid_at, amount, currency, trm_eur_cop, amount_eur,
+method, reference, receipt_path, notes, created_at, account, receipt_number` — ni un
+`created_by`. O sea que sobre el dinero **no se puede responder quién lo registró ni quién lo
+borró**, que es el punto 7 de CRITERIOS y el mismo agujero que B1 levantó para `quotes`.
+
+Pero lo que de verdad no vi anotado en ningún sitio es esto: **el número de recibo se
+recalcula desde las filas que sobreviven.**
+
+```ts
+for (const p of payments || []) { const m = /-(\d+)$/.exec(p.receipt_number || ""); if (m) maxN = Math.max(maxN, Number(m[1])); }
+receiptNumber = `REC-${quote.code}-${maxN + 1}`;
+```
+
+(`actions.ts:225-233`.) El número sale del máximo de los recibos **actuales** de esa
+cotización. Si se emite el recibo `REC-CS-2026-004-2`, se le entrega al cliente, se borra ese
+pago y se registra otro, el siguiente recibo vuelve a salir con el **mismo número**. Dos
+papeles distintos, con membrete, con el mismo identificador, y sin forma de saber cuál es
+cuál porque el primero ya no existe en la base. Para un documento que acredita un pago, eso
+no es un detalle cosmético.
+
+Hoy no ha pasado —los seis pagos están vivos y CS-2026-004 tiene sus dos recibos
+correlativos—, así que va como MEDIO, no como GRAVE; pero es barato de cerrar (un contador
+en `quote_codes` o no reutilizar nunca, guardando el consecutivo aparte) y caro de explicar
+si pasa.
+
+### 6. Prioridad y forma
+
+- **Fundir** el GRAVE del pago sin convertir con el MEDIO de CS-2026-019, como digo en §1c.
+  Queda un GRAVE con evidencia viva en vez de un GRAVE latente y un MEDIO enterrado.
+- **Subir a hallazgo propio** el lado del proveedor (§4). Yo lo pondría MEDIO por la letra
+  del TABLERO —engaña, no pierde plata por sí solo— pero con el aviso de que «Margen real»
+  es hoy un número sin respaldo.
+- **Añadir** el MEDIO del borrado de pagos y el número de recibo reutilizado (§5).
+- **Corregir** el titular de B2.7 y la propuesta (a) para que digan qué pasa con las 11 sin
+  `start_date` (§2), y añadir CS-2026-001 como el caso que hoy no ve nadie.
+- **Advertencia de orden, no de etiqueta:** igual que en B1, el hallazgo de los recordatorios
+  está bien clasificado pero es el que más plata mueve. Su propuesta (a) —la columna
+  «Falta»— sigue siendo el mejor retorno por línea de los dos bloques auditados hasta ahora,
+  y ahora tiene un segundo cliente: la misma columna resuelve «sin fecha de salida» y «no le
+  hemos pagado a Pilgrim».
+- **Lo que NO hay que tocar:** el apartado de filtros, búsqueda y orden; el arqueo de lo
+  derivado; y la lectura de que no hace falta una máquina de estados. Están bien y son
+  trabajo verificado.
+
+VEREDICTO: revisar
+
+Concreto, para que la ronda sea una sola:
+
+1. Fundir el GRAVE del pago sin convertir con el MEDIO de CS-2026-019 en un solo GRAVE con
+   caso vivo, añadiendo que `updateClientPayment` puede **corromper un pago hoy correcto** y
+   que `accountCurrency()` está exportada sin llamadores.
+2. Hallazgo nuevo del **lado del proveedor**: 6 pagos por 2.617 € contra 47.750 € de costo,
+   15 salidas a 60 días con 23.992 € sin registrar pago a Pilgrim, y «Margen real» y «Saldo
+   proveedor» como KPI sin respaldo.
+3. Hallazgo nuevo: **borrar un pago** no deja rastro, borra el PDF del recibo y hace que el
+   siguiente recibo **reutilice el número**; ninguna tabla de dinero tiene autor.
+4. Corregir B2.7: son 8 salidas **de las 34 con fecha**; 11 de 45 no tienen `start_date` y
+   quedan fuera de todo lo que se propone. CS-2026-001 —200 € cobrados, 200 € pagados a
+   Pilgrim, 205 € pendientes, sin fecha de salida— entra como caso.
+5. Lo demás se sostiene y no se reabre.
 
 ---
 
