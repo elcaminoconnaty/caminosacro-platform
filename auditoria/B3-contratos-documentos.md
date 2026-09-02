@@ -23,7 +23,11 @@
   único: el `doc_hash` se guarda y **no lo lee nadie** — no hay forma de verificar la integridad desde
   el producto.
 - **B3.3 Los cinco generadores de PDF.** Textos largos, nombres larguísimos, 20 viajeros, campos vacíos. Busca desbordes, solapes y datos que se quedan en blanco sin avisar. Renderiza de verdad con `scripts/docs_smoke.tsx`.
-  `Estado: pendiente`
+  `Estado: hecho` — renderizados los cinco con datos hostiles: **ninguno revienta** y los campos vacíos se
+  resuelven con elegancia. Dos defectos de maquetación: la cabecera del **documento de viaje se vuelve
+  ilegible** con un nombre de ruta de más de ~60 caracteres (el titular y los datos del cliente se pisan),
+  y **ningún PDF desactiva el guionado** de `@react-pdf`, así que ya hoy se parten palabras a la mitad con
+  una ruta real del catálogo.
 - **B3.4 Storage.** Rutas y políticas de los buckets, archivos huérfanos, qué se borra al borrar una cotización. **Pasaportes**: quién puede llegar a ellos y por cuánto tiempo.
   `Estado: pendiente`
 - **B3.5 Coherencia entre los tres documentos.** Cotización, contrato y documentación de viaje salen de los mismos datos: comprueba que dicen lo mismo (precio, fechas, personas, condiciones) en un expediente real.
@@ -86,6 +90,106 @@ navegador y no de la plataforma, la página de documentación es **de token perm
 caduca nunca, solo se revoca), y la vacuna es una entrada en `headers()` de `next.config.ts`
 que además cubriría lo que se añada mañana. El propio proyecto ya demostró que sabe hacerlo,
 en `/correo`.
+
+### [MEDIO] La cabecera del documento de viaje se vuelve ilegible con un nombre de ruta largo — `src/lib/travelDocPdf.tsx` (cabecera fija de página)
+
+La cabecera que se repite en todas las páginas del Documento de Viaje pone a la izquierda el
+nombre de la ruta en versalitas y a la derecha el bloque del cliente (nombre, teléfono,
+correo). Los dos son texto libre y **no hay recorte ni ancho máximo**: cuando el nombre de la
+ruta pasa de unos **60 caracteres**, el de la izquierda se mete por debajo del de la derecha
+y los dos quedan impresos uno encima del otro.
+
+Renderizado de verdad, no leído (`@react-pdf`, misma versión del proyecto):
+
+| nombre de ruta | caracteres | resultado |
+|---|---|---|
+| `Francés desde Sarria` | 20 | limpio |
+| `Camino Portugués - Viana do Castelo (personalizada)` — **el más largo del catálogo real** | 51 | limpio |
+| `Camino Portugues Viana do Castelo personalizada grupo colegio ABC` | 65 | **se pisan**: «…GRUPO COLE**Cliente: Ad**riana del Socorro…» |
+| el de la prueba hostil | 89 | ilegible por completo |
+
+**Honestidad sobre el caso:** con los datos de hoy no pasa. La ruta más larga en `routes`
+tiene 51 caracteres y el nombre de cliente más largo 35, y esa combinación sale bien. Lo que
+lo hace alcanzable —y no una hipótesis— es que **nada impide un nombre más largo**: las rutas
+personalizadas se crean desde el asistente con el nombre a mano, y B1 ya dejó anotado que
+`nueva/actions.ts` no pone tope de longitud ni a `route_name` ni a `client_name`. El propio
+catálogo enseña hacia dónde va la cosa: el nombre más largo que existe ya lleva un
+«(personalizada)» pegado al final. Un «(personalizada)» más un «grupo colegio X» y se cruza
+el umbral.
+
+Y el documento donde revienta es el peor de los cinco: el Documento de Viaje es **el que el
+peregrino lleva en el celular durante el Camino**, y la cabecera rota se repite en todas sus
+páginas.
+
+**Propuesta:** un `maxLines={1}` con `textOverflow: "ellipsis"` en el bloque de la izquierda,
+o darle un ancho fijo a las dos columnas de la cabecera para que ninguna pueda invadir la
+otra. Y, aguas arriba, el tope de longitud en `route_name` que B1 ya propuso.
+
+### [MENOR] Ningún PDF desactiva el guionado, y ya se parten palabras con datos reales — los cinco generadores
+
+`@react-pdf/renderer` corta palabras por la mitad con guion cuando no caben, y solo deja de
+hacerlo si se registra un `Font.registerHyphenationCallback`. Buscado en todo `src/`: **no
+hay ninguno**. Así que el comportamiento está activo en los cinco documentos.
+
+No es teórico y no hace falta un dato inventado para verlo. Con la ruta **real** `Camino
+Portugués - Viana do Castelo (personalizada)`, la portada de la cotización imprime el titular
+en dos líneas partiendo la última palabra:
+
+> Camino Portugués - Viana do Castelo **(per-**
+> **sonalizada)**
+
+Y en el Documento de Viaje, la etiqueta de alojamiento `Pensión · 9 dobles + 2 individuales`
+sale como **«2 individ-uales»**. En un titular de 30 pt de la portada de una oferta comercial
+eso se ve, y en español el guionado por sílabas que hace la librería no es el correcto (parte
+donde cabe, no donde toca).
+
+**Propuesta:** una línea, una vez, junto al registro de fuentes:
+`Font.registerHyphenationCallback((w) => [w])`, que desactiva el corte y manda la palabra
+entera a la línea siguiente. Es reversible y no cambia ningún dato.
+
+### [MENOR] En la portada de la cotización, el código de cotización se sube encima de la foto — `src/lib/quotePdf.tsx:563` (`coverEyebrow`)
+
+El bloque de texto de la portada está anclado abajo y crece hacia arriba. Con un titular de
+dos líneas **y** un nombre de cliente de tres, el primer renglón —`COTIZACIÓN DE VIAJE ·
+CS-2026-…`, en dorado de 7 pt— se sale de la banda verde y queda impreso **sobre la
+fotografía**, donde no se lee. Comprobado renderizando: con titular corto está holgado, con
+titular largo y cliente corto queda al filo, y con los dos largos se monta.
+
+Va como MENOR y no como MEDIO porque hace falta bastante más de lo que hay en producción
+(la peor combinación real —51 y 35 caracteres— sale perfecta) y porque lo que se pierde es el
+código de la cotización, que aparece otras veces en el documento. Mismo origen que el
+hallazgo de arriba y mismo tipo de arreglo: reservarle alto al bloque o limitar las líneas
+del titular.
+
+### Lo que sí está bien: los cinco generadores aguantan lo que se les eche
+
+Renderizados de verdad contra `@react-pdf`, siete combinaciones hostiles —nombre de 92
+caracteres, ruta de 89, notas de más de 700 palabras, 20 viajeros, 20 noches de itinerario,
+plan financiado de 12 cuotas con pagaré, y dos documentos con **todos** los campos
+opcionales vacíos—:
+
+- **Ninguno lanzó una excepción.** Los siete produjeron PDF válido: cotización hostil (6
+  págs.), cotización vacía (5), recibo (1), documento de viaje de 20 noches (18), asistencia
+  (9), contrato financiado con sello de firma (8) y contrato vacío (5).
+- **Los campos vacíos no se quedan mudos: se resuelven.** La cotización sin ruta, sin fechas,
+  sin cliente y sin total imprime «Camino de Santiago» como titular de respaldo, omite la
+  línea de fechas en vez de dejar un rango roto, y pone «—» donde van el peregrino y la
+  validez. No hay ni un hueco en blanco sin explicar ni un `undefined` impreso.
+- **Los 20 viajeros y las 20 noches paginan bien.** El itinerario del Documento de Viaje
+  reparte las noches por páginas sin cortar una tarjeta a la mitad, y las «Observaciones» de
+  más de 700 palabras fluyen dentro de su caja sin desbordarla ni tapar lo de abajo.
+- **El recibo aguanta el nombre de 92 caracteres** envolviéndolo en dos líneas, y el bloque
+  de cifras —monto recibido, TRM aplicada, equivalente, total, abonado, saldo— queda alineado
+  y legible con un pago en COP de ocho dígitos.
+- **El sello de firma del contrato no se descuadra** con un user-agent de iPhone completo: lo
+  recorta a 160 caracteres (`contractPdf.tsx:228`), que es justo lo que hace falta para que no
+  empuje el resto del sello fuera de la página.
+
+Un detalle que **no** es un fallo, por dejarlo dicho para quien lo vea y lo reporte: en el
+recibo conviven «9194,25 EUR» y «24.680,50 EUR» sin punto de millar en el primero. No es una
+incoherencia del código —los dos salen del mismo `Intl.NumberFormat("es-ES")`— sino la regla
+del español, que **no agrupa los números de cuatro cifras**. Está bien como está; cambiarlo
+sería apartarse de la norma a propósito.
 
 ### [MENOR] El hash del contrato se guarda y no lo lee nadie — `contrato/[token]/actions.ts:185` · `contractPdf.tsx:230`
 
