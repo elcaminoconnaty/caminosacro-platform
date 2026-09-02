@@ -557,7 +557,168 @@ escribir nada). Plan numerado, escribo cada conclusión en cuanto la tengo:
 5. Contra `CRITERIOS.md` punto 8: qué trae de serie un CRM de agencia en catálogo, tarifas y
    proveedores que aquí falte.
 
-Voy por: (3) y (5). Hechos: (1) los cuatro números, (2) la cobertura ejecutada, (4) el GRAVE.
+Voy por: cerrando. Hechos: (1) números, (2) cobertura ejecutada, (3) etiquetas, (4) GRAVE, (5) oficio.
+
+---
+
+### [MEDIO] La protección de borrado que el bloque da por buena cubre 12 de las 45 cotizaciones — `comercial.quotes.route_id` · `travelDocActions.ts:41`
+
+La sección «Lo que la base protege» es la parte del bloque que más confianza transmite y es
+donde más flojea, porque **está medida sobre el esquema y no sobre los datos**. La tabla de
+claves foráneas es correcta: `quotes.route_id` es `NO ACTION` y Postgres rechaza borrar una
+ruta que tenga cotizaciones. Lo que no se comprobó es cuántas cotizaciones tienen esa columna
+llena.
+
+**En producción, `route_id` está en `NULL` en 33 de las 45 cotizaciones.** El enlace real entre
+un expediente y su ruta es, en el 73 % de los casos, **el texto de `route_name`**:
+
+| ruta | cotizaciones | con `route_id` | **solo por nombre** |
+|---|---|---|---|
+| Francés desde Sarria | 21 | 5 | **16** |
+| Portugués desde Tui | 8 | 3 | **5** |
+| Costero desde Baiona | 4 | 1 | **3** |
+| Frances desde Sarria 6 etapas (Melide) | 2 | **0** | **2** |
+| Portugués desde Porto | 1 | **0** | **1** |
+| Francés desde Saint Jean Pied de Port | 1 | **0** | **1** |
+| Camino Portugués – Viana do Castelo (personalizada) | 1 | **0** | **1** |
+| *«Portugues desde Tui»* (sin tilde, **no existe en el catálogo**) | 1 | **0** | **1** |
+| *(sin `route_name`)* | 3 | 0 | — |
+| Francés Bici Ponferrada | 2 | 2 | 0 |
+| Costero desde Porto | 1 | 1 | 0 |
+
+Tres consecuencias, todas comprobables:
+
+1. **Cuatro rutas con cotizaciones se pueden borrar hoy sin que la base diga nada**, porque
+   ninguno de sus expedientes tiene `route_id`: las dos del «6 etapas (Melide)», `Portugués
+   desde Porto`, `Saint Jean` y la personalizada. La pantalla no avisa (ése es el MENOR de
+   `errors.ts`) **y la base tampoco**, porque no hay a qué agarrarse. El bloque dice «la base
+   sí protege lo importante»; lo correcto es «la base protege las 12 cotizaciones que tienen
+   la columna llena, y hay 33 que no».
+2. **Renombrar una ruta rompe sus expedientes en silencio.** `updateRoute` actualiza
+   `routes.name` y **no toca `quotes.route_name`** (`catalogo/actions.ts`, `updateRoute`), y
+   `prefillTravelNights` busca la ruta así: `.from("routes").eq("name", quote.route_name)`
+   (`travelDocActions.ts:41`) — **por nombre, teniendo `quotes.route_id` a mano**. Renombrar
+   `Frances desde Sarria 6 etapas (Melide)` —que tiene la falta de ortografía a la vista y es
+   justo lo que uno arregla un martes por la tarde— deja sus dos expedientes sin prellenado de
+   documentación: «No encontré la ruta en el catálogo».
+3. **Ya hay un huérfano real, no hipotético:** una cotización con `route_name = "Portugues
+   desde Tui"`, sin tilde, que no casa con ninguna ruta. Ese expediente **no puede prellenar su
+   Documento de Viaje hoy**, y el mensaje que da no dice que el problema es una tilde.
+
+Es el incumplimiento más claro del «un dato, un sitio» de `CRITERIOS.md` en todo el bloque, y
+además el punto 8: la ruta —que es el producto— se referencia como texto libre.
+
+**Propuesta (dato + código pequeño, pero lo dejo anotado porque toca expedientes vivos):**
+(a) rellenar `route_id` en las 33 cotizaciones cruzando por nombre, y arreglar a mano la de la
+tilde; (b) que `prefillTravelNights` use `quote.route_id` y caiga al nombre solo si es `NULL`
+—dos líneas, y es lo que ya hizo `pdf.ts` según el commit `adc6466`: «el asistente ahora
+escribe `route_id` y `pdf.ts` ya no depende de resolver la ruta por nombre»; el prellenado se
+quedó atrás—; y (c) una vez rellenada la columna, la protección de borrado que el bloque
+celebra empieza a ser verdad.
+
+### [MEDIO] Cuando la tarifa se queda en el año viejo, el **costo** también: la utilidad del tablero es ficción — `cotizar/actions.ts:110-114` · `seguimiento/page.tsx:80`
+
+El bloque midió bien lo que se dejó de cobrar (−400 € en CS-2026-064) pero se quedó en la mitad
+del daño. `cost_base_eur` se congela **de la misma fila de tarifa vieja**
+(`costBaseEur = price_pilgrim × personas`), y ese costo es el que el tablero usa para la
+utilidad: `utilidad: total - (q.cost_eur || 0)` (`seguimiento/page.tsx:80`). O sea que la
+cotización no solo se vendió barata: **se vendió barata y encima parece rentable**.
+
+CS-2026-064, con los números reales de `pricing` (2026 → 2027 de `Francés desde Sarria`,
+`hotel_doble`: costo Pilgrim **515 → 608**):
+
+| | lo que dice el CRM | lo que va a pasar |
+|---|---|---|
+| venta | 2.780 € | 2.780 € |
+| costo Pilgrim | 2.260 € *(515×4 + 50×4)* | **2.632 €** *(608×4 + 50×4)* |
+| **utilidad** | **520 € — 18,7 %** | **148 € — 5,3 %** |
+
+El tablero muestra **3,5 veces la utilidad** que ese viaje va a dejar, y lo suma al total de
+`/seguimiento`. Eso no es un aviso que pasa desapercibido: es un número que dice lo contrario
+de la verdad justo en la pantalla que se usa para decidir. Es el punto 4 de `CRITERIOS.md`
+—«los números cuadran solos… margen real»— roto por el mismo mecanismo que el punto 1.
+
+**Propuesta (no se toca: es dinero):** el arqueo que el propio bloque propone en su punto (c)
+debe comparar **las dos cifras, precio y costo**, contra el catálogo del año de salida; y
+mientras la cotización esté viva, el costo debería poder re-resolverse al año correcto aunque
+el precio al cliente no se mueva — es la cifra interna, no la que el cliente firmó.
+
+### Ajuste de altura al hallazgo del año de la tarifa: la puerta que el bloque señala no ha cotizado nunca
+
+Esto no le quita valor al hallazgo, pero sí le cambia el tamaño, y conviene que esté escrito
+antes de que alguien priorice por él. El bloque dice: «`/cotizar` **no** [se porta bien]: usa
+`ratesForYearWithFallback` y cobra con la tarifa del año anterior… hoy eso aplica a **9 de las
+11 rutas web**». Comprobado contra los datos:
+
+- **`/cotizar` no ha creado ni una sola cotización.** Las 45 se reparten en
+  `interna` **39**, `wordpress` **5**, `baymax` **1**; `source = "web"`, que es lo único que
+  escribe `cotizar/actions.ts:165`, aparece **cero** veces en cinco meses.
+- **La puerta que sí cotiza desde fuera ya está arreglada.** `webQuote.ts` pasó a `tarifarRuta`
+  con **año exacto** y hoy escribe `price_note: null` con el motivo puesto: «estas cotizaciones
+  son siempre con la tarifa del año de salida». Una salida 2027 sin tarifa devuelve **409
+  `sin_tarifas_ano`**, no un precio viejo.
+- Por eso **los −400 € y los −80 € de CS-2026-064 y ‑065 son daño ya ocurrido, de agosto, bajo
+  el código anterior** (el `price_note` de fallback lo escribía `webQuote` desde `adc6466`), no
+  una hemorragia abierta.
+
+Lo que queda vivo del hallazgo, y sigue siendo un MEDIO bien puesto, es **el rastro**: 10 de
+las 12 cotizaciones de 2027 no dejan constancia de con qué año se calcularon, y `price_note`
+solo se ve dentro del PDF. Mantengo la etiqueta. Lo que corrijo es la lectura de urgencia: el
+riesgo vivo no está en `/cotizar` —que nadie usa— sino en **lo tecleado a mano en el CRM**, que
+es de donde salen 39 de las 45.
+
+### [MENOR] `price_note` se escribe una vez y no se corrige nunca: una de las dos que existen ya miente — `cotizar/actions.ts:167`
+
+`price_note` aparece en cuatro sitios del código y **solo uno lo escribe**: la creación en
+`/cotizar`. Nadie lo actualiza ni lo borra al editar el precio en el expediente. Ya se nota:
+**CS-2026-065** tiene hoy `cost_base_eur = 2.432 € = 608 × 4`, que es el **costo Pilgrim de
+2027** —o sea que alguien la re-tarifó a mano y bien—, y sin embargo conserva la nota:
+
+> «Precio de referencia **2026**. Para salidas en 2027 queda sujeto a confirmación.»
+
+Si se regenera el PDF, el cliente recibe un documento cuyo precio ya es del año correcto y cuyo
+pie sigue diciendo que es una referencia del año anterior sujeta a confirmación. Es MENOR
+porque juega a favor del cliente y no cuesta plata, pero va en dirección contraria al punto 7
+de `CRITERIOS.md`: el rastro que el propio bloque reclama solo sirve si se mantiene.
+**Propuesta:** que guardar el precio a mano borre la nota, o —mejor, y es la propuesta (a) del
+propio bloque— que se guarde el **año de tarifa usado** como dato y la nota se derive de él.
+
+---
+
+## Las dos etiquetas que me pidieron juzgar
+
+### La fianza de la bici ausente del contrato: **MEDIO → MENOR**
+
+Bajo la etiqueta, y el argumento es de dato, no de criterio. El bloque se apoya en que «el
+cliente **sí** lo leyó en la cotización, así que sabe que existe; lo que no hay es acuerdo sobre
+sus condiciones». **Eso no ha pasado nunca.** En `comercial.quote_lines` hay **6 líneas en
+total, las 6 de tipo `optional`: cero líneas de tipo `bike`**. Nadie ha cotizado jamás una
+bicicleta, así que ningún PDF ha impreso jamás el cuadro ámbar de la fianza —que se dibuja
+solo cuando hay líneas de bici—, y ningún cliente sabe que existe. No hay asimetría, no hay
+contrato firmado, y no hay nada que reclamar.
+
+El hallazgo **sigue siendo cierto y hay que arreglarlo**, y por eso no lo borro: es deuda real
+con una fecha de vencimiento clara. Pero por la vara del TABLERO —MEDIO es «se rompe en un caso
+realista» y MENOR es «deuda que hoy no muerde»— esto es MENOR con una condición que conviene
+escribir en el propio hallazgo: **es bloqueante antes de la primera venta de bici**, junto con
+las dos cosas que tampoco están (las tarifas de bici de las otras dos rutas y sus etapas). El
+módulo de bicis no está a medio auditar: está a medio nacer, y las tres cosas se cargan juntas.
+
+### El MENOR de `errors.ts`: **se queda en B5**, con media propuesta prestada a B6
+
+No se sale del alcance. El hallazgo se dispara borrando una ruta desde `/catalogo`, que es
+territorio de B5, y **la mejor de las dos propuestas es de B5**: que `deleteRoute` cuente las
+cotizaciones antes de borrar y diga «tiene 5 cotizaciones, desactivala». Eso no se toca en
+`errors.ts`, se toca en `catalogo/actions.ts`, y además es la única de las dos que da la acción
+correcta en vez de un texto menos malo.
+
+Lo que sí es de B6 es la otra mitad: `mensajeError` lo usan **33 archivos**, y partir el `23503`
+en dos según la operación es un cambio de plataforma que afecta a todos. Mi recomendación es
+dejarlo en B5 —quien lo arregle arreglará `deleteRoute`, que es donde muerde— y que B8 lo cruce
+con B6 para que el retoque del diccionario no se haga dos veces ni se pierda. Y añado un dato
+que refuerza el hallazgo y que el bloque no tenía: con `route_id` vacío en 33 de 45, **hoy el
+mensaje engañoso ni siquiera aparecería** en cuatro de las rutas con cotizaciones, porque el
+borrado directamente no falla.
 
 ---
 
