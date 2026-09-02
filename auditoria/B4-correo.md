@@ -17,8 +17,10 @@
   su documentación prohíbe. El peor es el del contrato firmado: reduce el envío a un booleano y, cuando
   falla, **le promete al viajero un correo que nadie va a recordar mandarle**.
 - **B4.2 `email_log` sirve para lo que se creó.** ¿Registra todos los caminos? ¿Se puede reconstruir qué se mandó, a quién y con qué? El HTML guardado hace crecer la tabla: mira cuánto y si importa.
-  `Estado: en curso` — cuántos de los siete caminos escriben en la tabla, si lo escrito basta para
-  reconstruir un envío, y medida real del peso del HTML en producción para responder si importa.
+  `Estado: hecho` — lo que registra **sí sirve y está muy bien diseñado**, pero solo lo alimentan **3 de
+  los 7 caminos**: en producción hay únicamente `cliente` y `documentacion`. Los tipos `contrato`, `lead`
+  y `pilgrim` están declarados en el propio tipo y nunca se escriben. Y el peso del HTML **no importa**:
+  11 kB de media, 160 kB la tabla entera; ni con mil correos al año llega a molestar.
 - **B4.3 Plantillas y variables.** Una `{{variable}}` sin valor deja un hueco en el correo del cliente. Busca las que puedan quedar vacías y los textos que afirman cosas que ya no son ciertas.
   `Estado: pendiente`
 - **B4.4 Que llegue y no a spam.** Versión en texto plano, tamaño, enlaces, remitente. SPF/DKIM no se pueden comprobar desde aquí: anótalo como verificación pendiente de Nico.
@@ -103,7 +105,67 @@ respuesta— y estos cuatro la tiran a la basura.
 y `lead` ya están declarados), y que `marcarCotizacionEnviada()` distinga «enviada y
 confirmada» de «aceptada sin confirmar», que es la diferencia entre saber y creer.
 
-### Lo que sí está bien: el emisor único está bien construido
+### [MEDIO] `email_log` solo ve la mitad del correo que sale — `lib/email/log.ts:20` vs los siete emisores
+
+La tabla se creó (migración 0028) porque «"enviado" en el CRM no significaba nada
+verificable». Cumple ese objetivo **para los caminos que la usan**, y el propio tipo
+`EnvioRegistrado` declara los cinco que debería cubrir:
+
+```ts
+tipo: "cliente" | "pilgrim" | "contrato" | "lead" | "documentacion";
+```
+
+Pero `registrarEnvio` se llama desde **tres** sitios: `clientEmail.ts:146`,
+`travelDocs/email.ts:171` y `sendPilgrimEmail.ts:115`. Los cuatro emisores del hallazgo
+anterior no la tocan. En producción, el recuento completo de la tabla:
+
+| tipo | filas | de ellas, pruebas |
+|---|---|---|
+| `cliente` | 5 | 2 |
+| `documentacion` | 4 | 3 |
+| **`contrato`** | **0** | — |
+| **`lead`** | **0** | — |
+| `pilgrim` | 0 | — (todavía no se ha mandado ninguno; ese sí está cableado) |
+
+Que `contrato` y `lead` estén **declarados en el tipo y sin una sola escritura** es la prueba
+de que no es una decisión de diseño: es una migración que se quedó a medias. Y el hueco duele
+en el sitio más caro, que es el que ya expliqué arriba: del correo con la copia del contrato
+firmado —el único documento legal que la plataforma le manda a alguien— no queda ni una fila.
+
+Un efecto secundario que conviene ver: `/correo/[token]` (la versión web del correo) se sirve
+desde `email_log.html`. Los cuatro caminos que no registran **no pueden tener versión web**,
+así que si su HTML no se ve bien en Outlook no hay plan B. Hoy no se nota porque tres de esos
+cuatro mandan texto plano, pero es la misma causa.
+
+**Propuesta:** cablear los cuatro. Es una llamada a `registrarEnvio` en cada uno, la tabla y
+la función ya existen, y los tipos ya están escritos.
+
+### Lo que sí está bien: lo que `email_log` registra, lo registra bien
+
+Contestando directo a las tres preguntas de la tarea, dos son buenas noticias:
+
+- **¿Se puede reconstruir qué se mandó, a quién y con qué?** Para los tres caminos cableados,
+  sí y con detalle: destinatario, asunto, número de adjuntos, `message_id` de Brevo, estado,
+  error, si fue una prueba, el token de la versión web y **el HTML exacto que salió**. El
+  expediente lo lee y lo pinta (`seguimiento/[id]/page.tsx:190`). Es más de lo que suele haber.
+- **El estado dice exactamente lo que se sabe**: `confirmado` solo cuando Brevo devolvió un
+  `messageId`, `aceptado` cuando el workflow terminó pero no hay prueba, `error` cuando falló
+  (`log.ts:41`). Esa distinción de tres valores es precisamente la lección del incidente que
+  originó la tabla, y está bien implementada.
+- **`registrarEnvio` nunca lanza** y lo dice: «un fallo del registro no puede tumbar un envío
+  ni la operación que lo disparó». Si la migración no estuviera aplicada, sería un warning y
+  nada más.
+- **`adjuntosNoSoportados()`** es un acierto: lista blanca de las extensiones que Brevo acepta,
+  con el motivo escrito —un `heic` devuelve un 400 que «se lleva el correo ENTERO por delante,
+  no solo el adjunto», y con el webhook respondiendo antes de enviar eso se veía como
+  «✓ Enviado»—. La función existe y está bien; lo que falta es que la llame el flujo de
+  contrato (arriba).
+
+**¿El HTML hace crecer la tabla? No, y con margen.** Medido en producción: 9 filas, **160 kB**
+de tabla, HTML de **11 kB de media** y 14 kB el mayor. Aunque se manden mil correos al año,
+son unos 11 MB anuales en una base que hoy pesa una fracción de eso. Guardar el HTML exacto
+compra trazabilidad y la versión web; el coste es despreciable. **No hay que hacer nada**, y
+conviene que quede dicho para que a nadie le entren ganas de podarla.
 
 `lib/email/webhook.ts` es de lo mejor escrito de la plataforma y casi todo lo que uno iría a
 buscarle ya está resuelto, con la fecha y el incidente que lo motivó anotados al lado:
