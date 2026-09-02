@@ -470,7 +470,27 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente` — **sin empezar a propósito**, como en B3, B4, B5 y B6: la auditoría la
+`Estado: en curso` — crítico independiente. **Plan de verificación** (se tacha según avanza):
+
+1. Levantar la app en local y abrirla con Chrome. Si no arranca, decirlo y verificar por código.
+2. **Móvil (390 px)**: entrar al panel, buscar CUALQUIER forma de navegar (hamburguesa, cajón,
+   enlaces del pie, breadcrumb, logo enlazado, atajos dentro de las tarjetas). Decidir si MEDIO
+   se queda corto.
+3. **Contrastes de B7.1**: recalcular `--color-dorado-oscuro` sobre blanco y crema con la fórmula
+   WCAG, y verificar si los KPI de 24 px califican como «texto grande» (18,66 px bold / 24 px normal).
+   Comprobar el peso real de la fuente en pantalla.
+4. **B7.6 (clics)**: decidir si es hallazgo propio o resumen de B1/B2/B3. Corregir la etiqueta.
+5. **Tres estados**: muestra en pantalla (no en código) de vacío/cargando/error, y coherencia entre
+   pantallas.
+6. **Oficio**: qué le falta a esto para sentirse un CRM de agencia en el día a día — el «vistazo»
+   del punto 1 de «Cómo se juzga el diseño».
+7. Revisar si el auditor dedujo cosas del código que la pantalla desmiente (o al revés).
+
+**Por dónde voy:** acabo de escribir el plan; empiezo por levantar la app.
+
+---
+
+**Nota del auditor (se conserva):** sin empezar a propósito, como en B3, B4, B5 y B6: la auditoría la
 escribió este mismo agente. Lo que más agradecería que revisen:
 
 - El **MEDIO de la navegación en móvil**: comprobar en un teléfono de verdad que no hay
