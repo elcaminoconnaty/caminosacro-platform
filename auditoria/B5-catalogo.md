@@ -542,11 +542,22 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: en curso` — crítico independiente. Plan: (1) rehacer contra producción los cuatro
-números del bloque (2 de 11 rutas con 2027, cero tarifas bajo costo en 74 filas, 26 % de
-cobertura de hoteles con 6/6 en Sarria, 4 rutas sin etapas); (2) recalcular la cobertura
-ejecutando `hotelParaLugar` de verdad, no con SQL; (3) juzgar las etiquetas de la fianza y
-de `errors.ts`; (4) buscar el GRAVE que falta. Escribo según avanzo.
+`Estado: en curso` — crítico independiente (segundo intento; el primero murió antes de
+escribir nada). Plan numerado, escribo cada conclusión en cuanto la tengo:
+
+1. Rehacer contra producción los **cuatro números** del bloque: 2 de 11 rutas con tarifa 2027;
+   cero tarifas a costo o por debajo en 74 filas; 26 % de cobertura de hoteles con 6/6 en
+   Sarria; 4 rutas activas sin etapas (3 publicadas).
+2. Recalcular la cobertura de hoteles **ejecutando `hotelParaLugar`** con los datos reales,
+   no con SQL equivalente.
+3. Juzgar dos etiquetas: el **MEDIO de la fianza** ausente del contrato y el **MENOR de
+   `errors.ts`** (¿es B5 o B6?).
+4. Buscar el **GRAVE que falta**: qué pasa hoy de verdad al cotizar una salida de 2027 en una
+   ruta sin tarifa de ese año, por cada puerta de entrada (`/cotizar`, asistente, WP, agente).
+5. Contra `CRITERIOS.md` punto 8: qué trae de serie un CRM de agencia en catálogo, tarifas y
+   proveedores que aquí falte.
+
+Voy por: (1).
 
 Lo que la auditoría pedía que revisen:
 
