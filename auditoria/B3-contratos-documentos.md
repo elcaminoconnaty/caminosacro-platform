@@ -39,7 +39,9 @@
   guardado en dos expedientes vivos (CS-2026-080 por un día, CS-2026-081 por dos), y `variables_json` es
   una foto fija que solo se refresca si alguien se acuerda de pulsar un botón.
 - **B3.6 Qué pasa al borrar.** Borrar una cotización con contratos firmados, documentación enviada y archivos de Pilgrim. ¿Cascadas correctas? ¿Se puede borrar algo que no debería borrarse?
-  `Estado: pendiente`
+  `Estado: en curso` — mapa de claves foráneas y su `ON DELETE`, qué guardas tiene `deleteQuote` antes de
+  borrar (contrato firmado, pagos recibidos, documentación enviada) y qué le enseña la pantalla a quien
+  pulsa el botón.
 
 ---
 
