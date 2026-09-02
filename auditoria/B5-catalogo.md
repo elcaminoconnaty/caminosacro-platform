@@ -557,7 +557,117 @@ escribir nada). Plan numerado, escribo cada conclusión en cuanto la tengo:
 5. Contra `CRITERIOS.md` punto 8: qué trae de serie un CRM de agencia en catálogo, tarifas y
    proveedores que aquí falte.
 
-Voy por: (4) — el GRAVE ya está escrito abajo. Pendiente: cerrar (2), (3) y (5).
+Voy por: (3) y (5). Hechos: (1) los cuatro números, (2) la cobertura ejecutada, (4) el GRAVE.
+
+---
+
+### Rehechos los cuatro números del bloque: tres cuadran, uno se quedó viejo en 24 horas
+
+Los volví a sacar contra producción hoy (2-sep-2026). **Tres de los cuatro cuadran exactos** y
+lo digo sin adornos, porque el bloque se lo ganó: los números de esta auditoría están medidos,
+no estimados.
+
+| lo que dice el bloque | lo que da hoy | |
+|---|---|---|
+| 11 rutas web, **2** con tarifa 2027, una a medias | 11 web · **2** con alguna fila 2027 · **1** con las 4 modalidades | ✔ |
+| 15 rutas activas sin ninguna tarifa | **15** | ✔ |
+| 12 cotizaciones con salida 2027, **2** con `price_note` | **12** · **2** | ✔ |
+| **74 filas** de precio con costo, **0** bajo costo, mínimos 14,9 / 21,9 / 15,0 % | 51 + 16 + 7 = **74** · **0** · **14,9 / 21,9 / 15,0** | ✔ |
+| cobertura de hoteles **26 %** (71 de 275), **6/6** en `Francés desde Sarria` | **25,8 %** (71 de 275), 6/6 | ✔ |
+| **4 rutas activas sin etapas**, 3 publicadas | **5** rutas activas sin etapas, 3 publicadas | ✘ |
+
+**El que falla, y por qué importa poco pero conviene corregirlo:** son **cinco**, no cuatro.
+La que falta en la tabla del bloque es **`Norte desde Vilalba`** — activa, `web = false`, cero
+etapas, cero cotizaciones — y es peor que las otras cuatro porque además tiene **`days`,
+`nights` y `km` en `NULL`**: no es una ruta a medio cargar, es una ruta vacía que existe. Las
+otras cuatro al menos tienen días, noches y kilómetros. No cambia la etiqueta del hallazgo
+(sigue siendo MEDIO y sigue siendo dato, no código), pero la tabla debería tener cinco filas y
+la propuesta debería decir «cargar las etapas de las cuatro **y decidir qué hacer con la
+quinta, que no tiene ni días**».
+
+### [MEDIO] La foto del catálogo de hoteles caducó en 24 horas: hoy son 11, y 5 de 6 localidades tienen dos — `comercial.hotels` · `travelDocActions.ts:56-59`
+
+Esto es lo que más me interesa de mi encargo, porque no es que el auditor se equivocara: es que
+midió bien y el suelo se movió al día siguiente. La auditoría cerró con «**6 hoteles**, ningún
+nombre repetido y **ninguna ciudad repetida** — así que el caso de "dos hoteles en la misma
+localidad, gana el primero" que el código contempla **no se da hoy**». Era verdad el 1 de
+septiembre. **Hoy, 2 de septiembre, hay 11 hoteles activos**: se cargaron cinco más, todos con
+`created_at` de hoy.
+
+| localidad | hoteles hoy |
+|---|---|
+| Sarria | Siete en el Camino · **Pensión Sarria** |
+| Portomarín | Pensión Mar · **Pensión a Casona da Ponte** |
+| Palas de Rei | Pensión A Fonte · **Pensión Santirso** *(ciudad escrita «Palas de rei»)* |
+| Arzúa | Pensión O Retiro · **Casona de Nené** |
+| O Pedrouzo | Pensión Rosella · **Pensión Arca** *(ciudad escrita «O pedrouzo»)* |
+| Santiago de Compostela | Hostal Suso |
+
+O sea que **el caso que la auditoría dio por inexistente es hoy la norma: pasa en 5 de las 6
+localidades del catálogo**. Y la exención («es una propuesta que se revisa fila por fila») la
+desmiente el propio comentario del código dos archivos más allá: «una propuesta mala es peor
+que ninguna, **porque se acepta sin mirar**».
+
+**Lo grave del empate no es que haya empate, es quién lo desempata.** `prefillTravelNights`
+lee los hoteles con `supabase.from("hotels").select("id,name,city").eq("active", true)` — **sin
+`.order()`** (`travelDocActions.ts:56-59`). `hotelParaLugar` resuelve el empate con `.find()`,
+que devuelve el primero del array; y el orden de ese array no lo decide el código, lo decide
+Postgres. En una tabla de 11 filas hoy sale el orden físico —los antiguos primero—, pero
+**cualquier `UPDATE` sobre una ficha puede moverla de sitio en el heap** y cambiar quién gana
+sin que nadie toque una línea de código. Lo comprobé ejecutando la función real con la lista en
+los dos órdenes:
+
+```
+"Sarria"      -> Siete en el Camino   |  orden inverso: Pensión Sarria      <<< CAMBIA
+"Portomarín"  -> Pensión Mar          |  orden inverso: Casona da Ponte     <<< CAMBIA
+"Palas de Rei"-> Pensión A Fonte      |  orden inverso: Pensión Santirso    <<< CAMBIA
+"Arzúa"       -> Pensión O Retiro     |  orden inverso: Casona de Nené      <<< CAMBIA
+"Pedrouzo"    -> Pensión Rosella      |  orden inverso: Pensión Arca        <<< CAMBIA
+```
+
+Las cinco cambian. Qué se rompe: el prellenado propone un alojamiento, Nico acepta la fila, y
+el Documento de Viaje sale con **el nombre, la dirección y el teléfono de una pensión en la que
+el peregrino no está reservado**. En `Francés desde Sarria`, que es la ruta insignia y la que
+está al 6 de 6, eso son las seis noches del viaje. Es el error que más caro se paga en esta
+agencia: llegar caminando a las siete de la tarde a una pensión que no te espera.
+
+**Arreglo pequeño y reversible, pero no lo aplico porque no es mío:** basta añadir un
+`.order("name")` (o `.order("created_at")`) a esa consulta para que el desempate sea al menos
+**estable y explicable**. Es una línea, no toca dinero y lo dejo como propuesta para la ronda
+de revisión junto al arreglo de verdad, que es: si hay más de un hotel en la localidad, **no
+proponer ninguno** y marcar la fila para que se elija a mano —coherente con el criterio que el
+propio archivo defiende— o dejar elegir entre los dos en la tarjeta.
+
+**De paso, dos duplicados de escritura que el módulo no impide:** «Palas de Rei» / «Palas de
+rei» y «O Pedrouzo (O Pino)» / «O pedrouzo». `normalizarLugar` los empareja bien —lo verifiqué,
+los dos normalizan a `palas de rei`—, así que no rompen nada hoy; pero la ciudad es texto libre
+sin normalizar al guardar, y es la llave por la que se busca. Con veinte hoteles, «Santiago» y
+«Santiago de Compostela» convivirán en la tabla.
+
+### La cobertura de hoteles: 25,8 %, verificada ejecutando la función, y el número no se movió con 5 hoteles más
+
+Rehíce el cálculo como pedía el encargo: **ejecutando `hotelParaLugar` de verdad** (`npx tsx`
+sobre `src/lib/travelDocs/lugares.ts`) contra las 275 etapas con alojamiento de las rutas
+activas, no con SQL equivalente. El resultado confirma al auditor:
+
+```
+con los 6 hoteles de la auditoría : { tot: 275, hit: 71, pct: '25.8' }
+con los 11 hoteles de hoy         : { tot: 275, hit: 71, pct: '25.8' }
+```
+
+Y **6 de 6 en `Francés desde Sarria`**: sus seis paradas —Sarria, Portomarín, Palas de Rei,
+Arzúa, Pedrouzo, Santiago— tienen ficha. El número está bien y el método también.
+
+Lo que añade la segunda pasada es la lectura, y va en contra de la conclusión optimista del
+bloque («no es un defecto, es un módulo a medio poblar; lo demás llegará»): **el catálogo casi
+se duplicó hoy y la cobertura no subió ni una noche**. Los cinco hoteles nuevos cayeron en las
+mismas cinco localidades que ya estaban cubiertas. No es una crítica a quien los cargó —tener
+un segundo hotel en Sarria es útil por disponibilidad—, pero sí desmonta la idea de que esto se
+arregla solo con el tiempo: para que el prellenado sirva en la segunda ruta más vendida
+(`Portugués desde Tui`, 7 noches, **0 de 7** hoy) hay que cargar **localidades nuevas**, no más
+fichas en las mismas seis. Y como el catálogo crece por localidad y no por noche, el número
+útil para seguirlo no es «cuántos hoteles hay» sino **«cuántas de las 275 noches tienen ficha»**
+— que es exactamente el que dejó escrito el auditor, y por eso conviene que quede.
 
 ---
 
