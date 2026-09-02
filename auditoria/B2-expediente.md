@@ -200,6 +200,78 @@ quitar USD del selector si no se usa), y que la acción devuelva
 Para lo ya guardado, que el renglón pinte «sin convertir — no cuenta en el saldo» cuando
 `amount_eur` sea `null`, y decidir con Nico qué hacer con los 20 € de CS-2026-019.
 
+### [MEDIO] «Margen real» y «Saldo proveedor» son dos KPI sin respaldo: al CRM no entra lo que se le paga a Pilgrim — `seguimiento/[id]/page.tsx:280,284,286` · `comercial.provider_payments`
+
+El expediente tiene cinco tarjetas de dinero y **dos son del lado del proveedor**: «Pagado a
+Pilgrim» (`pagadoPilgrim = Σ provider_payments.amount_eur`, línea 280) y «Saldo proveedor»
+(`cost − pagadoPilgrim`, línea 284). Y «Margen real» (línea 286) es `cobrado − pagadoPilgrim`,
+o sea que depende de esa suma tanto como del cobro.
+
+Los números de producción:
+
+| | |
+|---|---|
+| pagos a Pilgrim registrados, en total | **6 filas · 2.617,00 €** |
+| costo Pilgrim de las cotizaciones no canceladas | **47.750,00 €** |
+| salidas en los próximos 60 días con saldo proveedor | **15, por 23.992,00 €** |
+| …de ellas, con cero euros registrados a Pilgrim | **14 de 15** |
+
+Entre esas quince, CS-2026-008 y CS-2026-056 salen **el 5 de septiembre** —dentro de cuatro
+días— y CS-2026-080 arrastra **7.350,00 €** para el 18 de octubre.
+
+**Vale la misma cautela que este informe se aplica en el lado del cliente:** casi seguro la
+mayoría de esas quince nunca cuajaron, y lo más probable es que a Pilgrim se le pague por
+fuera del CRM, contra su factura. **Ese es exactamente el hallazgo.** Si lo que se le paga al
+proveedor no entra a la plataforma, entonces «Saldo proveedor» y «Margen real» —dos de las
+cinco cifras de la pantalla que se mira todos los días— no son números malos: son números
+**sin respaldo**, y ninguna pantalla lo advierte. Un margen real que se calcula restando una
+suma que nadie alimenta es peor que no mostrarlo, porque parece un dato.
+
+Y el esquema confirma que la conciliación no está pensada: `provider_payments` tiene
+`invoice_number` como **texto libre** y nada la enlaza con el correo de pedido a Pilgrim que
+documentó B1 (`lib/quotes/pilgrimEmail.ts`). Pedir el cupo, recibir la factura y pagarla son
+tres cosas que la plataforma toca por separado y no cruza nunca. Es el punto de CRITERIOS
+sobre conciliación con el proveedor, y hoy no hay por dónde empezar a responderlo.
+
+**Propuesta (no se toca: es dinero, y el diseño de la conciliación es de B6):** lo mínimo
+honesto es que las dos tarjetas del lado proveedor digan de qué se alimentan —«sin pagos
+registrados» en vez de «Saldo proveedor: 1.540 €»— y que «Margen real» se apague, o salga en
+gris con un «requiere registrar pagos a Pilgrim», cuando no haya ni un `provider_payment`.
+Cambiar la etiqueta no toca plata; seguir mostrando un margen inventado, sí.
+
+### [MEDIO] Borrar un pago no deja rastro, y hace que el siguiente recibo reutilice el número — `seguimiento/[id]/actions.ts:190-203,225-233`
+
+`deleteClientPayment` hace un `delete` duro de la fila **y borra el PDF del recibo de
+Storage** (`removeStoragePath`, línea 199). No hay papelera, ni `deleted_at`, ni copia. Y
+ninguna de las dos tablas de dinero tiene columna de autor —las de `client_payments` son
+`id, quote_id, paid_at, amount, currency, trm_eur_cop, amount_eur, method, reference,
+receipt_path, notes, created_at, account, receipt_number`, ni un `created_by`—, así que sobre
+la plata **no se puede responder quién la registró ni quién la borró**. Es el punto 7 de
+CRITERIOS y el mismo agujero que B1 levantó para `quotes`, aquí sobre dinero ya recibido.
+
+Lo que lo convierte en un problema con nombre propio es el número de recibo:
+
+```ts
+for (const p of payments || []) { const m = /-(\d+)$/.exec(p.receipt_number || ""); if (m) maxN = Math.max(maxN, Number(m[1])); }
+receiptNumber = `REC-${quote.code}-${maxN + 1}`;
+```
+
+El consecutivo sale del máximo de los recibos **que siguen existiendo** en esa cotización.
+Emitir `REC-CS-2026-004-2`, entregárselo al cliente, borrar ese pago y registrar otro hace
+que el siguiente recibo salga con el **mismo número**. Dos papeles distintos, con membrete,
+con el mismo identificador, y sin forma de distinguirlos porque el primero ya no existe en la
+base ni en Storage.
+
+**Honestidad sobre el caso:** no ha pasado. Los seis pagos están vivos y los dos recibos de
+CS-2026-004 son correlativos. Es un camino del código, no un daño consumado — pero es barato
+de cerrar y caro de explicar si ocurre.
+
+**Propuesta:** que el consecutivo no se recalcule desde las filas vivas (un contador por
+cotización, del mismo estilo que `next_quote_code()`, que ya resuelve este problema con su
+candado de fila), y que borrar un pago sea un borrado lógico o deje una fila de bitácora con
+quién y cuándo. Como mínimo, no borrar el PDF del recibo: es el documento que respalda un
+movimiento que existió.
+
 ### [MENOR] «Cobrado» está escrito tres veces, con tres fórmulas distintas — `seguimiento/[id]/page.tsx:277` · `seguimiento/[id]/actions.ts:235` · `finanzas/page.tsx:28`
 
 La misma regla, tres redacciones:
