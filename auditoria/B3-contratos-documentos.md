@@ -17,9 +17,11 @@
   enlace ya firmado ve **«Enlace no válido»**, porque firmar pone el token en `null` y deja
   inalcanzable la rama amable. Y dos de las tres páginas no fijan `Referrer-Policy`.
 - **B3.2 La firma como prueba.** Qué se guarda de la firma y si serviría en una disputa: quién, cuándo, desde dónde, sobre qué texto exacto. Ojo al límite de peticiones (ya se supo que va por token y no por IP).
-  `Estado: en curso` — revisando qué queda guardado de cada firma (firmante, sello de tiempo, IP,
-  user-agent, hash del PDF), si el hash prueba **el texto exacto** que se firmó, si se puede firmar
-  dos veces o fuera de plazo, y el rate limit por token e IP.
+  `Estado: hecho` — **sin hallazgos de fondo: la firma serviría en una disputa.** Queda constancia de
+  quién, cuándo, desde dónde y sobre qué texto exacto, el contrato firmado es inmutable por los siete
+  guardas de `contractActions.ts`, y la autorización de habeas data va dentro del PDF hasheado. Lo
+  único: el `doc_hash` se guarda y **no lo lee nadie** — no hay forma de verificar la integridad desde
+  el producto.
 - **B3.3 Los cinco generadores de PDF.** Textos largos, nombres larguísimos, 20 viajeros, campos vacíos. Busca desbordes, solapes y datos que se quedan en blanco sin avisar. Renderiza de verdad con `scripts/docs_smoke.tsx`.
   `Estado: pendiente`
 - **B3.4 Storage.** Rutas y políticas de los buckets, archivos huérfanos, qué se borra al borrar una cotización. **Pasaportes**: quién puede llegar a ellos y por cuánto tiempo.
@@ -84,6 +86,73 @@ navegador y no de la plataforma, la página de documentación es **de token perm
 caduca nunca, solo se revoca), y la vacuna es una entrada en `headers()` de `next.config.ts`
 que además cubriría lo que se añada mañana. El propio proyecto ya demostró que sabe hacerlo,
 en `/correo`.
+
+### [MENOR] El hash del contrato se guarda y no lo lee nadie — `contrato/[token]/actions.ts:185` · `contractPdf.tsx:230`
+
+`doc_hash` es el SHA-256 del PDF firmado. Se calcula, se guarda en la fila, se manda en los
+dos correos… y **no se vuelve a leer jamás**. Buscado en todo `src/`: las únicas apariciones
+son las dos escrituras, la declaración de tipo de `contractActions.ts:53` y la línea del PDF.
+No hay ninguna pantalla, acción ni script que recalcule el hash del archivo de Storage y lo
+compare con el de la base. Es decir: la plataforma **produce** la prueba de integridad y no
+tiene forma de **usarla**. Si algún día hiciera falta responder «¿este PDF es el que se
+firmó?», hay que hacerlo a mano por fuera.
+
+Y la línea del sello que lo imprimiría —`{signature.doc_hash && <Text>Huella SHA-256 del
+documento aceptado: …</Text>}` (`contractPdf.tsx:230`)— **nunca se dibuja**, porque al firmar
+se pasa `doc_hash: null` a propósito (`actions.ts:151`). Eso último es correcto y no tiene
+arreglo: el hash es del propio PDF, así que no puede ir dentro de él sin cambiarlo. Pero deja
+una condición muerta en la plantilla que puede confundir a quien la lea. El destinatario sí
+puede comprobarlo: el correo le da la huella y él tiene el PDF adjunto.
+
+**Propuesta:** un botón «Verificar integridad» en la tarjeta del contrato que baje el archivo,
+lo hashee y diga si coincide — son cinco líneas con `sha256Hex()`, que ya existe—, y un
+comentario en `contractPdf.tsx:230` explicando por qué esa condición nunca se cumple al
+firmar.
+
+### Lo que sí está bien: la firma aguanta como prueba
+
+Fui a buscarle los agujeros clásicos y no los tiene. Es el trabajo más sólido de la
+plataforma, así que va con detalle:
+
+- **La constancia es completa y está en el propio documento.** El sello del PDF
+  (`contractPdf.tsx:217-232`) imprime, bajo el título «Constancia de firma electrónica — Ley
+  527 de 1999 / Decreto 2364 de 2012»: firmante, tipo y número de documento, **fecha y hora
+  con zona horaria explícita** (`America/Bogota`), **dirección IP** y **dispositivo**
+  (user-agent). En la base quedan además `signature_image`, `signed_at`, `signer_ip`,
+  `signer_user_agent`, `doc_hash` y el `signed_pdf_path`. Verificado en producción: los **3**
+  contratos firmados tienen los tres su IP, su hash y su pasaporte. Ninguno a medias.
+- **«Sobre qué texto exacto» tiene respuesta, y es la buena.** El PDF firmado se renderiza en
+  el servidor con las cláusulas de `contractClauses(v, plan)` y se guarda entero en
+  `comercial-contracts`; el hash es de ese archivo. Lo importante: la **autorización de
+  tratamiento de datos** no es solo el texto del checkbox —que vive en el JSX y cambiaría con
+  un deploy—, sino una **cláusula del contrato** (`template.ts:262`), completa, con la
+  transferencia internacional a España, la Ley 1581, el Decreto 1377 y la mención a la SIC. O
+  sea que va dentro del PDF hasheado y firmado. Ese era el hueco que esperaba encontrar y no
+  está.
+- **Un contrato firmado es inmutable desde el CRM.** `contractActions.ts` tiene **siete**
+  guardas `status === "firmado"` (líneas 299, 349, 401, 470, 582, 604 y el filtro de 342),
+  una en cada camino que podría tocarlo: editar variables, editar en lote, regenerar el PDF,
+  reenviar, y anular el enlace. Y `generateContractPdf` escribe en el nombre **sin** sufijo
+  `-firmado`, así que ni por accidente puede pisar el documento firmado.
+- **No se puede firmar dos veces ni fuera de plazo.** La acción revalida **en el servidor** lo
+  mismo que la página —existencia, `status === "enviado"`, expiración— en vez de fiarse del
+  render (`actions.ts:79-84`), y el cierre es un `update … .eq("status", "enviado")`
+  condicional (línea 190): dos envíos simultáneos y el segundo no encuentra fila que
+  actualizar. Es el patrón correcto y es raro verlo.
+- **El rate limit está bien pensado y documentado.** Va por **token** (8/hora), que es lo que
+  frena la fuerza bruta contra un contrato concreto, y por IP con un tope holgado (120/hora)
+  con el motivo escrito: un grupo que firma desde el mismo WiFi no puede quedar bloqueado en
+  el viajero 11. Comparte con `/cotizar` el `hits.clear()` al pasar de 5000 claves, que B1 ya
+  anotó como reset gratis; aquí importa menos porque el token es de 256 bits y no hay nada que
+  adivinar.
+- **Las entradas están validadas de verdad**: tipo MIME del pasaporte contra una lista blanca
+  (con HEIC contemplado, «algunos Android lo mandan tal cual»), 12 MB de tope, la firma tiene
+  que ser un `data:image/png;base64,` de menos de 400.000 caracteres, y nombre y documento con
+  longitud mínima. El `bodySizeLimit: "15mb"` de `next.config.ts` está puesto con el caso real
+  documentado: «por ahí se cayó la primera firma real».
+- **La ficha del viajero se actualiza con el nombre y el pasaporte reales**, y si eso falla se
+  registra pero **no se invalida la firma** (`actions.ts:196-207`), con el criterio escrito.
+  Es la decisión correcta: una firma registrada no se puede tumbar por un efecto secundario.
 
 ### Lo que sí está bien: las tres rutas por token
 
