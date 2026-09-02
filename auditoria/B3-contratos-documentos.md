@@ -597,6 +597,82 @@ como en B1 y B2. Lo que más agradecería que le miren:
 - Los **umbrales de maquetación** de B3.3: los medí renderizando, pero el corte exacto entre 51
   y 65 caracteres no lo afiné.
 
+---
+
+### 1. El GRAVE de Storage: los números son exactos, pero la etiqueta está en el hallazgo equivocado
+
+**El recuento se sostiene, y lo hice más ancho que el auditor.** Él cruzó «cinco columnas de
+ruta»; en `comercial` hay **trece** (`quotes`×2, `contracts`×3, `travel_docs`×3,
+`client_payments`, `provider_payments`, `quote_pilgrim_files`, `route_catalogs`,
+`welcome_letters`). Crucé las trece contra `storage.objects` y el resultado es **idéntico al
+suyo, al archivo**:
+
+| bucket | objetos | huérfanos | de ellos `CS-TEST` | huérfanos reales |
+|---|---|---|---|---|
+| `comercial-contracts` | 65 | 54 | 50 | **4** (CS-2026-044 y -048, firmado y sin firmar) |
+| `comercial-passports` | 31 | 27 | 25 | **2** (CS-2026-044 y -048) |
+| `comercial-quotes` | 46 | 3 | 0 | 3 (los tres `ZZ_Prueba` de agosto) |
+| `comercial-docs` / `comercial-catalogs` | 12 / 8 | 1 / 1 | 0 | 0 — son los genéricos (`Asistencia-en-Viaje`, catálogo de bicis), no van atados a expediente |
+| `comercial-hotel-fotos` | 32 | 32 | 0 | **0** |
+
+Dos precisiones que hay que dejar escritas para que el siguiente no se asuste:
+
+- **`comercial-hotel-fotos` no tiene huérfanos.** Sus 32 objetos no aparecen en ninguna columna
+  de ruta porque se referencian desde el **jsonb** `hotels.photos`. Comprobado: los 32 están
+  referenciados. Cualquier arqueo que se escriba tiene que contemplar ese jsonb o dará 32 falsos
+  positivos y alguien borrará las fotos del catálogo.
+- Los tres huérfanos de `comercial-quotes` no son daño: son PDF de cotizaciones de prueba
+  (`ZZ_Prueba_Anio_2027`, `ZZ_Prueba_Arnes`) borradas a propósito.
+
+**Lo que el auditor no midió y cambia la escala del problema:** se han emitido **83 códigos** y
+quedan **45 cotizaciones**. O sea que en esta plataforma se han borrado **38 expedientes**.
+Borrar no es el caso raro: es rutina. Un `deleteQuote` sin guardas que se usa 38 veces no es una
+hipótesis de manual, es el botón que más se ha pulsado de los destructivos.
+
+**Y una corrección al argumento, en contra del auditor:** él escribe *«las fotos del documento de
+identidad de esas personas siguen ahí»*, dando por hecho que son dos peregrinos reales. Los dos
+archivos pesan **exactamente 75.368 bytes cada uno** y se subieron el mismo 24-jul-2026 con 45
+minutos de diferencia (17:40 y 18:26). Es la misma imagen subida dos veces, en la tarde de la
+ronda de pruebas de contratos por viajero. No es prueba concluyente, pero es un indicio fuerte de
+que 044 y 048 fueron **expedientes de prueba con código real**, no clientes. La frase, tal como
+está, exagera lo que la evidencia aguanta y hay que matizarla.
+
+**Sobre la etiqueta: GRAVE se queda, pero pegada a otro hallazgo.** Contra la definición del
+TABLERO —dinero, corrupción de datos, filtración, o algo que el cliente ve caerse— el archivo
+huérfano no cumple ninguna: los buckets son privados (lo verifiqué), no hay pesos de por medio y
+el cliente no ve nada. Lo que sí cumple, y de largo, es **lo que el borrado destruye**, que el
+auditor filó como MEDIO:
+
+> `deleteQuote` borra en cascada la fila de `contracts`, y con ella `signer_ip`, `signed_at`,
+> `signature_image`, `signer_user_agent` y `doc_hash` — **la prueba de firma electrónica
+> completa** que B3.2 celebra como lo mejor construido de la plataforma. Y borra
+> `quote_travelers`, con los números de pasaporte. Verificado en `pg_constraint`: las diez FK
+> hacia `quotes` son ocho `CASCADE` y dos `SET NULL`, y `contracts` es `CASCADE`.
+> Lo que queda en Storage es un PDF firmado **sin atribución**: ninguna fila dice quién lo firmó,
+> cuándo ni desde dónde. Eso ya pasó **dos veces** (los cuatro PDF de 044 y 048).
+
+O sea: la plataforma dedica siete guardas `status === "firmado"` a que nadie toque un contrato
+firmado desde el CRM… y deja que el botón de la papelera de la lista de Seguimiento lo borre
+entero, con su prueba legal, tras un `confirm()` que no lo menciona. Esa asimetría es el hallazgo
+GRAVE de este bloque.
+
+**Propuesta de re-etiquetado (con evidencia, no de oficio):**
+
+- *«Se puede borrar de un clic un expediente firmado y pagado»* → **de MEDIO a GRAVE**. Destruye
+  una prueba legal irrecuperable y el registro contable de dinero cobrado (970 € y 860 € en dos
+  de los tres expedientes vivos), sin guarda, sin aviso concreto y sin papelera. 38 borrados de
+  historial dicen que el gesto es cotidiano.
+- *«Borrar una cotización deja atrás el pasaporte y el contrato firmado»* → **de GRAVE a MEDIO**.
+  El mecanismo es real y el recuento exacto, pero con buckets privados, sin filtración y con la
+  evidencia apuntando a expedientes de prueba, lo que hay es una promesa de supresión que el
+  software no puede cumplir y un almacén que nadie puede enumerar desde el producto. Es serio y
+  hay que arreglarlo; no es de la misma familia que perder la prueba de una firma.
+
+Las dos propuestas del auditor (leer las rutas hijas antes de borrar, y un arqueo de verdad)
+siguen siendo las correctas. Que el arqueo contemple `hotels.photos` y los genéricos.
+
+_(sigue: fechas de regreso, umbrales de maquetación, lo no mirado, y el listón del oficio)_
+
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
 
