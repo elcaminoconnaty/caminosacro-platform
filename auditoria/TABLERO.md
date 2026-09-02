@@ -94,6 +94,13 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 
 Valores: `pendiente` · `en curso` · `hecho`. En Revisión, además: `—` (no hizo falta).
 
+> **Estado a 2-sep-2026:** los **siete bloques de auditoría están cerrados**. B1 y B2 tienen
+> además su crítica y su revisión. Las críticas de **B3 a B7 están pendientes a propósito**:
+> las auditorías de esos cinco bloques las escribió el mismo agente en una sola sesión, y
+> criticarse a uno mismo no tiene independencia — cada archivo deja anotado, en su sección de
+> Crítica, qué conviene que le miren. **B8 (Síntesis) no debería escribirse antes que esas
+> críticas**, porque cinco de los siete bloques podrían cambiar de etiqueta.
+
 **Quien orquesta marca la fila antes de lanzar cada agente y la cierra al recibir el informe.**
 Si la sesión muere entre medias, la fila en `en curso` dice qué estaba corriendo.
 

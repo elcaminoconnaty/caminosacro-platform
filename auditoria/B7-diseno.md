@@ -470,7 +470,16 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente`
+`Estado: pendiente` — **sin empezar a propósito**, como en B3, B4, B5 y B6: la auditoría la
+escribió este mismo agente. Lo que más agradecería que revisen:
+
+- El **MEDIO de la navegación en móvil**: comprobar en un teléfono de verdad que no hay
+  ninguna forma de navegar que se me haya escapado (lo deduje del shell y del layout, no
+  abriendo el navegador).
+- Los **contrastes de B7.1**: los calculé con la fórmula WCAG sobre los tokens; conviene
+  contrastar el criterio de «texto grande» aplicado a los KPI de 24 px.
+- Si el **MEDIO de los clics** (B7.6) es un hallazgo propio o solo un resumen de B1, B2 y B3
+  visto desde otro ángulo. Lo escribí como lo segundo pero le puse etiqueta de hallazgo.
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
