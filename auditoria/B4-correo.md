@@ -969,6 +969,22 @@ Huecos concretos que tendría que cubrir la ronda de revisión:
 
 ## Revisión tras la crítica
 
-`Estado: pendiente`
+`Estado: en curso` — encargo acotado: se implementan **tres** de los ocho huecos (1, 6 y 8) y
+los otros cinco se dejan escritos como **Propuestas para Nico**, porque son mejoras de producto
+o tocan estado de venta / el workflow de producción.
 
-_(Solo si el veredicto fue `revisar`. Una ronda.)_
+Plan:
+
+1. **Hueco 1 — cablear `registrarEnvio`.** Empezar por el embudo del contrato
+   (`lib/contracts/email.ts`): que `enviarCorreoContrato` devuelva el resultado completo del
+   emisor en vez de un booleano y registre en `email_log` con `tipo: "contrato"`. Ajustar sus
+   tres llamadores (`contractActions.ts`, `contrato/[token]/actions.ts`, el cron). Luego los
+   emisores que quedan sin registrar. Es registro, no envío: additivo y reversible.
+   Cuidado con la trampa del TABLERO: `"use server"` solo exporta funciones.
+2. **Hueco 6 — `.eq("active", true)`** en `seguimiento/[id]/page.tsx:153`.
+3. **Hueco 8 — actualizar `scripts/n8n_correo_html.md`** (el paso 2 da hoy un falso positivo) y
+   la lista de verificaciones de Nico, con DKIM/SPF/DMARC y `APP_BASE_URL` primero.
+4. **Huecos 2, 3, 4, 5 y 7 → «Propuestas para Nico»**, cada uno con qué resuelve, qué cuesta y
+   qué se pierde hoy por no tenerlo. **No se implementan.**
+
+Verificación: `npx tsc --noEmit` antes de cada commit con código, `npm run build` al final.
