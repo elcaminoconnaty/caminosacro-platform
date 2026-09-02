@@ -728,6 +728,7 @@ decidió viajar**, y lo que ya está construido y sin enchufar.
 | …sin que la fila se haya tocado en 8 días o más | **34** |
 | contratos esperando firma | 4 |
 | **salidas dentro de 45 días con saldo pendiente** | **8**, por **13.816 €** |
+| cotizaciones **sin fecha de salida** (invisibles a todo lo de arriba) | **11** |
 
 Las ocho, y las que salen primero arriba:
 
@@ -739,6 +740,27 @@ Las ocho, y las que salen primero arriba:
 | CS-2026-055 | 2026-09-28 | 27 | 925 € | 0 € | 925 € |
 | CS-2026-037 | 2026-09-29 | 28 | 2.705 € | 0 € | 2.705 € |
 | CS-2026-016 · -031 · -032 | 2026-10-01 | 30 | 2.374 € | 0 € | 2.374 € |
+
+**Y antes del punto, una advertencia sobre ese 8, porque es la misma trampa que documenté en
+B2.3 con `email_sent_at`.** Las 8 salen **de las 34 cotizaciones que tienen fecha**:
+`start_date` es `null` en **11 de las 45**, y las once están en `enviada`. Ninguna consulta
+que filtre por fecha de salida las ve jamás — ni esta tabla, ni un recordatorio, ni la
+columna «Falta» que propongo abajo, si se escribe sin cuidado. Seis de las once son filas de
+0,00 € del seed (CS-2026-006, -007, -009, -010, -011, -012), pero las otras cuatro no:
+
+| código | total | cobrado | costo Pilgrim | pagado a Pilgrim |
+|---|---|---|---|---|
+| **CS-2026-001** | 505,00 € | **200,00 €** | 405,00 € | **200,00 €** |
+| CS-2026-003 | 1.150,00 € | 0 € | 950,00 € | 0 € |
+| CS-2026-017 | 1.010,00 € | 0 € | 810,00 € | 0 € |
+| CS-2026-026 | 682,00 € | 0 € | 580,00 € | 0 € |
+
+**CS-2026-001 es el expediente más raro de la base.** Es una venta con dinero entrando *y*
+saliendo —200 € cobrados al cliente, 200 € pagados a Pilgrim, 205 € que todavía se le
+deben— sobre una cotización **sin fecha de salida** y con etiqueta `enviada`. Es justo el
+expediente que uno querría que el sistema levantara, y hoy es invisible para cualquier vista
+ordenada por salida. `end_date` falta en 12 filas y `valid_until` en 10, con el mismo efecto
+sobre cualquier aviso por vencimiento.
 
 **Y acá está el punto, que no es «hay 13.816 € sin cobrar».** Casi seguro la mayoría de esas
 ocho son cotizaciones que nunca cuajaron —CS-2026-008 tiene la validez vencida desde el 31
@@ -776,6 +798,12 @@ firmado** (ver B2.3), y **cero euros cobrados**. Ese no es un lead muerto.
   vencida hace 93 días», «sale en 4 días · debe 4.570 €», «1 de 3 firmados», «sin registro de
   envío». Es lo que propuse en B2.6 y resuelve la mitad del problema **hoy**, sin tocar
   dinero ni estados ni mandar nada. Si solo se hace una cosa, es esta.
+  **Con una condición, o nace coja:** «sin fecha de salida» tiene que ser uno de los valores
+  de esa columna, no una fila que se cae del `where`. Once de los 45 expedientes no tienen
+  `start_date`, y uno de ellos (CS-2026-001) tiene dinero cobrado y una deuda con Pilgrim.
+  Una columna que ordena por salida y descarta lo que no la tiene esconde precisamente los
+  expedientes en peor estado. Lo mismo vale para el lado proveedor: «sin pagos a Pilgrim
+  registrados» es otro valor natural de la misma columna.
 - **(b) Un aviso interno diario a `reservas@`**, no al cliente. Un `/api/cron/pendientes`
   clonado del de contratos que mande un correo con tres listas: salidas de los próximos 30
   días con saldo, cotizaciones que vencen esta semana, y contratos sin firmar. Reusa el
@@ -783,9 +811,11 @@ firmado** (ver B2.3), y **cero euros cobrados**. Ese no es un lead muerto.
   escribió: es un resumen, no una insistencia.
 - **(c) El recordatorio al cliente, ya con migración.** `last_reminder_at` y
   `reminder_count` en `quotes`, un `/api/cron/recordatorios-cotizacion` calcado del de
-  contratos, y **la plantilla `recordatorio_pago` que ya está escrita**. Ojo con la trampa
-  que documenté en B2.3: si el disparador es `email_sent_at`, solo verá **6** de las 39
-  enviadas; hay que rellenar las 33 históricas antes o el recordatorio nacerá ciego.
+  contratos, y **la plantilla `recordatorio_pago` que ya está escrita**. Ojo con **las dos
+  trampas de datos** ya documentadas: si el disparador es `email_sent_at`, solo verá **6** de
+  las 39 enviadas (B2.3), y si filtra por `start_date` dejará fuera **11 de 45**. Hay que
+  rellenar las 33 históricas y decidir qué se hace con las once sin fecha antes, o el
+  recordatorio nacerá ciego por los dos lados.
 
 **Lo que NO haría:** un motor de reglas configurable, secuencias de nurturing o puntuación de
 leads. Para dos personas y 45 expedientes, (a) sola ya cambia el día a día, y (b) cuesta una
