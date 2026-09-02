@@ -40,9 +40,11 @@
   cualquier correo, a cualquiera, desde `reservas@caminosacro.com`, con cualquier adjunto**. Y hoy es
   legible por API. Mitigación: dos cambios pequeños, ninguno tocado.
 - **B4.6 El cron de recordatorios.** Qué pasa si corre dos veces el mismo día, si no corre, o si el envío falla a mitad de la lista. ¿Manda duplicados?
-  `Estado: en curso` — leyendo `api/cron/recordatorios-contrato` entero: autenticación, cómo elige a quién
-  escribir, si marca antes o después de enviar, qué pasa con un fallo a mitad de lista y qué ocurre si no
-  corre durante días.
+  `Estado: hecho` — **no manda duplicados en ninguno de los tres escenarios de la pregunta** y está
+  claramente pensado: correrlo dos veces al día no repite, no correr no provoca una avalancha, y un
+  contrato problemático no frena a los demás. El hueco es otro: **el marcado no está atado al envío**, así
+  que si la escritura falla justo después de mandar, ese peregrino recibe el mismo correo **todos los días**
+  y el tope de 5 nunca lo corta.
 
 ---
 
@@ -356,6 +358,90 @@ igualdad de cadenas normal, mientras que los endpoints propios de la plataforma 
 `timingSafeEqual` (`api/wp/auth.ts:12-20`, que B1 elogió). Contra un secreto de 48 caracteres
 hexadecimales y por internet, un ataque de tiempo no es practicable, así que no lo cuento como
 hallazgo; pero es la misma decisión resuelta de dos maneras en la misma plataforma.
+
+### [MENOR] Si falla la marca justo después de enviar, el recordatorio se repite cada día sin tope — `api/cron/recordatorios-contrato/route.ts:196-201`
+
+El orden dentro del bucle es: renovar el vencimiento del token → firmar la URL del PDF →
+**enviar el correo** → marcar `last_reminder_at` y `reminder_count`.
+
+```ts
+const ok = await enviarCorreoContrato({ … });   // ya salió
+if (!ok) { errores.push(…); continue; }
+const { error: marcaErr } = await supabase.from("contracts")
+  .update({ last_reminder_at: …, reminder_count: numero }).eq("id", c.id);
+if (marcaErr) throw marcaErr;                    // ← el correo ya se fue
+```
+
+Si ese `update` falla, el `throw` lo recoge el `catch` del bucle y el contrato se apunta en
+`errores`. Pero **el correo ya salió y el contador no subió**. Mañana ese contrato vuelve a
+cumplir las dos condiciones —`reminder_count` sigue por debajo de 5 y `last_reminder_at`
+sigue viejo—, así que se le manda otra vez. Y pasado mañana. **El tope de 5 nunca lo corta,
+porque el tope se cuenta con el campo que no se está escribiendo.** Es el único camino del
+endpoint que produce un bucle en vez de un reintento.
+
+La probabilidad es baja —un `update` de una fila por id que falla— pero la consecuencia es
+escribirle todos los días a un cliente que ya se cansó, que es justo lo que estos correos
+deben evitar. **Propuesta:** marcar **antes** de enviar y revertir si el envío falla, o
+—más simple y sin carrera— apoyarse en `email_log`: si ya hay una fila de tipo `contrato`
+para ese contrato en las últimas 24 h, no reenviar. Eso además arregla el caso de abajo.
+
+### [MENOR] Un envío lento se reintenta solo, y es el escenario que el propio proyecto documentó como el peor — `contracts/email.ts:11-14` desde el cron
+
+`lib/email/webhook.ts` deja escrito el incidente y la lección: con un timeout corto, «un
+envío lento abortaba acá y la app lo reportaba como fallido **aunque el correo hubiera
+salido**: el peor error posible, porque **invita a reenviarlo**». Por eso el timeout subió a
+45 s.
+
+El cron es el único llamador que **acepta esa invitación sin que nadie decida**: si
+`enviarCorreoContrato` devuelve `false`, no marca y mañana vuelve a mandar. Y como esa
+función colapsa el resultado a un booleano (el hallazgo de B4.1), el cron **no puede
+distinguir** «Brevo lo rechazó, no salió nada» de «tardó más de 45 s y probablemente sí
+salió». En el primer caso reintentar es lo correcto; en el segundo es un duplicado.
+
+Los 45 s hacen que sea improbable, y el recordatorio lleva un PDF de contrato de pocos
+cientos de kB, no los 20 pasaportes del correo a Pilgrim. Va como MENOR por eso. **Propuesta:**
+la misma de arriba —consultar `email_log` antes de reenviar—, que resuelve los dos casos con
+una sola consulta y usa una tabla que ya existe.
+
+### Lo que sí está bien: el cron contesta que no a las tres preguntas de la tarea
+
+Fui a buscar duplicados y no los hay. Las tres respuestas, con el mecanismo:
+
+- **¿Corre dos veces el mismo día? No duplica.** El endpoint no recibe una lista: **decide él**
+  a quién le toca, filtrando por «último contacto hace más de 4 días»
+  (`ultimoContacto = last_reminder_at ?? sent_at ?? created_at`). Tras un envío exitoso,
+  `last_reminder_at` es *ahora*, así que en la segunda corrida del día ese contrato ya no
+  entra. La cabecera lo promete y el código lo cumple.
+- **¿Si no corre en varios días? No hay avalancha.** El filtro es un umbral, no un calendario:
+  un contrato al que le tocaba el martes recibe **un** correo el viernes, no tres. No intenta
+  recuperar el tiempo perdido, que es exactamente lo que uno quiere de un recordatorio.
+- **¿Si falla a mitad de la lista? No frena a los demás.** Cada contrato va en su `try/catch`
+  con `continue` («un contrato problemático no debe frenar a los demás»), y **si el correo no
+  sale, no se marca**: «en la corrida de mañana se vuelve a intentar». El valor por defecto es
+  el correcto —reintentar— y el endpoint devuelve el detalle (`esperando_firma`, `les_tocaba`,
+  `enviados`, `errores[]`) para que la ejecución de n8n diga qué pasó.
+
+Y lo demás también está cuidado:
+
+- **Autenticación con `timingSafeEqual`** sobre `CRON_SECRET`, con comprobación de longitud
+  previa, y **si la variable falta se deniega** en vez de dejar pasar (`autorizado()` devuelve
+  `false`). Mismo criterio que los endpoints de B1.
+- **`APP_BASE_URL` es obligatoria y el 500 lo explica**: «sin ella el enlace de firma del
+  correo saldría roto». Sin petición del navegador no hay host del que deducirla, y en vez de
+  adivinar, se planta. Correcto.
+- **El enlace del último correo siempre funciona**: cada recordatorio renueva el vencimiento
+  del token a 21 días, «que era el riesgo de insistir cerca de los 21 días».
+- **El tono escala y el último cambia de destinatario efectivo**: los intermedios no molestan a
+  nadie internamente (`aviso: esUltimo`), y el quinto manda a reservas@ un «ATENCIÓN: X no ha
+  firmado… Conviene llamarlo» con el teléfono y el enlace. La automatización sabe cuándo
+  devolverle el problema a una persona, que es lo que casi nunca se hace.
+- **Verificado en n8n y en la base**: el Schedule «Recordatorio de firma — Camino Sacro»
+  (`QhAMT1jIxyFmEasm`) está **activo**; de los 4 contratos en `enviado`, uno agotó sus 5
+  recordatorios el 21-ago y queda correctamente excluido por `.lt("reminder_count", 5)`, y los
+  otros tres se enviaron el 31-ago, así que todavía no les toca. El estado real coincide con lo
+  que el código dice que debe pasar.
+- **`reminder_count` es `NOT NULL DEFAULT 0`** (comprobado en el esquema), así que el filtro
+  `.lt()` no se come ninguna fila por un nulo — que era el fallo silencioso que fui a buscar.
 
 ### Lo que sí está bien: el workflow hace lo que dice y lo deja escrito
 

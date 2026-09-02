@@ -86,7 +86,7 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 | B1 | Cotizador y alta | `B1-cotizador.md` | `hecho` | `hecho` | `hecho` |
 | B2 | Expediente y estados | `B2-expediente.md` | `hecho` | `hecho` | `hecho` |
 | B3 | Contratos y documentos | `B3-contratos-documentos.md` | `hecho` | `pendiente` | `—` |
-| B4 | Correo | `B4-correo.md` | `en curso` | `pendiente` | `—` |
+| B4 | Correo | `B4-correo.md` | `hecho` | `pendiente` | `—` |
 | B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `pendiente` | `pendiente` | `—` |
 | B6 | Datos y plataforma | `B6-datos-plataforma.md` | `pendiente` | `pendiente` | `—` |
 | B7 | Diseño y experiencia | `B7-diseno.md` | `pendiente` | `pendiente` | `—` |
