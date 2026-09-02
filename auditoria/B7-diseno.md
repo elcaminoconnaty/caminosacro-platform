@@ -28,7 +28,8 @@
   esté y salir; para ir a cualquier otra hay que teclear la URL. Las tablas sí desbordan con scroll, que
   es lo correcto.
 - **B7.4 El expediente de un vistazo.** Abre uno: ¿se sabe en diez segundos qué falta por hacer? Hoy son doce tarjetas apiladas sin jerarquía. Propón el orden y el resumen que faltan.
-  `Estado: pendiente`
+  `Estado: en curso` — contando las tarjetas y su orden real, qué dice cada una y qué haría falta leer para
+  responder «¿qué falta por hacer aquí?»; luego la propuesta de orden y de resumen.
 - **B7.5 Los módulos pequeños.** `finanzas` (134 líneas), `calendario`, `tokens`, `clara`, `isabel` (un placeholder). Cuáles aportan, cuáles estorban y cuál merece crecer.
   `Estado: pendiente`
 - **B7.6 Clics por tarea.** Cuenta los de las tres tareas de todos los días: cotizar, cobrar, mandar documentación. Di dónde sobran.
