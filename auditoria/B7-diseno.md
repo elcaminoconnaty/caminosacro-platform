@@ -40,9 +40,11 @@
   nada. Y un desequilibrio que dice algo: **`/tokens` (219 líneas) mide el gasto en IA con más detalle del
   que `/finanzas` (134) mide el dinero del negocio.**
 - **B7.6 Clics por tarea.** Cuenta los de las tres tareas de todos los días: cotizar, cobrar, mandar documentación. Di dónde sobran.
-  `Estado: pendiente`
+  `Estado: en curso` — recorriendo los tres flujos paso a paso y contando, para señalar qué clics sobran y
+  por qué existen.
 - **B7.7 Accesibilidad de lo básico.** Foco visible, etiquetas en los campos, objetivos tocables, y que no se dependa solo del color para decir algo.
-  `Estado: pendiente`
+  `Estado: en curso` — foco visible, campos con etiqueta asociada, tamaño de los objetivos tocables y si
+  alguna señal depende solo del color.
 
 ---
 
