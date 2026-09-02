@@ -34,9 +34,10 @@
   dos cotizaciones que ya no existen. `deleteQuote` solo borra 2 de los 8 tipos de archivo del expediente,
   y el contrato que esas personas firmaron les promete el derecho de supresión.
 - **B3.5 Coherencia entre los tres documentos.** Cotización, contrato y documentación de viaje salen de los mismos datos: comprueba que dicen lo mismo (precio, fechas, personas, condiciones) en un expediente real.
-  `Estado: en curso` — cruzando `contracts.variables_json` (que es una foto fija del momento en que se creó
-  el contrato) contra la cotización de hoy, en los expedientes reales que tienen contrato; y comparando de
-  dónde saca las fechas cada documento.
+  `Estado: hecho` — los 8 contratos de producción cuadran hoy con su cotización en precio, fechas y
+  personas. Pero **el PDF de la cotización calcula el fin del viaje por su cuenta** y ya discrepa del dato
+  guardado en dos expedientes vivos (CS-2026-080 por un día, CS-2026-081 por dos), y `variables_json` es
+  una foto fija que solo se refresca si alguien se acuerda de pulsar un botón.
 - **B3.6 Qué pasa al borrar.** Borrar una cotización con contratos firmados, documentación enviada y archivos de Pilgrim. ¿Cascadas correctas? ¿Se puede borrar algo que no debería borrarse?
   `Estado: pendiente`
 
@@ -95,6 +96,78 @@ navegador y no de la plataforma, la página de documentación es **de token perm
 caduca nunca, solo se revoca), y la vacuna es una entrada en `headers()` de `next.config.ts`
 que además cubriría lo que se añada mañana. El propio proyecto ya demostró que sabe hacerlo,
 en `/correo`.
+
+### [MEDIO] El PDF de la cotización dice un día de regreso y la base dice otro — `src/lib/quotePdf.tsx:509-521`
+
+El PDF de la cotización **no usa `end_date`** para la línea de fechas de la portada. La
+calcula:
+
+```ts
+const days = (stagesCount > 0 ? stagesCount + 2 : (route?.days ?? 0)) + extraNights;
+const displayEndDate = quote.start_date && days > 0 ? sumarDiasIso(quote.start_date, days - 1) : quote.end_date;
+```
+
+O sea: **fin = salida + (etapas con km) + 1**. Está hecho a propósito y comentado —para que el
+rango cuadre con la tabla de itinerario del propio PDF y con las noches extra—, pero el resto
+de la plataforma usa el `end_date` guardado: el **contrato** (`contracts/render.ts:46,74` →
+`fecha_fin`), la **documentación de viaje** y la lista de Seguimiento. Cuando la ruta del
+catálogo no tiene tantas etapas como noches tiene la cotización, los documentos se separan.
+
+**Dos casos vivos, cruzando `route_stages` contra `quotes`:**
+
+| | salida | `end_date` guardado | etapas con km | fin que pinta el PDF | desfase |
+|---|---|---|---|---|---|
+| **CS-2026-080** (`enviada`) | 2026-10-18 | **24 oct** | 6 | 18 + 6 + 1 = **25 oct** | 1 día |
+| **CS-2026-081** (`enviada`) | 2027-04-01 | **13 abr** | 13 | 1 + 13 + 1 = **15 abr** | **2 días** |
+
+Las dos están `enviada`, o sea que esos clientes **ya tienen en su correo un PDF que dice que
+el viaje termina dos días más tarde** de lo que dirá su contrato cuando lo firmen y de lo que
+dice el calendario del CRM. Para un producto donde el cliente compra el vuelo de vuelta por
+su cuenta, dos días es exactamente el error que se paga caro.
+
+No es que una de las dos cifras sea la buena: es que hay **dos fuentes de verdad** para el
+mismo dato. O el itinerario del catálogo está incompleto para esas rutas (6 etapas para 6
+noches, cuando el PDF asume llegada + etapas + fin), o el `end_date` está mal. Lo que no
+puede es que cada documento resuelva la duda por su cuenta y en silencio.
+
+**Propuesta (no se toca: cambia lo que dice un documento ya enviado):** que el PDF avise
+cuando su cálculo no coincida con `end_date` en vez de imponer el suyo —un aviso en el CRM,
+no en el documento del cliente—, y decidir con Nico cuál manda. Y revisar esas dos rutas:
+`Costero desde Baiona` y `Costero desde Porto` son las que tienen el itinerario descuadrado.
+
+### [MEDIO] Las variables del contrato son una foto fija y solo se refrescan a mano — `contractActions.ts:334-368` · `ContractCard.tsx:474`
+
+Al crear un contrato, sus datos del viaje se copian a `contracts.variables_json`: precio,
+fechas, personas, modalidad, habitaciones. A partir de ahí **el contrato deja de mirar la
+cotización**. Editar la cotización —cambiar el precio, las fechas, el número de personas— no
+toca los contratos ya creados y no avisa de nada.
+
+Refrescarlos existe, pero es un **botón que hay que acordarse de pulsar**: `applySharedToAll`
+solo se llama desde `ContractCard.tsx:474`. Buscado en todo `src/`: no hay ninguna otra
+llamada, ni desde `updateQuote`, ni desde `actualizarCotizacion()`, ni desde ningún efecto.
+Y en la pantalla nada marca que un contrato esté desactualizado respecto de su cotización.
+
+**Honestidad sobre el caso:** hoy no hay ni una divergencia. Crucé los **8** contratos de
+producción contra su cotización y los ocho coinciden al céntimo en total, fechas y personas
+—incluido CS-2026-034, cuyo contrato es del 27-jul y cuya cotización se tocó el 4-ago—. El
+mecanismo está abierto, no ha mordido.
+
+Lo que lo hace probable es lo que ya está documentado en los otros bloques: B2 dejó dicho que
+`updateQuote` reescribe 16 columnas **en cada guardado**, y B1 que el auto-fill del editor se
+dispara al montar la página. Un guardado de rutina cambia el precio de la cotización y deja
+el contrato diciendo el viejo, sin una señal.
+
+**Y hay un caso concreto que ya está preparado para salir mal.** El renglón de habitaciones
+del contrato sale de `rooms_json` (`contracts/render.ts:74-84`), y B1 documentó que
+**CS-2026-080 tiene `rooms_json` de 8 dobles con 14 personas** porque `updateQuote` nunca lo
+reescribe. Si a ese expediente se le crean hoy sus contratos, cada viajero firmará un
+documento que dice «**8 habitación(es) doble(s)**» para un grupo de 14. El defecto de B1 no se
+queda en el pedido a Pilgrim: aterriza en el documento que la gente firma.
+
+**Propuesta:** que la tarjeta de contratos marque en ámbar «este contrato se creó con datos
+distintos a los de la cotización» comparando los cuatro campos que mueven plata, con el botón
+de refrescar al lado. No hace falta sincronizar solo —un contrato ya enviado no debe cambiar
+sin que alguien lo decida—, hace falta que se **vea**.
 
 ### [GRAVE] Borrar una cotización deja atrás el pasaporte y el contrato firmado — `seguimiento/[id]/actions.ts:100-116`
 
@@ -250,6 +323,24 @@ Va como MENOR y no como MEDIO porque hace falta bastante más de lo que hay en p
 código de la cotización, que aparece otras veces en el documento. Mismo origen que el
 hallazgo de arriba y mismo tipo de arreglo: reservarle alto al bloque o limitar las líneas
 del titular.
+
+### Lo que sí está bien: los tres documentos cuentan la misma historia
+
+- **Los 8 contratos cuadran con su cotización.** Comprobado uno a uno contra `quotes`: total,
+  fecha de inicio, fecha de fin y número de personas coinciden en los ocho. No hay ni un
+  expediente con el contrato diciendo un precio y la plataforma otro.
+- **El refresco de variables respeta lo que es de cada quien.** `applySharedToAll` mezcla los
+  datos compartidos del viaje pero conserva nombre, correo, teléfono, tipo y número de
+  documento y dirección **de cada firmante** (`contractActions.ts:350-359`), y **se salta los
+  contratos firmados** contándolos aparte (`omitidos`). Es la semántica correcta: refrescar
+  no puede pisar los datos personales de un acompañante ni tocar lo ya firmado.
+- **La dirección del acompañante se deja vacía a propósito** hasta que firma
+  (`contractActions.ts:243-244`: «la del titular sí viene de la cotización; la de un
+  acompañante no se conoce hasta que firma»), en vez de rellenarla con la del titular. Es
+  exactamente el tipo de detalle que separa un contrato válido de uno copiado.
+- **El renglón de habitaciones es el mismo dato en los tres sitios**: `rooms_json` alimenta el
+  contrato, el correo a Pilgrim y las tarjetas del PDF. Un dato, un sitio — el problema no es
+  el diseño, es que B1 encontró que `updateQuote` no lo actualiza.
 
 ### Lo que sí está bien: Storage está bien pensado
 
