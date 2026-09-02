@@ -850,6 +850,18 @@ seguido de los huecos concretos.)_
 
 ## Revisión tras la crítica
 
-`Estado: pendiente`
+`Estado: en curso` — cerrando los cinco huecos del veredicto, en este orden y commiteando por partes:
+
+1. Corregir `GUIA.md:354-356` y `:540` (dicen que Supabase hace copias diarias; el plan es `free`
+   y no las hay) y añadir la pausa a los 7 días sin actividad.
+2. Bajar el hallazgo de permisos de MEDIO a MENOR con el argumento de `CRITERIOS.md:63-64` y
+   dejar la nota para B8 sobre el solapamiento del MEDIO de los tests con B1/B3/B4.
+3. Subir a Hallazgos los tres nuevos del crítico: grant a `anon` (MENOR), rastro de auditoría
+   inexistente (MEDIO), pasaportes sin dueño ni retención (MEDIO). Más los dos apuntes sueltos
+   como MENOR: `/correo/[token]` sin revocación y `auth_leaked_password_protection` desactivado.
+4. **No se borra nada de Storage**: los `CS-TEST-*` quedan como decisión pendiente de Nico, con
+   la consulta exacta para listarlos y el criterio para distinguir prueba de real.
+5. Sección «Decisiones para Nico» con el `pg_dump` semanal por n8n y el `revoke ... from anon`:
+   qué resuelve, qué cuesta, qué pasa si no se hace. No se aplican.
 
 _(Solo si el veredicto fue `revisar`. Una ronda.)_
