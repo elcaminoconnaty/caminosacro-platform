@@ -39,7 +39,9 @@
   y `hasta` sin comprobar a la consulta, y una fecha mal formada acaba en un **500 «interno»** — y el
   consumidor de ese endpoint es **BayMax**, o sea un modelo que no puede corregirse con ese mensaje.
 - **B6.6 Cero tests.** No pidas «más tests». Di **las tres cosas** cuya rotura silenciosa costaría más caro y qué prueba mínima las cubriría.
-  `Estado: pendiente`
+  `Estado: en curso` — eligiendo las tres con el criterio de «se rompe sin que nadie se entere y cuesta
+  plata», apoyándome en lo que B1 a B5 ya demostraron que se rompe de verdad, y escribiendo la prueba
+  mínima de cada una.
 - **B6.7 Copias y recuperación.** Qué pasa si alguien borra una cotización por error o se pierde un bucket. Qué hay hoy y qué falta.
   `Estado: pendiente`
 
