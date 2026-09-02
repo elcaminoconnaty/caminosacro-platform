@@ -28,7 +28,9 @@
   Salva el caso real que esas 33 se mandan desde la tarjeta del CRM, que enseña el texto antes. Y la
   plantilla `recordatorio_pago` usa `{{saldo_eur}}`, que **no existe en ningún constructor de variables**.
 - **B4.4 Que llegue y no a spam.** Versión en texto plano, tamaño, enlaces, remitente. SPF/DKIM no se pueden comprobar desde aquí: anótalo como verificación pendiente de Nico.
-  `Estado: pendiente`
+  `Estado: en curso` — versión en texto plano de los correos maquetados, peso del HTML, enlaces (absolutos,
+  dominio correcto, sin caducar), remitente único, y la lista de verificaciones de dominio que solo puede
+  hacer Nico.
 - **B4.5 El secreto compartido.** `QUOTE_EMAIL_WEBHOOK_SECRET` está en claro dentro del nodo de n8n. Evalúa el riesgo real y qué costaría mitigarlo. No lo cambies.
   `Estado: pendiente`
 - **B4.6 El cron de recordatorios.** Qué pasa si corre dos veces el mismo día, si no corre, o si el envío falla a mitad de la lista. ¿Manda duplicados?
