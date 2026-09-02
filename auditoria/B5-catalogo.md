@@ -24,7 +24,9 @@
   redondeando a precio comercial. Lo único: la bitácora del catálogo **no dice quién** en 40 de sus 67
   entradas.
 - **B5.3 Rutas sin etapas.** Las de bici desde Oporto y Oviedo no tienen etapas cargadas. Mira qué sale en el PDF y en el prellenado de la documentación cuando faltan.
-  `Estado: pendiente`
+  `Estado: en curso` — inventario de qué rutas activas no tienen etapas, y **renderizando el PDF de verdad**
+  con una de ellas para ver qué sale en el itinerario, en el cuadro de días/noches/km y en el prellenado de
+  la documentación de viaje.
 - **B5.4 Opcionales.** Precios por año, opcionales activos sin precio, unidades y cantidades. Qué pasa si se desactiva uno que está en cotizaciones vivas.
   `Estado: pendiente`
 - **B5.5 Bicis.** Tarifa por bici × ruta × año, la fianza que no entra al total, el encadenado por `parent_quote_id`.
