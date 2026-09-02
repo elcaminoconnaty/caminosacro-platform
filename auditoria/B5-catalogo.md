@@ -12,7 +12,8 @@
 ## Tareas
 
 - **B5.1 El año de la tarifa.** Qué pasa el 1 de enero con las salidas del año nuevo sin tarifas cargadas. El fallback del cotizador público y el aviso `price_note`: ¿avisa de verdad o pasa desapercibido?
-  `Estado: pendiente`
+  `Estado: en curso` — inventario de qué rutas tienen tarifa 2027 y cuáles no, cómo se comporta cada uno de
+  los cuatro caminos el 1 de enero, y dónde se ve (o no se ve) el `price_note` una vez creada la cotización.
 - **B5.2 Márgenes.** La regla de markup y su aplicación masiva. Comprueba que ninguna tarifa quedó vendiéndose por debajo del costo.
   `Estado: pendiente`
 - **B5.3 Rutas sin etapas.** Las de bici desde Oporto y Oviedo no tienen etapas cargadas. Mira qué sale en el PDF y en el prellenado de la documentación cuando faltan.
