@@ -752,6 +752,11 @@ convertir, CS-2026-004 pagada con etiqueta `pago_parcial`, y las 8 salidas a 45 
 los huecos frente a CRITERIOS: conciliación con Pilgrim, cobro partido en dos monedas,
 devoluciones, cambio de titular y rastro de quién tocó qué.
 
+**Retomada tras la muerte del agente anterior** (el `en curso` de arriba es suyo; lo dejo
+escrito porque dice bien por dónde iba). Sigo su plan en ese orden: los tres GRAVE contra el
+código y contra `comercial` en producción, después la tensión de la TRM, y al final los
+huecos frente a CRITERIOS. Donde corrija al auditor, digo con qué lo corrijo.
+
 ---
 
 ## Revisión tras la crítica
