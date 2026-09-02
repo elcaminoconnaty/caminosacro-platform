@@ -34,7 +34,8 @@
   con acceso dinámico es invisible a un grep: los once endpoints de BayMax devuelven 401 sin que nada diga
   por qué. Y `APP_BASE_URL` se comporta de **tres maneras distintas** cuando falta.
 - **B6.5 Los endpoints públicos.** `/api/wp`, `/api/agente`, `/api/cron`: autenticación, límite de peticiones, validación del cuerpo, y qué devuelven cuando algo va mal.
-  `Estado: pendiente`
+  `Estado: en curso` — inventario de los endpoints reales y, en cada uno, las cuatro columnas: autenticación,
+  límite de peticiones, validación del cuerpo y qué devuelve al fallar. Lo que B1 ya cubrió no se repite.
 - **B6.6 Cero tests.** No pidas «más tests». Di **las tres cosas** cuya rotura silenciosa costaría más caro y qué prueba mínima las cubriría.
   `Estado: pendiente`
 - **B6.7 Copias y recuperación.** Qué pasa si alguien borra una cotización por error o se pierde un bucket. Qué hay hoy y qué falta.
