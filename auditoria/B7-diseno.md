@@ -12,7 +12,8 @@
 ## Tareas
 
 - **B7.1 El sistema visual.** Tokens de color y tipografía: ¿se usan o hay valores sueltos? Mide el contraste de los pares que de verdad se usan; no lo opines.
-  `Estado: pendiente`
+  `Estado: en curso` — inventario de los tokens declarados, cuántos colores sueltos (hex y clases de Tailwind
+  crudas) hay fuera del sistema, y **cálculo** del contraste WCAG de los pares que de verdad se usan.
 - **B7.2 Los tres estados que siempre faltan.** Vacío, cargando y error, pantalla por pantalla. Lista las que se quedan mudas.
   `Estado: pendiente`
 - **B7.3 Desde el celular.** El expediente, las tablas anchas y el wizard en 390 px. Es donde Nico atiende cuando no está en el escritorio.
