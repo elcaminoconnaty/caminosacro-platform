@@ -34,7 +34,9 @@
   dos cotizaciones que ya no existen. `deleteQuote` solo borra 2 de los 8 tipos de archivo del expediente,
   y el contrato que esas personas firmaron les promete el derecho de supresión.
 - **B3.5 Coherencia entre los tres documentos.** Cotización, contrato y documentación de viaje salen de los mismos datos: comprueba que dicen lo mismo (precio, fechas, personas, condiciones) en un expediente real.
-  `Estado: pendiente`
+  `Estado: en curso` — cruzando `contracts.variables_json` (que es una foto fija del momento en que se creó
+  el contrato) contra la cotización de hoy, en los expedientes reales que tienen contrato; y comparando de
+  dónde saca las fechas cada documento.
 - **B3.6 Qué pasa al borrar.** Borrar una cotización con contratos firmados, documentación enviada y archivos de Pilgrim. ¿Cascadas correctas? ¿Se puede borrar algo que no debería borrarse?
   `Estado: pendiente`
 
