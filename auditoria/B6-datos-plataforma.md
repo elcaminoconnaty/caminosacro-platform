@@ -39,9 +39,10 @@
   y `hasta` sin comprobar a la consulta, y una fecha mal formada acaba en un **500 «interno»** — y el
   consumidor de ese endpoint es **BayMax**, o sea un modelo que no puede corregirse con ese mensaje.
 - **B6.6 Cero tests.** No pidas «más tests». Di **las tres cosas** cuya rotura silenciosa costaría más caro y qué prueba mínima las cubriría.
-  `Estado: en curso` — eligiendo las tres con el criterio de «se rompe sin que nadie se entere y cuesta
-  plata», apoyándome en lo que B1 a B5 ya demostraron que se rompe de verdad, y escribiendo la prueba
-  mínima de cada una.
+  `Estado: hecho` — las tres, con el criterio de «se rompe sin que nadie se entere»: **(1)** que las cinco
+  aritméticas del precio den el mismo número, **(2)** que los cinco PDF rendericen, **(3)** que ninguna
+  plantilla de correo use una variable que nadie produce. Las tres ya se han roto de verdad —están
+  documentadas en B1, B3 y B4— y las tres se cubren con **una tarde y un solo `npm i -D vitest`**.
 - **B6.7 Copias y recuperación.** Qué pasa si alguien borra una cotización por error o se pierde un bucket. Qué hay hoy y qué falta.
   `Estado: pendiente`
 
@@ -160,6 +161,77 @@ Va como MENOR porque hoy la variable está puesta y los tres caminos coinciden. 
 con lo de B4.4 —que el respaldo apunta al dominio de Railway y no al de la marca— porque el
 arreglo es el mismo: una sola función que resuelva la base pública, que se plante si no está
 configurada, y que use el dominio de marca.
+
+### [MEDIO] Las tres roturas silenciosas que hay que cubrir, y su prueba mínima — no hay runner de tests en el proyecto
+
+No hay ni infraestructura: `package.json` no tiene script `test` ni vitest ni jest. Así que el
+primer paso no es «escribir tests», es `npm i -D vitest` y un script. Con eso puesto, estas
+son las tres, elegidas por un criterio único —**si se rompe, ¿alguien se entera antes de que
+cueste plata?**— y las tres tienen ya un caso real documentado en esta auditoría, o sea que
+no son hipótesis.
+
+---
+
+**1. Que las cinco aritméticas del precio den el mismo número.**
+
+*Por qué esta:* hay **cinco** implementaciones del precio de una cotización —`tarifarRuta()`,
+la réplica en cliente del `Wizard`, la de `/cotizar`, la de `QuoteEditor` y la de
+`editQuote`— y B1 demostró que **ya divergen**: el editor de Seguimiento cobra
+`precio × personas` donde el resto reparte habitaciones, y `/cotizar` cobra una sola
+modalidad a todo el grupo. Es la rotura más cara posible porque no produce ningún error: la
+cotización sale, el PDF sale, el correo sale, y el número está mal. Se descubre cuadrando el
+año.
+
+*La prueba mínima:* una tabla de unos ocho casos —1, 2, 3 y 5 personas × pensión y hotel ×
+todos-individuales— que pase por `tarifarRuta()` y compruebe tres cosas: la base
+(`dobles×2×tarifa_doble + individuales×tarifa_single`), que el suplemento se sume **una sola
+vez**, y la etiqueta que sale. Es una función pura con la base inyectada: se le pasa un doble
+de `supabase` con cuatro filas de `pricing` y no hace falta ni red ni migraciones. **Unas 40
+líneas.** Y la segunda mitad, que es la que habría cazado el GRAVE de B1: el mismo caso por
+las otras cuatro puertas, comprobando que dan lo mismo.
+
+---
+
+**2. Que los cinco generadores de PDF rendericen.**
+
+*Por qué esta:* el propio TABLERO lista la trampa —«`@react-pdf/renderer` … o el render
+revienta con "Font family not registered"»— y B1 encontró la consecuencia: **si el PDF falla,
+el correo sale igual y la cotización queda marcada «Enviada»**. O sea que la rotura no solo es
+silenciosa: se disfraza de éxito, y el único rastro queda en los logs de Railway. Un cambio de
+ruta de importación de un componente, o una fuente que se mueva, tumba los cinco documentos y
+la plataforma sigue diciendo que todo salió.
+
+*La prueba mínima:* la más barata de las tres, porque **el arnés ya está escrito**:
+`scripts/docs_smoke.tsx` renderiza dos de los cinco. Basta ampliarlo a los cinco
+—cotización, contrato, recibo, documento de viaje y asistencia— con dos casos cada uno: datos
+normales y **todos los campos opcionales vacíos**. No hace falta comparar el resultado: basta
+con que `renderToBuffer` no lance y devuelva más de N bytes. Lo hice a mano en B3.3 con siete
+combinaciones y tardó segundos. **Convertirlo en `npm test` es media hora.**
+
+---
+
+**3. Que ninguna plantilla de correo use una variable que nadie produce.**
+
+*Por qué esta:* B4 encontró que la plantilla `recordatorio_pago` —guardada, activa y lista
+para enchufarse— usa `{{saldo_eur}}`, y **esa variable no existe en ninguno de los dos
+constructores**. Como `renderTemplate` sustituye lo que no encuentra por cadena vacía, el
+correo saldría diciendo «Saldo pendiente: **.**» a un cliente al que se le está pidiendo
+dinero. Y las plantillas se editan **desde la base**, sin pasar por el código ni por un
+despliegue: es el único texto que llega al cliente que nadie revisa antes de salir.
+
+*La prueba mínima:* leer las plantillas activas de `comercial.email_templates`, sacar con un
+regex todos los `{{...}}` de su asunto y su cuerpo, y comprobar que cada uno está entre las
+claves que devuelven `buildTemplateVars` y `armarVariables`. **Diez líneas**, y de propina
+verifica lo que hoy solo garantiza un comentario: que los dos constructores no han divergido
+(«si se agrega una variable a las plantillas, hay que añadirla en ambos lados»).
+
+---
+
+**Lo que NO haría:** tests de componentes de React, cobertura como objetivo, ni pruebas de
+extremo a extremo con navegador. Para dos personas y un producto que se despliega a mano, eso
+es maquinaria que se abandona en un mes. Estas tres son ficheros sueltos, corren en segundos
+sin base de datos —salvo la tercera, que solo lee dos filas— y cubren exactamente los tres
+sitios donde esta auditoría **ya encontró** roturas que nadie había visto.
 
 ### Lo que sí está bien: los 13 endpoints, uno por uno
 
