@@ -574,6 +574,12 @@ mira B4.6.
 
 _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
+- **`quoteEmail.ts:41-48` — la ruta del correo se resuelve por id y, si no hay, por nombre.**
+  `route_id` es `null` en 33 de las 45 cotizaciones y sin este respaldo `{{dias_camino}}` y
+  `{{duracion}}` salían vacías, dejando el hueco en la frase. Mismo patrón que `pdf.ts`,
+  `editQuote.ts` y la tarjeta de correo del seguimiento. `npx tsc --noEmit` limpio.
+  (Aplicado por el crítico; detalle en su sección.)
+
 ---
 
 ## Crítica del experto
@@ -806,6 +812,41 @@ Comprobado en la base: hay **dos** plantillas, `cotizacion_enviada` y `recordato
 **dos** están `active = true`. Nadie ha usado el interruptor todavía, que es por lo que no ha
 mordido. **Propuesta:** añadir `.eq("active", true)` en `page.tsx:153`, y que la tarjeta muestre
 un aviso si no hay plantilla activa en vez de caer al respaldo mínimo sin decirlo.
+
+### [Rebaja confirmada, argumento corregido] `armarCorreoCotizacion`: MENOR sí, pero el auditor eligió mal el contraejemplo — `quoteEmail.ts:41`
+
+**Los datos del auditor son exactos.** Comprobado en producción:
+
+| origen | cotizaciones | con `route_id` | con `start_date` | con `valid_until` |
+|---|---|---|---|---|
+| `interna` | 39 | **6** | 28 | 29 |
+| `wordpress` | 5 | 5 | 5 | 5 |
+| `baymax` | 1 | 1 | 1 | 1 |
+
+33 sin `route_id`, todas internas; los caminos que crean su propia cotización la traen llena.
+Hasta ahí, sin peros.
+
+**Donde se equivoca es en el contraejemplo.** Escribe que «`agentQuoteStatus.ts:70-73` resuelve
+la ruta con el patrón correcto». Ese bloque resuelve la ruta **para saber si es un camino en
+bici**, no para el correo. El borrador de correo que BayMax le enseña a Nico sale de la línea
+**62** del mismo archivo, que llama a `armarCorreoCotizacion` — la función con el fallo. Así que
+el archivo que el auditor presenta como prueba de que «el resto de la plataforma sí sabe
+hacerlo» es en realidad **la cuarta víctima**, y la única de las cuatro que sí toca las 33
+cotizaciones internas: `resolverCotizacion` acepta cualquier código `CS-AAAA-NNN`.
+
+O sea que la vista previa que salva el caso no es solo la tarjeta del CRM: es también un mensaje
+de Telegram que Nico aprueba con «enviar N». Sigue habiendo una persona mirando —por eso
+**mantengo MENOR**, la consecuencia es cosmética y nunca llega al cliente sin que alguien la
+haya visto— pero el margen es más fino de lo que el hallazgo sugiere: el hueco se lee como un
+doble espacio («los  días de camino») y un renglón cortado («• Duración: »), que es exactamente
+lo que se pasa por alto en una aprobación por chat.
+
+**Arreglado:** aplicado el respaldo por nombre en `quoteEmail.ts:41-48`, el mismo patrón de
+`pdf.ts`, `editQuote.ts` y la tarjeta del CRM. `npx tsc --noEmit` limpio. Es la línea que el
+propio auditor proponía; con 33 de 45 cotizaciones afectadas y un consumidor sin caja editable,
+no había motivo para dejarla pendiente. Las otras tres variables vacías (`fechas_largas`,
+`validez`, `alojamiento_descripcion`) siguen dependiendo de que el dato exista en la cotización
+y eso ya no es cosa del correo.
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_

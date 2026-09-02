@@ -39,12 +39,15 @@ export async function armarCorreoCotizacion(
     if (!quote || !tpl?.subject || !tpl?.body_md) return null;
 
     let routeMeta: { days: number | null; nights: number | null; origin: string | null; destination: string | null } | null = null;
-    if (quote.route_id) {
-      const { data: route } = await supabase
-        .from("routes")
-        .select("days,nights,origin,destination")
-        .eq("id", quote.route_id)
-        .maybeSingle();
+    // Por id y, si no hay, por nombre: `route_id` es null en la mayoría de las
+    // cotizaciones internas y sin este respaldo {{dias_camino}} y {{duracion}} salían
+    // vacías, dejando el hueco en la frase del correo del cliente. Es el mismo patrón
+    // que ya usan pdf.ts, editQuote.ts y la tarjeta de correo del seguimiento.
+    if (quote.route_id || quote.route_name) {
+      const consulta = supabase.from("routes").select("days,nights,origin,destination");
+      const { data: route } = quote.route_id
+        ? await consulta.eq("id", quote.route_id).maybeSingle()
+        : await consulta.eq("name", quote.route_name).maybeSingle();
       if (route) {
         routeMeta = {
           days: route.days ?? null,
