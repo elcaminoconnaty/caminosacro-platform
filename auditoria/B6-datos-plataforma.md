@@ -28,8 +28,11 @@
   N+1: el único bucle sospechoso resuelve los hoteles con un `.in()` y cachea las fotos, con el incidente
   que lo motivó anotado al lado. Las imágenes están optimizadas a conciencia. La base entera pesa 2,5 MB.
 - **B6.4 Secretos y configuración.** Qué claves llegan al navegador, qué hay en `.env`, qué pasa si falta `APP_BASE_URL` en producción.
-  `Estado: en curso` — qué variables llevan prefijo `NEXT_PUBLIC_` y por tanto llegan al navegador, si algún
-  secreto se cuela en un componente de cliente, y qué hace cada camino cuando falta `APP_BASE_URL`.
+  `Estado: hecho` — **al navegador solo llegan las dos claves que deben llegar** (la URL de Supabase y la
+  publishable), ningún secreto lleva el prefijo `NEXT_PUBLIC_` y los tres módulos que leen claves son
+  `server-only`. Pero **`AGENTE_API_SECRET` no está en `.env.example` ni en `.env.local`**, y como se lee
+  con acceso dinámico es invisible a un grep: los once endpoints de BayMax devuelven 401 sin que nada diga
+  por qué. Y `APP_BASE_URL` se comporta de **tres maneras distintas** cuando falta.
 - **B6.5 Los endpoints públicos.** `/api/wp`, `/api/agente`, `/api/cron`: autenticación, límite de peticiones, validación del cuerpo, y qué devuelven cuando algo va mal.
   `Estado: pendiente`
 - **B6.6 Cero tests.** No pidas «más tests». Di **las tres cosas** cuya rotura silenciosa costaría más caro y qué prueba mínima las cubriría.
@@ -71,6 +74,74 @@ hace falta un sistema de roles. Con una tabla `perfiles(user_id, rol)` y **dos**
 distintas en las tres tablas sensibles —`contracts`, `client_payments`, `provider_payments`—
 más el bucket de pasaportes, se cubre el 90 % del riesgo. Decidirlo antes de crear la tercera
 cuenta, no después.
+
+### [MENOR] `AGENTE_API_SECRET` es obligatoria, no está documentada y no se puede encontrar con un grep — `api/agente/auth.ts:11` vs `.env.example`
+
+Los once endpoints de `/api/agente/*` —los que usa BayMax— se autentican con
+`autorizadoCon(request, "AGENTE_API_SECRET")`. Esa variable:
+
+- **no está en `.env.example`**, que es el único inventario de configuración del proyecto;
+- **no está en el `.env.local`** de la máquina de desarrollo;
+- y **no aparece buscando `process.env.AGENTE_API_SECRET`**, porque `auth.ts:13` la lee con
+  acceso dinámico —`process.env[envVar]`— para poder compartir la función entre WordPress y
+  el agente. La única forma de descubrirla es leer `api/agente/auth.ts`.
+
+Lo que pasa cuando falta está bien resuelto y es lo que lo vuelve difícil de diagnosticar:
+`autorizado()` devuelve `false` si el secreto no está (**falla cerrado**, que es lo
+correcto), así que los once endpoints responden un `401 no_autorizado` idéntico al de una
+clave equivocada. Quien clone el repositorio y siga `.env.example` al pie de la letra tendrá
+todo funcionando **menos** BayMax, con un 401 que parece un problema de credenciales y es de
+configuración.
+
+Al revés también hay ruido: `.env.example` lista `WP_QUOTER_SECRET` —esa sí se usa, como
+valor por defecto de la misma función— pero ninguna de las dos aparece con el patrón habitual,
+así que el inventario y el código no se pueden contrastar automáticamente.
+
+**Propuesta:** añadir `AGENTE_API_SECRET` a `.env.example` con un comentario de para qué es, y
+—ya que se toca— que `autorizado()` registre un `console.warn` cuando la variable pedida no
+exista, para distinguir «clave mal puesta» de «clave sin configurar». Las dos cosas son
+pequeñas y no tocan la seguridad.
+
+### [MENOR] `APP_BASE_URL` hace tres cosas distintas cuando falta — `email/versionWeb.ts:25` · `contractActions.ts:445` · `api/cron/recordatorios-contrato/route.ts:62`
+
+Es la variable que decide a qué dirección apuntan los enlaces que se le mandan al cliente, y
+cada uno de los tres sitios que la usa resuelve su ausencia de una manera:
+
+| dónde | si falta `APP_BASE_URL` |
+|---|---|
+| `api/cron/recordatorios-contrato:62` | **se planta**: devuelve 500 con «sin ella el enlace de firma del correo saldría roto» |
+| `contractActions.baseUrl(h):445` | la **deduce de las cabeceras** de la petición (`x-forwarded-host`) |
+| `email/versionWeb.baseUrlApp():25` | cae en un **literal**: la URL de `*.up.railway.app` |
+
+Las tres son defendibles por separado y las tres están comentadas. El problema es que juntas
+significan que **no hay una respuesta única** a «¿cuál es nuestra dirección pública?», y que
+un despliegue con esa variable mal puesta fallaría de forma distinta —y en un caso, en
+silencio— según el flujo. El cron es el único que lo trata como lo que es: un requisito.
+
+Va como MENOR porque hoy la variable está puesta y los tres caminos coinciden. Lo anoto junto
+con lo de B4.4 —que el respaldo apunta al dominio de Railway y no al de la marca— porque el
+arreglo es el mismo: una sola función que resuelva la base pública, que se plante si no está
+configurada, y que use el dominio de marca.
+
+### Lo que sí está bien: al navegador no llega ni un secreto
+
+- **Solo dos variables llevan el prefijo `NEXT_PUBLIC_`**: `NEXT_PUBLIC_SUPABASE_URL` y
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Las dos son públicas por diseño —la publishable key
+  está pensada para el navegador y va sujeta a RLS— y no hay ninguna más. Ninguna de las ocho
+  restantes (`SUPABASE_SERVICE_ROLE_KEY`, `QUOTE_EMAIL_WEBHOOK_SECRET`, `CRON_SECRET`,
+  `WP_QUOTER_SECRET`, `AGENTE_API_SECRET`, `APP_BASE_URL`, `TRM_API_*`) tiene el prefijo, así
+  que Next no puede inlinarlas en el bundle del cliente aunque alguien se despistara.
+- **Los tres módulos que leen claves están marcados `server-only`**: `lib/email/webhook.ts`,
+  `api/wp/auth.ts` y —por su cadena de importación— `lib/supabase/admin.ts`, que además
+  **lanza** si la service key no está en vez de devolver un cliente degradado.
+- **El cotizador público cuida lo suyo**: `cotizar/page.tsx` selecciona solo `price_cs` y pone
+  a cero los suplementos del lado proveedor antes de pasar los datos al componente, «de lo
+  contrario viajarían en el HTML». El costo que se le paga a Pilgrim no cruza al navegador ni
+  por el HTML inicial.
+- **`.env.example` existe y está casi completo** (falta la de arriba), con comentarios que
+  explican las trampas —el de `APP_BASE_URL` avisa de que en local debe apuntar a la máquina
+  «si apunta a producción, el correo te manda a firmar al servidor de producción»—. Ese
+  comentario vale más que la variable.
 
 ### Lo que sí está bien: el rendimiento, medido y no supuesto
 
