@@ -584,24 +584,9 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: en curso` — crítico independiente (veterano de CRM de agencia). Verifico contra el
-código, contra `comercial.email_log` / `comercial.email_templates` en producción y contra el
-workflow `HgErNCbopi95CdiI`. Plan numerado, escribo cada conclusión en cuanto la tengo:
-
-1. **Censo real de emisores.** Grep de todas las llamadas a `enviarCorreoWebhook` y a
-   `registrarEnvio`: comprobar que son siete y no ocho, quién ignora `messageId`, y si
-   `api/wp/lead` merece el mismo peso que los otros tres (destinatario interno, no cliente).
-2. **Etiqueta del secreto del webhook (MEDIO).** Releer el nodo «Validar y Preparar» y decidir
-   si el radio de acción sostiene MEDIO, o si sube/baja.
-3. **La rebaja a MENOR de `armarCorreoCotizacion`.** Verificar en la base que las 33 sin
-   `route_id` son todas internas y que los caminos ciegos sí lo traen; confirmar o revertir.
-4. **Lo que falta como CRM de agencia** contra `CRITERIOS.md` §3 y §7: rebotes, respuestas del
-   cliente, seguimiento de cotización sin respuesta, aviso de saldo, confirmación de pago.
-5. **Lo que el auditor no miró**: plantillas en base (todas, no solo la activa), reintento de
-   Brevo/n8n, `correo/[token]` (fuga por token, caducidad), cron de recordatorios en lo que
-   toca al correo, y los `Reply-To`/hilos.
-
-Si muero, lo escrito más abajo ya es definitivo.
+`Estado: hecho` — crítica completa. Verificada contra el código, contra `comercial.email_log`,
+`comercial.email_templates`, `quotes` y `contracts` en producción, y contra el workflow
+`HgErNCbopi95CdiI` y sus ejecuciones. Un arreglo aplicado (`quoteEmail.ts`). Veredicto al final.
 
 _(nota original del auditor, se conserva)_ — **sin empezar a propósito**, por lo mismo que en B3: la auditoría la
 escribió este agente y criticarse a uno mismo no tiene independencia. Lo que más agradecería
@@ -847,6 +832,138 @@ propio auditor proponía; con 33 de 45 cotizaciones afectadas y un consumidor si
 no había motivo para dejarla pendiente. Las otras tres variables vacías (`fechas_largas`,
 `validez`, `alojamiento_descripcion`) siguen dependiendo de que el dato exista en la cotización
 y eso ya no es cosa del correo.
+
+### [MEDIO] Nadie se entera de un rebote: `confirmado` quiere decir «Brevo lo aceptó», no «llegó» — `lib/email/log.ts:41`
+
+Este es el hueco que B4.4 no llegó a mirar. La tarea preguntaba «que llegue y no a spam» y el
+auditor contestó con higiene de entregabilidad —bien contestado, todo lo que dice es cierto—
+pero no hizo la pregunta siguiente: **¿cómo nos enteramos de que no llegó?**
+
+La respuesta es que no nos enteramos. `messageId` es lo que devuelve la API de Brevo **al
+aceptar** el mensaje para su cola. Todo lo que pasa después —`hard_bounce` por un correo mal
+escrito, `blocked` por reputación, `spam` porque alguien lo marcó, o simplemente que no se
+entregó— ocurre fuera de la plataforma. Brevo tiene webhooks de evento para exactamente eso, y
+aquí **no hay ningún endpoint que los reciba**: `src/app/api/` tiene `agente`, `contenido`,
+`cron` y `wp`, y ninguna ruta de entrada de correo. `email_log` tampoco tiene columna donde
+apuntarlo.
+
+El resultado es un `✓ Enviada` verde en el expediente sobre un correo que rebotó. Y el disparador
+más común de todos no es exótico: **un correo de cliente mal tecleado**. En una agencia de dos
+personas donde el correo del cliente se copia a mano de un WhatsApp, eso pasa; y cuando pasa,
+la cotización se da por enviada, nadie llama, y el cliente se va con otro pensando que no le
+contestaron.
+
+Con el criterio de `CRITERIOS.md` («los fallos se ven», «un ✓ enviado que no comprueba nada»),
+esto es el mismo pecado que motivó la creación de `email_log`, un paso más allá: la tabla arregló
+«el CRM decía enviado sin preguntarle a nadie», pero se quedó en la puerta de Brevo.
+
+**Propuesta:** un `POST /api/brevo/eventos` autenticado como los de `wp` (el `timingSafeEqual`
+de `api/wp/auth.ts` ya está escrito), que case el evento por `message_id` y escriba
+`estado = 'rebotado' | 'entregado'` en `email_log`. Es una ruta, una columna y una migración —
+del mismo tamaño que la 0028 que ya se hizo—, y convierte los tres estados actuales en la
+cadena completa. Mientras tanto, y gratis: dejar dicho en el expediente que «confirmado»
+significa *aceptado por Brevo*, no *entregado*, para que el verde no prometa de más.
+
+### [MEDIO] Los tres correos que un CRM de agencia da por hechos y aquí no existen — contra `CRITERIOS.md` §3
+
+`CRITERIOS.md` es explícito sobre cuál es la función que más plata deja sobre la mesa cuando
+falta: «**No dejar caer a nadie.** Seguimientos y recordatorios: la cotización enviada hace ocho
+días sin respuesta, el saldo que vence, el contrato sin firmar. Es lo que más plata deja sobre
+la mesa cuando falta».
+
+De esas tres, la plataforma tiene **una**: el contrato sin firmar, resuelto con el cron de
+recordatorios, que además está bien hecho —el auditor lo demuestra con detalle y estoy de
+acuerdo—. Las otras dos no existen, y una tercera del oficio tampoco. Lo notable es que **en los
+tres casos el dato ya está en la base y el patrón ya está escrito**: solo falta el cableado.
+
+| lo que falta | lo que ya existe | lo que hoy pasa |
+|---|---|---|
+| **Seguimiento de cotización sin respuesta** | `quotes.email_sent_at`, `status`, y `api/cron/recordatorios-contrato` como plantilla exacta de cómo se hace | **3 cotizaciones** llevan más de 5 días enviadas sin avanzar de estado. Nadie las persigue salvo que Nico se acuerde. |
+| **Aviso de saldo** | la plantilla `recordatorio_pago` (`active = true`), `comercial.client_payments` con **6 pagos en 4 cotizaciones**, y el saldo ya calculado en las dos pantallas | La plantilla está escrita, activa, **sin un solo llamador**, y con `{{saldo_eur}}` que ningún constructor produce. Está peor que ausente: está puesta y rota. |
+| **Confirmación de pago recibido** | `client_payments` con su fecha y monto | Se registra el pago y **al cliente no le llega nada**. En un negocio donde el pilgrim transfiere desde otro país, el acuse es lo que corta la llamada de «¿les llegó?». |
+
+No pido nada corporativo: ni embudos, ni permisos por rol, ni automatizaciones de marketing.
+Pido **tres correos transaccionales sobre datos que la plataforma ya tiene**, con la misma forma
+que un endpoint que ya funciona en producción. El cron de contratos es la prueba de que el
+equipo sabe hacerlo bien —umbral en vez de calendario, tope de repeticiones, escalado a una
+persona al final—; lo que falta es repetir ese patrón dos veces más.
+
+**Fuera de alcance a propósito** (lo digo para que no vuelva en la revisión como hueco): recibir
+las **respuestas del cliente** dentro del CRM. El `replyTo` está bien puesto y las respuestas
+caen en `reservas@`, que en una agencia de dos personas es donde tienen que caer. Una bandeja
+compartida dentro de la plataforma es exactamente el tipo de función corporativa que
+`CRITERIOS.md` excluye.
+
+### [Confirmación] La verificación de `APP_BASE_URL` sigue pendiente, y el indicio apunta a que el MENOR está vivo
+
+El auditor fue honesto al decir que no pudo leer las variables de Railway. **Yo tampoco**: el
+listado de proyectos de Railway está bloqueado desde aquí igual que para él, así que la
+verificación 2 de su lista sigue en pie tal cual.
+
+Añado el único indicio que sí se puede leer: **`.env.example:15` documenta
+`APP_BASE_URL=https://caminosacro-platform-production.up.railway.app`**. Quien montó producción
+copió ese archivo. No es prueba, pero inclina la balanza a que el enlace de la versión web sale
+hoy con el host de Railway y no con el de la marca — o sea que el hallazgo probablemente no es
+solo el respaldo. Vale la pena que Nico lo mire primero de su lista, junto con el DKIM.
+
+Un matiz al argumento, para no inflarlo: el auditor menciona «el enlace donde se pide subir el
+pasaporte» como afectado. Ese enlace **no** sale de `baseUrlApp()` sino de `baseUrl(h)`
+(`contractActions.ts:444-449`), que solo cae en las cabeceras de la petición si `APP_BASE_URL`
+falta. Y el literal de `contrato/[token]/actions.ts:259` va en el **aviso interno a reservas@**,
+que lo lee Nico, no un cliente. El hallazgo se sostiene —una URL de marca en los correos y un
+literal menos— pero su gravedad real es de dominio en los enlaces de la versión web, no de un
+peregrino desconfiando antes de subir su pasaporte.
+
+---
+
+## Veredicto
+
+**El bloque está bien hecho.** La auditoría de B4 es la más sólida que he leído de esta serie:
+lee el workflow en producción en vez de suponerlo, mide el peso del HTML en la base antes de
+opinar, contesta «no» a las tres preguntas del cron con el mecanismo delante, y separa con
+honestidad lo que comprobó de lo que no. Las cuatro secciones de «lo que sí está bien» no son
+relleno: están verificadas y las corroboré donde pude. Ningún hallazgo suyo es inventado y
+ninguna etiqueta está inflada.
+
+Lo que le falta es alcance, no rigor. Miró muy bien el emisor y muy poco **el negocio que ese
+emisor tiene que sostener**: contó llamadas en vez de flujos y se le escaparon los tres del
+embudo del contrato; midió la entregabilidad pero no preguntó cómo se entera nadie de un rebote;
+y de la vara de `CRITERIOS.md` §3 solo comprobó la pata que existe. Por eso hay revisión: no
+para corregirlo, para completarlo.
+
+**Etiquetas que muevo:** ninguna hacia abajo. Confirmo el MEDIO del secreto (con dos hechos
+nuevos: el webhook es público y el secreto también sale por la API de ejecuciones), confirmo el
+MEDIO de `email_log` (con once correos reales sin rastro, uno de hoy), confirmo la rebaja a
+MENOR de `armarCorreoCotizacion` corrigiendo su argumento, y añado tres MEDIO nuevos (el lead
+web, los rebotes, los tres correos que faltan) más un MENOR (la columna `active`).
+
+VEREDICTO: revisar
+
+Huecos concretos que tendría que cubrir la ronda de revisión:
+
+1. **Cablear `registrarEnvio` en los cuatro emisores, empezando por el embudo del contrato**
+   (`lib/contracts/email.ts`), que son tres flujos de una vez y once correos reales ya perdidos.
+   Que `enviarCorreoContrato` devuelva el resultado completo en vez de un booleano.
+2. **`sendContractLink` marca `status: "enviado"` antes de enviar y no lo revierte**
+   (`contractActions.ts:481-492`). Toca estado de venta: decidirlo con Nico, no tocarlo.
+3. **Persistir el lead de `api/wp/lead` antes de intentar el correo.** Hoy el correo *es* el
+   único registro y el respaldo que su comentario invoca (`wp_mail()`) está documentado como
+   roto en ese mismo comentario.
+4. **Un endpoint que reciba los eventos de Brevo** y escriba el rebote en `email_log`, para que
+   `confirmado` deje de significar solo «aceptado».
+5. **Los tres correos de `CRITERIOS.md` §3 que faltan**: seguimiento de cotización sin respuesta,
+   aviso de saldo (con `saldo_eur` añadido a los dos constructores antes de activar nada) y
+   confirmación de pago. El cron de contratos ya es la plantilla de cómo se hace.
+6. **`.eq("active", true)` en `page.tsx:153`**, para que el interruptor de la plantilla signifique
+   lo mismo en los dos caminos.
+7. **Los tres apuntes de n8n, todos anotados y sin tocar**: lista blanca del host en la URL del
+   adjunto, el secreto a `$env` con rotación (y consciencia de que el histórico de ejecuciones
+   conserva el valor viejo), y un Error Workflow para que un fallo del emisor único no muera en
+   una ejecución roja que nadie mira. Añadir el orden de las ramas para que el aviso interno no
+   se apague con el 400 de Brevo.
+8. **Actualizar `scripts/n8n_correo_html.md`** (el paso 2 de su regresión hoy da un falso
+   positivo de «parche mal pegado»), y la lista de verificaciones de Nico: DKIM/SPF/DMARC y
+   `APP_BASE_URL` son las dos primeras.
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
