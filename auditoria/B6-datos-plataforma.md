@@ -648,6 +648,111 @@ posible y el aviso es cosmético; (b) `auth_leaked_password_protection` está **
 en una cuenta de dos personas que guarda pasaportes, activarlo es un clic en el Dashboard y lo
 dejo dicho en el veredicto, no como hallazgo.
 
+### [CONFIRMADO con una enmienda] Los 13 endpoints están bien contados, pero el inventario no es «completo»: faltan dos manejadores públicos fuera de `/api` — `correo/[token]/route.ts` · `documentacion/[token]/descargar/[doc]/route.ts`
+
+Conté los `route.ts` del proyecto: **15**. Trece son los de la tabla del auditor y dos son de
+`/api/contenido/*`, que él mismo declara fuera de alcance. **El recuento es exacto**, no se le
+escapó ninguno de `/api` y la tabla endpoint por endpoint es de las cosas mejor hechas de esta
+auditoría.
+
+La enmienda es de encuadre, no de aritmética. La tabla se titula «los endpoints públicos» y
+dice «inventario completo», pero está filtrada por `src/app/api/`. Fuera de esa carpeta hay
+**dos manejadores HTTP más que sí son públicos** —están en `PUBLIC_PATHS`, no piden sesión y
+corren con el cliente de servicio—:
+
+| endpoint | auth | validación | al fallar |
+|---|---|---|---|
+| `GET /correo/[token]` | token de 24 bytes en `email_log` | `token.length >= 32` | 404 con página maquetada |
+| `GET /documentacion/[token]/descargar/[doc]` | token de 32 bytes en `travel_docs` | longitud + `doc` contra lista blanca de 4 | 404 / 410 anulado / 502 |
+
+**Los revisé de forma hostil buscando IDOR y no lo hay**, y conviene dejarlo escrito porque
+es donde estaría el agujero si lo hubiera: en el descargador, el `[doc]` de la URL **no elige
+una ruta**, elige una **columna de la fila que ya se localizó por token**
+(`descargar/[doc]/route.ts:42-46`); no hay forma de pedir el PDF de otra cotización cambiando
+el segmento. La firma de Storage se emite en el momento y dura **60 segundos**, el `revoked_at`
+se comprueba **antes** de firmar (410), y los tokens salen de `randomBytes(24|32)` —
+`versionWeb.ts:17`, `travelDocs/render.ts:22`, `contracts/render.ts:166` —, o sea criptográficos,
+no de `Math.random()`. Está bien hecho.
+
+Lo único que anoto de ellos: **`/correo/[token]` no tiene revocación ni caducidad**. El
+descargador tiene su `revoked_at` y el contrato su `token_expires_at`; la versión web del
+correo, no. Un correo con la oferta comercial y los datos del cliente queda accesible para
+siempre a quien tenga el enlace —y ese enlace viaja por correo, se reenvía y acaba en cadenas
+de WhatsApp—. Con `email_log.token` indexado ya existente, añadir un `revoked_at` es una
+columna y un `if`. **MENOR hoy** (9 filas, 5 de prueba), pero es la única de las tres puertas
+públicas sin freno de emergencia.
+
+### [MEDIO · hallazgo nuevo] El rastro de auditoría no existe donde más falta, y una columna finge que sí — `comercial.quotes.created_by` (NULL en las 45 filas, sin una sola referencia en `src/`)
+
+Esto es el punto 7 de `CRITERIOS.md` («quién cambió el precio, cuándo salió el correo, qué
+versión aceptó el cliente») y el bloque no lo evalúa. Lo medí contra la base:
+
+| lo que pide el criterio | qué hay hoy |
+|---|---|
+| **qué versión aceptó el cliente** | **cubierto, y bien**: `contracts` guarda `doc_hash`, `signed_pdf_path`, `variables_json`, `signature_image`, `signed_at`, `signer_ip`, `signer_user_agent`. Esto es mejor que lo que traen de serie Travefy o TravelJoy. |
+| **cuándo salió el correo** | **cubierto desde el 1-sep-2026**: `email_log` guarda destinatario, asunto, adjuntos, `message_id`, estado y **el HTML exacto que se envió**. Excelente… pero **tiene 9 filas y 5 son de prueba**: la bitácora nació anteayer, mientras hay **6 cotizaciones con `email_sent_at`** y **6 contratos con `sent_at`**. Del correo anterior a esa fecha no queda rastro. |
+| **quién cambió el precio de una cotización** | **no existe**. `quotes` no tiene `updated_by` ni historial de `total_eur` / `base_eur` / `price_blocks`. La única bitácora de precios es `pricing_history`, que es del **catálogo de tarifas**, no del precio pactado en un expediente. |
+| **quién creó la cotización** | **`quotes.created_by` existe, y está en NULL en las 45 filas**. No aparece **ni una vez** en `src/` (`grep -rn created_by src/` → 0 resultados). Es una columna que promete trazabilidad y no la da. |
+| **quién registró un pago** | **no existe**: `client_payments` no tiene autor ni `updated_at`. Es la edición de más valor del sistema. |
+| **quién borró un expediente** | **no existe**. `deleteQuote` borra en cascada y **no deja lápida**: ni fila, ni log, ni nada. Sumado al plan gratuito sin copias, un borrado es una desaparición completa y silenciosa. |
+
+Y la bitácora que sí existe está a medias: de las **67 filas de `pricing_history`, 40 tienen
+`changed_by` en NULL**. El trigger guarda `auth.uid()`, que es NULL cuando la tarifa se toca
+desde el SQL Editor o con el cliente de servicio — que es como se han hecho seis de cada diez
+cambios de tarifa. Una bitácora anónima al 60 % no responde la pregunta para la que se hizo.
+
+**Por qué esto importa en una agencia de dos personas** (y no es pedir funciones corporativas):
+el caso es la reclamación. Un cliente dice «a mí me cotizaron 1.850 €» y en pantalla pone
+2.050 €. Hoy la plataforma **no puede decir si el precio cambió, cuándo ni por quién**; solo
+puede decir cuánto vale ahora. Con dos socios, esa conversación no es entre jefe y empleado:
+es entre Nico y Naty, y no tener el dato es peor, no mejor. Lo mismo con un pago mal
+registrado.
+
+**Propuesta, en orden de coste:**
+1. **Rellenar `created_by`** en el alta desde el panel (una línea: `auth.uid()`), o **borrar
+   la columna**. Lo que no puede quedarse es una columna de auditoría vacía: la próxima
+   persona que abra el esquema creerá que hay trazabilidad.
+2. **Un `quotes_history` por trigger**, calcado del de `pricing`: `quote_id, field, old_value,
+   new_value, changed_by, changed_at`, limitado a `total_eur`, `base_eur`, `status`,
+   `start_date` y `people`. El patrón ya está escrito dos veces en el esquema y funciona.
+3. **`created_by` en `client_payments`** y `updated_at` con el `touch_updated_at` que ya existe.
+4. **Una lápida al borrar**: una fila en una tabla `deleted_quotes(code, snapshot_json,
+   deleted_by, deleted_at)` con el JSON del expediente. Con 45 cotizaciones cabe entera y es
+   lo único que hace reversible el clic de B3.6 **sin** depender de una copia que no existe.
+
+Los cuatro son cambios de migración: **se anotan, no se tocan**, según la regla 9 del TABLERO.
+
+### [MEDIO · hallazgo nuevo] 27 de los 31 pasaportes del bucket no los reclama nadie, y ninguno se borra nunca — `comercial-passports` (31 objetos)
+
+El auditor dijo «ya hay dos pasaportes de cotizaciones borradas». Lo comprobé cruzando
+`storage.objects` contra `contracts.passport_path` y el número real es peor:
+
+- **31 objetos** en `comercial-passports`; **solo 4** están referenciados por un contrato.
+- **2** son los que él señaló: `CS-2026-048` y `CS-2026-044`, códigos reales sin fila que los
+  reclame. Ahí acertó.
+- **25 son de la ronda de pruebas del 28-jul**: carpetas `CS-TEST-01/02/03/20`, con archivos
+  de 500-700 kB que **no parecen imágenes de relleno**. Si en esas pruebas se usó la foto de un
+  pasaporte real —lo habitual—, hay documentos de identidad de personas concretas guardados en
+  producción, sin dueño, sin expediente y sin nadie que sepa que están ahí.
+
+Y por encima de eso, lo estructural: **nada borra un pasaporte, nunca**. No hay rutina de
+retención, no hay borrado al cerrar el expediente, no hay caducidad. El viaje más antiguo de la
+base salió el **10-jun-2026** y su documentación sigue entera. Un pasaporte sirve para una cosa
+—mandárselo a Pilgrim antes del viaje— y después es solo riesgo acumulado: en Colombia es dato
+personal bajo la Ley 1581, y el deber de suprimirlo cuando ya no se necesita la finalidad no
+depende del tamaño de la agencia.
+
+Junto con el GRAVE de las copias esto compone la peor combinación posible, y es justo lo que
+señala B3.4: **los datos personales sobreviven al expediente que los justificaba, y el
+expediente no sobrevive a nada.**
+
+**Propuesta:** (a) borrar hoy las cuatro carpetas `CS-TEST-*` del bucket de pasaportes —25
+archivos, es un borrado manual de dos minutos y no toca código—; (b) que el borrado de una
+cotización borre también su carpeta en `comercial-passports` (hoy no lo hace, B3.4); (c) una
+regla escrita de retención —«el pasaporte se borra a los 30 días de terminado el viaje»— aunque
+al principio se ejecute a mano una vez por temporada. No hace falta automatizar nada para
+tener la regla; hace falta tenerla.
+
 ---
 
 <!-- nota del auditor, se conserva -->
