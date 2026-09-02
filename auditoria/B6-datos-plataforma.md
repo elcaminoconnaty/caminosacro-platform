@@ -23,7 +23,8 @@
   revisados uno a uno, ninguno sobra). Con las 2 cuentas de hoy el modelo es correcto. La respuesta a la
   pregunta de la tarea: una tercera cuenta **no se puede acotar**, entraría viendo los pasaportes.
 - **B6.3 Rendimiento.** El expediente lanza dieciséis consultas por carga. Listados sin paginar, N+1, imágenes sin optimizar. Mide antes de opinar.
-  `Estado: pendiente`
+  `Estado: en curso` — contando las consultas reales del expediente y de los listados, si van en paralelo o
+  en serie, buscando N+1 de verdad (no supuestos) y midiendo el peso de lo que se trae por la red.
 - **B6.4 Secretos y configuración.** Qué claves llegan al navegador, qué hay en `.env`, qué pasa si falta `APP_BASE_URL` en producción.
   `Estado: pendiente`
 - **B6.5 Los endpoints públicos.** `/api/wp`, `/api/agente`, `/api/cron`: autenticación, límite de peticiones, validación del cuerpo, y qué devuelven cuando algo va mal.
