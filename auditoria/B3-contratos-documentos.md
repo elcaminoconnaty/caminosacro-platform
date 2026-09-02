@@ -39,9 +39,10 @@
   guardado en dos expedientes vivos (CS-2026-080 por un día, CS-2026-081 por dos), y `variables_json` es
   una foto fija que solo se refresca si alguien se acuerda de pulsar un botón.
 - **B3.6 Qué pasa al borrar.** Borrar una cotización con contratos firmados, documentación enviada y archivos de Pilgrim. ¿Cascadas correctas? ¿Se puede borrar algo que no debería borrarse?
-  `Estado: en curso` — mapa de claves foráneas y su `ON DELETE`, qué guardas tiene `deleteQuote` antes de
-  borrar (contrato firmado, pagos recibidos, documentación enviada) y qué le enseña la pantalla a quien
-  pulsa el botón.
+  `Estado: hecho` — **las cascadas están bien diseñadas** (incluidos los dos `SET NULL` deliberados), pero
+  `deleteQuote` **no tiene una sola guarda**: borra igual una cotización con contrato firmado, dinero
+  cobrado y documentación enviada, y el `confirm()` no dice nada de eso. Hoy hay tres expedientes así, a
+  un clic y una confirmación genérica.
 
 ---
 
@@ -98,6 +99,41 @@ navegador y no de la plataforma, la página de documentación es **de token perm
 caduca nunca, solo se revoca), y la vacuna es una entrada en `headers()` de `next.config.ts`
 que además cubriría lo que se añada mañana. El propio proyecto ya demostró que sabe hacerlo,
 en `/correo`.
+
+### [MEDIO] Se puede borrar de un clic un expediente firmado y pagado, y el aviso no dice qué se lleva por delante — `seguimiento/[id]/actions.ts:100` · `QuotesTable.tsx:133`
+
+`deleteQuote` no comprueba **nada** antes de borrar: ni el estado de la venta, ni si hay
+contratos firmados, ni si hay pagos recibidos, ni si la documentación de viaje ya salió.
+Toma el id y borra. La única barrera es un `window.confirm` del navegador:
+
+> «¿Borrar la cotización **CS-2026-004 — Nombre del cliente** por completo? Esta acción no se
+> puede deshacer.»
+
+Verdadera pero muda: no menciona que ese expediente tiene **un contrato firmado**, **970 €
+cobrados en dos pagos** y sus recibos emitidos. El botón está en cada fila de la lista de
+`/seguimiento`, al lado del desplegable de estado que B2 describe como «la pantalla rápida
+que se usa desde el celular».
+
+Los tres expedientes que hoy están en esa situación:
+
+| | estado | cobrado | contratos |
+|---|---|---|---|
+| **CS-2026-004** | `pago_parcial` | 970,00 € | 1 firmado |
+| **CS-2026-034** | `pago_completo` | 860,00 € | 1 firmado |
+| **CS-2026-058** | `enviada` | 0 € | 1 firmado de 3 |
+
+Qué se lleva por delante un clic de más: las filas de `client_payments` y
+`provider_payments` —o sea **el registro contable de un dinero que sí entró**—, los
+contratos con su `signer_ip`, su `doc_hash` y su constancia de firma electrónica, los
+viajeros con sus números de pasaporte, y el expediente de documentación de viaje. Y, por el
+hallazgo de Storage de más abajo, **los archivos no se van con ellos**: quedan el PDF del
+contrato firmado y la foto del pasaporte, ya sin nada que diga de quién eran.
+
+**Propuesta (no se toca: es borrado de datos):** que `deleteQuote` cuente antes de borrar y
+devuelva un error cuando haya contratos firmados o pagos registrados —«este expediente tiene
+1 contrato firmado y 970 € cobrados; anúlalo en vez de borrarlo»—, dejando el borrado libre
+para las cotizaciones sin rastro, que son la mayoría. Y que el `confirm()` diga lo que hay
+dentro. El estado `cancelada` ya existe y es la herramienta correcta para lo demás.
 
 ### [MEDIO] El PDF de la cotización dice un día de regreso y la base dice otro — `src/lib/quotePdf.tsx:509-521`
 
@@ -325,6 +361,24 @@ Va como MENOR y no como MEDIO porque hace falta bastante más de lo que hay en p
 código de la cotización, que aparece otras veces en el documento. Mismo origen que el
 hallazgo de arriba y mismo tipo de arreglo: reservarle alto al bloque o limitar las líneas
 del titular.
+
+### Lo que sí está bien: las cascadas están pensadas, no puestas por defecto
+
+El mapa de claves foráneas que apuntan a `quotes` es correcto y tiene dos decisiones
+deliberadas que se agradecen:
+
+| tabla | `ON DELETE` | |
+|---|---|---|
+| `client_payments`, `provider_payments`, `contracts`, `travel_docs`, `quote_lines`, `quote_travelers`, `quote_hotels`, `quote_pilgrim_files` | `CASCADE` | lo que solo existe dentro del expediente se va con él |
+| **`email_log.quote_id`** | **`SET NULL`** | el correo que se le mandó al cliente **sobrevive** al borrado, y con él su `/correo/[token]`: el enlace que esa persona tiene guardado sigue funcionando |
+| **`quotes.parent_quote_id`** | **`SET NULL`** | borrar la cotización madre no arrastra a la de bici que salió de ella |
+
+Las dos de `SET NULL` son justo las que un `CASCADE` automático habría estropeado. Y no hay
+ninguna tabla con `NO ACTION` que dejara el borrado a medias con un error de clave foránea.
+
+- **Borrar sí confirma con el dato correcto**: el `confirm()` incluye el código y el nombre
+  del cliente (`QuotesTable.tsx:133`), no un «¿estás seguro?» genérico. El problema es lo que
+  *no* dice, no lo que dice.
 
 ### Lo que sí está bien: los tres documentos cuentan la misma historia
 
