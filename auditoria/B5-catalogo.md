@@ -41,7 +41,9 @@
   solo **6** tienen precio, todas de `Francés Bici Ponferrada` 2026 — las otras dos rutas de bici están
   publicadas y no se les puede alquilar una bici.
 - **B5.6 Hoteles.** Módulo recién hecho: duplicados, ciudades que no casan con las etapas, hoteles sin fotos, qué pasa al borrar uno en uso.
-  `Estado: pendiente`
+  `Estado: en curso` — duplicados por nombre y por ciudad, cruce de `hotels.city` contra las localidades de
+  `route_stages` (que es lo que usa el prellenado), hoteles sin fotos, y qué pasa al borrar uno que ya está
+  asignado a una noche.
 - **B5.7 Integridad referencial.** Borrar una ruta con cotizaciones, un opcional en uso, una bici cotizada. Qué protege la base y qué no.
   `Estado: pendiente`
 
