@@ -578,7 +578,14 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente` — **sin empezar a propósito**, por lo mismo que en B3: la auditoría la
+`Estado: en curso` — el agente crítico está verificando el bloque contra el código, contra
+`comercial.email_log` / `comercial.email_templates` en producción y contra el workflow
+`HgErNCbopi95CdiI` en n8n. Orden: (1) los siete emisores y quién ignora `messageId`, (2) la
+etiqueta del secreto del webhook, (3) la rebaja a MENOR de `armarCorreoCotizacion`, (4) lo que
+falta en un CRM de agencia (rebotes, respuestas, correos que no existen). Si muero, lo escrito
+más abajo ya es definitivo.
+
+_(nota original del auditor, se conserva)_ — **sin empezar a propósito**, por lo mismo que en B3: la auditoría la
 escribió este agente y criticarse a uno mismo no tiene independencia. Lo que más agradecería
 que le miren:
 
