@@ -542,7 +542,15 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente`
+`Estado: pendiente` — **sin empezar a propósito**, igual que en B3 y B4: la auditoría la
+escribió este mismo agente. Lo que más agradecería que revisen:
+
+- El **MEDIO de la fianza ausente del contrato**: si merece esa etiqueta dado que aún no hay
+  ningún contrato de bici firmado.
+- Los números de **cobertura de hoteles** (26 %, 6/6 en Sarria): los calculé ejecutando
+  `hotelParaLugar` contra los datos reales, pero conviene una segunda pasada.
+- Si el **MENOR de `errors.ts`** (el mensaje del 23503) se sale del alcance de B5 y pertenece
+  más a B6.
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
