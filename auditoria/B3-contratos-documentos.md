@@ -29,7 +29,9 @@
   y **ningún PDF desactiva el guionado** de `@react-pdf`, así que ya hoy se parten palabras a la mitad con
   una ruta real del catálogo.
 - **B3.4 Storage.** Rutas y políticas de los buckets, archivos huérfanos, qué se borra al borrar una cotización. **Pasaportes**: quién puede llegar a ellos y por cuánto tiempo.
-  `Estado: pendiente`
+  `Estado: en curso` — políticas RLS de los doce buckets, cruce de los objetos reales de Storage contra las
+  rutas guardadas en la base para encontrar huérfanos, qué borra `deleteQuote`, y el ciclo de vida del
+  pasaporte (quién llega, por cuánto tiempo, y si queda copia tras borrar el expediente).
 - **B3.5 Coherencia entre los tres documentos.** Cotización, contrato y documentación de viaje salen de los mismos datos: comprueba que dicen lo mismo (precio, fechas, personas, condiciones) en un expediente real.
   `Estado: pendiente`
 - **B3.6 Qué pasa al borrar.** Borrar una cotización con contratos firmados, documentación enviada y archivos de Pilgrim. ¿Cascadas correctas? ¿Se puede borrar algo que no debería borrarse?
