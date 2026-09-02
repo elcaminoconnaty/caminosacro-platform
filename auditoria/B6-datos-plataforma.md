@@ -538,6 +538,55 @@ Plan de verificación, en este orden; cada conclusión se escribe aquí en cuant
    y retención/exposición de `comercial-passports`.
 6. Juicio sobre el MEDIO de permisos con dos dueños.
 
+---
+
+### [CONFIRMADO · sube a GRAVE con evidencia dura] El plan **es** gratuito: no hay backups y nunca los ha habido — `GUIA.md:354-356,540`
+
+El auditor no pudo verificarlo y dejó el GRAVE apoyado en una pista indirecta (el 403 de las
+transformaciones de imagen). **Lo verifiqué por MCP y la pista era correcta:**
+
+```
+get_organization("rtahmicsjvbvlpazxlyc") → {"name":"Camino SAcro Agencia","plan":"free"}
+get_cost(project, rtahmicsjvbvlpazxlyc)  → 0 USD/mes
+```
+
+El proyecto de la plataforma es `yvytzquewjsjsmgiwmaa` (el de `.env.local:1` y el de todos
+los enlaces de la GUIA) y cuelga de esa organización. **Plan `free`, coste cero.** En el plan
+gratuito de Supabase **no existen los backups automáticos**: ni diarios, ni de 7 días, ni
+point-in-time. La frase de `GUIA.md:354` no es «probablemente falsa»: **es falsa**, y hoy es
+lo único escrito que responde «¿qué pasa si se pierde la base?».
+
+La etiqueta **GRAVE se confirma y se refuerza**, y añado tres cosas que el auditor no vio y
+que empeoran el cuadro:
+
+1. **Cero copias de la base, no «copias sin Storage».** El auditor formuló el hallazgo como
+   «Storage no entra en la copia». Con el plan confirmado, es peor: **tampoco entra la base**.
+   Las 45 cotizaciones, los contratos firmados, los pagos y las tarifas viven en una sola
+   copia, la de producción, sin ninguna otra en ningún sitio.
+2. **El plan gratuito pausa el proyecto tras 7 días de inactividad**, y un proyecto pausado
+   deja de servir las rutas públicas por token (`/contrato`, `/documentacion`, `/correo`).
+   Con la temporada del Camino concentrada en primavera-verano, una racha de invierno sin
+   entrar es un escenario realista, no de laboratorio: un cliente que abra el enlace de firma
+   que le llegó por correo se encuentra la plataforma caída. Se anota, no se toca.
+3. **Y hay dos proyectos en la misma organización gratuita** (`yvytzquewjsjsmgiwmaa` y `El
+   Camino con Naty`), que es justo el tope del plan: cualquier proyecto nuevo de la casa
+   obliga a decidir el pago igualmente. El salto a Pro tiene, entonces, una segunda razón.
+
+**Lo que corrijo del hallazgo, aun confirmándolo:** la propuesta (a) —«confirmar el plan en el
+Dashboard»— **ya está hecha aquí y sobra**. Lo que queda es (a') **corregir hoy `GUIA.md:354`
+y `:540`**, que es un arreglo de texto, pequeño y reversible, pero lo dejo anotado y no lo
+aplico porque toca la GUIA, que es documento de Nico y está fuera de mi archivo de bloque.
+La prioridad real es (b): un `pg_dump` semanal fuera de Supabase. Con 2,5 MB, el Schedule de
+n8n que ya existe lo resuelve en una tarde, y es lo único que convierte «GRAVE» en «molestia».
+
+Sobre la pregunta que dejó el auditor —«si el plan fuera Pro, ¿bajaría la etiqueta?»—: la
+respuesta es **no del todo**. Aun en Pro, con los pasaportes y los contratos firmados fuera de
+toda copia y sin respaldo propio, esto seguiría siendo **MEDIO como mínimo**: son los dos
+únicos activos irreemplazables del negocio (un contrato firmado con su `signer_ip` no se puede
+volver a generar) y viven en un único sitio. La pregunta es discutible; el hecho, no.
+
+---
+
 <!-- nota del auditor, se conserva -->
 Lo que el auditor pidió que le revisen:
 
