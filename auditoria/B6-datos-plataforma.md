@@ -521,7 +521,17 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente`
+`Estado: pendiente` — **sin empezar a propósito**, como en B3, B4 y B5: la auditoría la
+escribió este mismo agente. Lo que más agradecería que revisen:
+
+- El **GRAVE de las copias**: se apoya en que el proyecto está en el plan gratuito de
+  Supabase, que **no pude verificar** desde aquí (leer las variables de Railway está
+  bloqueado y el MCP no expone el plan). La evidencia es indirecta —el 403 de las
+  transformaciones de imagen, anotado en `next.config.ts`— y si el plan resultara ser Pro, la
+  etiqueta habría que bajarla. Lo que **no** cambia es que Storage no entra en la copia y que
+  no hay respaldo propio.
+- El **MEDIO de los permisos**: si merece esa etiqueta cuando hoy hay dos usuarios y los dos
+  son dueños.
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
