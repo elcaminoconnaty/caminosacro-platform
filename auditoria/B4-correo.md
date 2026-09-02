@@ -578,7 +578,17 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente`
+`Estado: pendiente` — **sin empezar a propósito**, por lo mismo que en B3: la auditoría la
+escribió este agente y criticarse a uno mismo no tiene independencia. Lo que más agradecería
+que le miren:
+
+- El **MEDIO del secreto del webhook**: si la etiqueta aguanta dado que no hay indicio de
+  compromiso y el n8n está tras su login. Mi argumento es el radio de acción (destinatario,
+  HTML y URL de adjunto libres con remitente fijo de la marca), no una filtración.
+- Los **cuatro emisores que ignoran `messageId`**: comprobar que no me dejé ninguno y si el de
+  `api/wp/lead` merece el mismo peso que los otros tres.
+- El **MENOR de `armarCorreoCotizacion`**: lo bajé de MEDIO porque la vista previa del CRM tapa
+  el caso real. Segunda opinión bienvenida sobre esa rebaja.
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
