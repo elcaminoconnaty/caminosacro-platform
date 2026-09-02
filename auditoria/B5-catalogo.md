@@ -663,9 +663,21 @@ bloque («no es un defecto, es un módulo a medio poblar; lo demás llegará»):
 se duplicó hoy y la cobertura no subió ni una noche**. Los cinco hoteles nuevos cayeron en las
 mismas cinco localidades que ya estaban cubiertas. No es una crítica a quien los cargó —tener
 un segundo hotel en Sarria es útil por disponibilidad—, pero sí desmonta la idea de que esto se
-arregla solo con el tiempo: para que el prellenado sirva en la segunda ruta más vendida
-(`Portugués desde Tui`, 7 noches, **0 de 7** hoy) hay que cargar **localidades nuevas**, no más
-fichas en las mismas seis. Y como el catálogo crece por localidad y no por noche, el número
+arregla solo con el tiempo: hay que cargar **localidades nuevas**, no más fichas en las mismas
+seis. Así queda hoy el prellenado en las 8 rutas web que tienen etapas, ejecutado ruta por ruta:
+
+| ruta web | noches con hotel propuesto |
+|---|---|
+| Francés desde Sarria | **6 / 6** |
+| Frances desde Sarria 6 etapas (Melide) | 6 / 7 |
+| Primitivo desde Lugo | 3 / 6 |
+| Francés Bici Ponferrada | 2 / 5 |
+| **Portugués desde Tui** (la 2ª más cotizada) | **1 / 7** |
+| **Costero desde Baiona** | **1 / 7** |
+| Inglés desde Ferrol | 1 / 6 |
+| Camino a Fisterra | 1 / 4 |
+
+Ese «1» de las cuatro últimas es siempre la misma noche: Santiago. Y como el catálogo crece por localidad y no por noche, el número
 útil para seguirlo no es «cuántos hoteles hay» sino **«cuántas de las 275 noches tienen ficha»**
 — que es exactamente el que dejó escrito el auditor, y por eso conviene que quede.
 
