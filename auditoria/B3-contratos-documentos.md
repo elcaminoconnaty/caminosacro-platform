@@ -671,7 +671,89 @@ GRAVE de este bloque.
 Las dos propuestas del auditor (leer las rutas hijas antes de borrar, y un arqueo de verdad)
 siguen siendo las correctas. Que el arqueo contemple `hotels.photos` y los genéricos.
 
-_(sigue: fechas de regreso, umbrales de maquetación, lo no mirado, y el listón del oficio)_
+### 2. Las dos fechas de regreso: una no existe, la otra es mucho peor de lo que dice el informe
+
+Comprobé la aritmética contra `route_stages` y `routes`, y el resultado corrige el hallazgo en
+las dos direcciones.
+
+**Primero, la fórmula del informe está incompleta.** No es `fin = salida + etapas + 1`, es
+`fin = salida + etapas + 1 + noches_extra` (`quotePdf.tsx:510,517`: `days = stagesCount + 2 +
+extraNights`). En estos dos casos no hay noches extra, así que el resultado no cambia; pero la
+fórmula escrita así induce a error a quien la use para revisar otros expedientes.
+
+**CS-2026-080 no tiene descuadre.** Su `start_date` es **2026-10-17**, no 2026-10-18. La ruta
+`Costero desde Baiona` tiene 8 filas de itinerario: `Llegada a Baiona` (km nulo), 6 etapas con km
+y `Santiago · Fin de servicios` (km nulo). O sea `stagesCount = 6`, `days = 8`,
+`fin = 17 oct + 7 = **24 oct**` — exactamente el `end_date` guardado, y exactamente
+`routes.days = 8 / nights = 7`. Cuadra todo. Aviso honesto: la cotización tiene
+`updated_at = 2-sep 13:44`, o sea que se tocó **después** de escribirse la auditoría, así que no
+puedo distinguir entre «el auditor se equivocó de fecha de salida» y «alguien movió la salida un
+día para que cuadrara». Lo segundo sería grave por otro motivo y conviene preguntárselo a Nico.
+
+**CS-2026-081 sí, y el informe se queda muy corto.** El descuadre no es una línea de fechas: es
+**el PDF entero vendiendo dos noches más de las que se cotizaron.**
+
+`Costero desde Porto` tiene 14 filas: una de llegada (día 1, `km = '0'`, creada el 1-sep) y
+**13 etapas con km**, y **le falta la fila de fin de servicios** que sí tiene Baiona. El
+generador ignora las filas de la base y arma el itinerario él mismo —`Llegada` + las 13 etapas
+caminadas + `Fin de servicios`— así que pinta **15 filas**. Y de `stagesCount` cuelga todo lo
+demás del documento, no solo la portada:
+
+| en el PDF de CS-2026-081 | lo que imprime | lo que se cotizó |
+|---|---|---|
+| línea de fechas de portada | 1 abr – **15 abr** | 1 abr – 13 abr (`end_date`) |
+| cuadro de stats | **15 DÍAS / 14 NOCHES** | 13 días / 12 noches (`routes.days/nights`) |
+| tabla de itinerario | **15 filas**, con alojamiento nombrado en 14 | 12 noches |
+| «Qué incluye» (`quotePdf.tsx:690`, `INCLUIDO_DEFAULT(nights)`) | «**14 noches** en acomodación privada con baño privado» y «**14 desayunos** incluidos» | 12 y 12 |
+
+Esa cotización está **`enviada`**, son 2 personas a 1.450 € y su PDF está en Storage
+(`CS-2026-081_Heidy_Carstens_Costero_desde_Porto.pdf`). O sea que hay una oferta comercial en el
+correo de una clienta que promete por escrito **dos noches de alojamiento y dos desayunos que
+nadie coticó, nadie pidió a Pilgrim y nadie pagó**, con el hotel de cada una nombrado en la
+tabla. Si la clienta acepta y se planta en Padrón la noche del 14, la diferencia la pone Camino
+Sacro. Eso ya no es «dos fuentes de verdad para una fecha»: es dinero.
+
+**Y no son dos casos: son trece rutas.** Crucé `routes.days` contra `stagesCount + 2` en las 22
+rutas que tienen itinerario cargado. **Trece no cuadran**:
+
+| desfase | rutas |
+|---|---|
+| **+3** | `Francés desde Ponferrada` |
+| **+2** | `Costero desde Porto`, `Francés desde Astorga`, `Burgos`, `León`, `Logroño`, `Pamplona`, `Saint Jean Pied de Port`, `Inglés desde A Coruña`, `Portugués desde Lisboa`, `Primitivo desde Oviedo` |
+| **+1** | `Camino Portugués - Viana do Castelo (personalizada)`, `Costero desde Vigo` |
+| **−4** | **`Portugués desde Porto`** (el catálogo dice 12 días; el PDF pintaría 8) |
+| 0 | las otras 9 |
+
+Lo que ha salvado a la plataforma hasta hoy es la suerte: de las **seis** rutas que alguna vez se
+han cotizado, cinco están en el grupo que cuadra. La primera cotización de `Portugués desde
+Porto` sacará un PDF que le promete al cliente **cuatro días menos** de Camino que los que
+cobra —o, en las de +2, dos noches de más—. No hay ninguna alerta, ninguna validación y ningún
+sitio donde eso se vea antes de que el PDF salga por correo.
+
+**Dónde está el error: en el itinerario del catálogo, no en `end_date`.** El `end_date` de las dos
+cotizaciones es coherente con `routes.days/nights`, que es lo que se usó para poner el precio. La
+convención buena está en `Costero desde Baiona` y en las nueve que cuadran: la fila de llegada y
+la de fin **existen en `route_stages` con `km` nulo**, y `stagesCount + 2` las recupera. Las trece
+descuadradas cargaron solo las etapas caminadas. `Costero desde Porto` está a medias: alguien le
+metió la fila de llegada el 1-sep (con `km = '0'` en vez de nulo, que por suerte el filtro
+`km > 0` también descarta) y no le puso la de fin.
+
+**Re-etiquetado propuesto:** *«El PDF de la cotización dice un día de regreso y la base dice
+otro»* → **de MEDIO a GRAVE**, y reescrito, porque el título describe un síntoma menor del
+problema. Lo que hay es: un PDF ya enviado que promete alojamiento no cotizado, y trece rutas del
+catálogo armadas para repetirlo. Se pierde **dinero** y se pierde **la confianza de alguien que
+ya recibió una oferta**, que son dos de las cuatro puertas de GRAVE del TABLERO.
+
+**Propuesta (no se toca: cambia lo que dice un documento ya enviado y toca el catálogo):**
+1. Completar `route_stages` de las 13 rutas descuadradas con sus filas de llegada y fin en `km`
+   nulo — es dato, no código, y es una migración.
+2. Una validación que impida generar el PDF cuando `stagesCount + 2 ≠ routes.days`, con el aviso
+   en el CRM diciendo qué ruta arreglar. Es la red que hace falta igual, porque las rutas
+   personalizadas se cargan a mano.
+3. Avisar a la clienta de CS-2026-081 antes de que acepte, y decidir con Nico qué se hace con esa
+   oferta.
+
+_(sigue: umbrales de maquetación, lo no mirado, y el listón del oficio)_
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
