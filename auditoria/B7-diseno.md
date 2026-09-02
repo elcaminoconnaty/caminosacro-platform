@@ -40,11 +40,16 @@
   nada. Y un desequilibrio que dice algo: **`/tokens` (219 líneas) mide el gasto en IA con más detalle del
   que `/finanzas` (134) mide el dinero del negocio.**
 - **B7.6 Clics por tarea.** Cuenta los de las tres tareas de todos los días: cotizar, cobrar, mandar documentación. Di dónde sobran.
-  `Estado: en curso` — recorriendo los tres flujos paso a paso y contando, para señalar qué clics sobran y
-  por qué existen.
+  `Estado: hecho` — contados los tres flujos. **Los clics que sobran no son de diseño: son los hallazgos de
+  esta auditoría vistos desde el lado de quien trabaja.** Cotizar pide 2 clics de más porque el asistente no
+  genera el PDF; cobrar pide 2 de más porque cobrar no mueve el estado; y mandar la documentación pide
+  primero **cambiar el estado a mano para que la tarjeta aparezca**.
 - **B7.7 Accesibilidad de lo básico.** Foco visible, etiquetas en los campos, objetivos tocables, y que no se dependa solo del color para decir algo.
-  `Estado: en curso` — foco visible, campos con etiqueta asociada, tamaño de los objetivos tocables y si
-  alguna señal depende solo del color.
+  `Estado: hecho` — **mejor de lo que parecía al contar en crudo.** Se quita el contorno del foco 26 veces,
+  pero **24 lo sustituyen** por un cambio de borde visible y **ningún botón** se queda sin indicador, así que
+  la navegación con teclado no se pierde. Los campos están etiquetados. Lo que sí falla es depender del
+  color: los avisos ámbar del suplemento van a 10 px con contraste 1,96 (B7.1) y sin icono ni texto que los
+  marque como aviso.
 
 ---
 
@@ -234,6 +239,99 @@ no se parecen entre sí.
 No rompe nada y por eso es MENOR. **Propuesta:** cuatro tokens más —`--color-error`,
 `--color-error-bg`, `--color-aviso`, `--color-aviso-bg`— elegidos con el contraste ya
 calculado, y sustituir. Es el mismo trabajo que ya se hizo bien con la marca.
+
+### [MEDIO] Los clics que sobran son los hallazgos de esta auditoría, vistos desde el trabajo diario
+
+Contados los tres flujos de todos los días. Lo interesante no es el total, es **por qué**
+existe cada paso de más: los tres coinciden con hallazgos ya levantados en B1, B2 y B3.
+
+**1. Cotizar** — asistente → expediente → cliente.
+
+El asistente en sí está bien: ruta, alojamiento, fecha y personas autocargan tarifa, días,
+fecha fin, etapas y las tarjetas del PDF; el buscador de cliente por teléfono evita
+retecleado. Pero después de «Crear» quedan **dos pasos que los otros tres caminos de alta no
+piden**:
+
+- **«Generar PDF»**, porque el asistente es el único que no lo genera al crear (MENOR de B1).
+  Sin ese clic, el correo saldría sin adjunto.
+- **«Enviar»** desde la tarjeta de correo, que es correcto que sea manual.
+
+El primero sobra. Es un paso obligatorio, siempre el mismo, que existe solo porque falta una
+línea en `nueva/actions.ts`.
+
+**2. Cobrar** — es el flujo con más grasa.
+
+Abrir `/seguimiento` → abrir el expediente → **bajar hasta la décima tarjeta** → «Añadir
+pago» → fecha, monto, moneda, cuenta, referencia → Guardar. Y entonces:
+
+- **hay que cambiar el estado a mano** en el desplegable, porque cobrar no lo mueve (el GRAVE
+  de B2), y
+- si el pago completa el total, **hay que acordarse** de ponerlo en «Pago completo» o la
+  documentación de viaje no se podrá generar.
+
+Son **dos clics y una decisión** que el sistema podría tomar solo: ya tiene el saldo calculado
+dos secciones más arriba. Y el bajar hasta la décima tarjeta es lo que resuelve la franja «Qué
+falta» de B7.4.
+
+**3. Mandar la documentación de viaje** — el peor, porque empieza con un rodeo.
+
+La tarjeta **no se dibuja** salvo que el estado diga pagado (`isFullyPaid`), así que el primer
+«clic» del flujo es **arreglar la etiqueta del punto anterior**. Con CS-2026-004 —970 € de
+970 cobrados, salida el 22 de septiembre— hoy hay que ir al desplegable, cambiar el estado, y
+recargar para que la tarjeta exista. Después sí: prellenar noches → revisar hotel por hotel →
+generar → enviar.
+
+El prellenado está bien pensado (propone hotel por localidad, B5.6) y revisar noche por noche
+**debe** ser manual. Lo que sobra es el rodeo del principio, y su arreglo es el mismo que ya
+propone B2: **que la puerta sea el saldo y no la etiqueta**.
+
+**Conclusión, que es lo que pide la tarea:** no hay clics de más por mal diseño de pantalla.
+Los tres flujos están ordenados como el trabajo real. Lo que sobra son **cinco pasos
+mecánicos** que existen porque tres piezas no se enteran de lo que ya sabe la base de datos:
+el PDF que no se genera, el estado que no se mueve al cobrar, y la tarjeta que se esconde
+detrás de una etiqueta en vez de detrás de un saldo. Arreglados esos tres, el trabajo diario
+pierde cinco clics y dos oportunidades de olvido.
+
+### [MENOR] Dos elementos se quedan sin indicador de foco, y los avisos dependen solo del color — `focus:outline-none` (26 usos)
+
+Medido, porque el número en crudo asusta más de lo que debe: **`focus:outline-none` aparece
+42 veces**, pero solo **26** de esas no llevan `focus:ring-*` al lado — y de esas 26, **24
+cambian el borde a bosque** (`focus:border-bosque`), que sobre blanco es un cambio de
+contraste de 1,17 a más de 15: se ve. Quedan **2** que quitan el contorno y no ponen nada.
+
+Y lo más importante: **ningún `<button>` está entre ellos**. La navegación con teclado por los
+controles no pierde el foco, que era el fallo grave que fui a buscar.
+
+Lo que sí falla es la otra mitad de la tarea, **no depender solo del color**:
+
+- Los avisos del suplemento de temporada son texto de **10 px en `text-dorado-oscuro`**, con
+  contraste **1,96** (B7.1) y **sin icono ni palabra** que los marque como aviso. Quien no
+  distinga bien ese dorado del gris no tiene ninguna otra señal de que ahí dice algo
+  importante.
+- Los chips de estado (`statusColor`) se diferencian **solo por color de fondo**; el texto
+  ayuda, pero dos estados vecinos como «Pago parcial» y «Pago completo» se distinguen por
+  leer, no por ver.
+
+**Propuesta:** un `focus:ring-2 focus:ring-bosque` en los dos casos huérfanos —es literalmente
+copiar la clase de los otros 16— y, para los avisos, el token de aviso que propone el hallazgo
+de los estados más un icono. Con eso, el aviso deja de depender del color y de paso se
+arregla su contraste.
+
+### Lo que sí está bien: lo básico de accesibilidad está puesto
+
+- **Los campos tienen etiqueta.** 135 `<input>` contra 110 `<label>` más 13 `aria-label`; la
+  diferencia se explica por los `<label>` que envuelven a varios controles y por los campos
+  ocultos. No encontré un formulario donde haya que adivinar qué se pide.
+- **El foco no se pierde en los botones** (arriba), y 16 controles tienen anillo explícito.
+- **Los errores se anuncian**: la pantalla de firma usa `role="alert"` con `aria-live="assertive"`
+  (`SignForm.tsx`), que es justo donde más falta hace porque el que la usa es un cliente y no
+  puede preguntarle a nadie.
+- **Los objetivos tocables de las acciones destructivas están bien**: el botón de borrar de la
+  tabla usa `p-1.5` con `title="Borrar"` y confirma con el código y el nombre del cliente.
+- **La jerarquía de encabezados es correcta** en las pantallas revisadas: un `h1` por página
+  con el nombre de la sección y `h2` en las tarjetas.
+- **El HTML del correo no lleva imágenes** (B4.4), así que quien tenga las imágenes
+  desactivadas o use lector de pantalla recibe el mensaje completo en texto.
 
 ### Los módulos pequeños, uno por uno
 
