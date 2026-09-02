@@ -564,11 +564,23 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: en curso` — el agente crítico (independiente) está verificando. Orden de trabajo:
-(1) el GRAVE de Storage — recuento de huérfanos contra `storage.objects` y las cinco columnas
-de ruta; (2) las dos fechas de regreso contra `route_stages`; (3) los umbrales de maquetación
-de B3.3 renderizando de verdad; (4) lo que el auditor no miró: viajeros sin contrato, tokens
-de `travel_docs`, `email_log` tras el borrado, y el hueco entre `quote_travelers` y `contracts`.
+`Estado: en curso` — segundo agente crítico (el primero murió por el límite de gasto). Plan de
+verificación, en este orden; cada punto se escribe aquí en cuanto se cierra:
+
+1. **GRAVE de Storage** — rehacer el recuento de huérfanos contra `storage.objects` cruzando las
+   **cinco** columnas de ruta (`contracts.passport_path/signed_pdf_path/pdf_path`,
+   `travel_docs.*_pdf_path`, `client_payments.receipt_path`, `quote_pilgrim_files`, `quotes.*`) y
+   decidir si GRAVE aguanta con buckets privados y sin filtración.
+2. **Las dos fechas de regreso** (CS-2026-080 y CS-2026-081) — aritmética `fin = salida + etapas + 1`
+   contra `route_stages`, y de dónde viene el descuadre: itinerario del catálogo o `end_date`.
+3. **Umbrales de maquetación de B3.3** — renderizar de verdad y afinar el corte entre 51 y 65
+   caracteres que el auditor dejó sin afinar.
+4. **Lo que el auditor no miró** — viajeros sin contrato, tokens de `travel_docs` (colisión,
+   revocación, reutilización), `email_log` tras el borrado, y el hueco entre `quote_travelers` y
+   `contracts`.
+5. **Oficio** — qué trae de serie un CRM de agencia en contratos y documentos que aquí falta y le
+   cueste caro a una agencia de dos personas (contra `CRITERIOS.md`).
+
 La nota original del auditor, que se conserva porque explica por qué esta sección estaba vacía:
 
 > **la dejo sin empezar a propósito.** La auditoría de B3 la escribió este
