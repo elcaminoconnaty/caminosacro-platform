@@ -521,8 +521,8 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: en curso` — crítico independiente (veterano de CRMs de agencia + oficio de datos).
-Plan de verificación, en este orden; cada conclusión se escribe aquí en cuanto se tiene:
+`Estado: hecho` — crítico independiente (veterano de CRMs de agencia + oficio de datos).
+**Veredicto al final de esta sección.** Plan de verificación que se siguió, en este orden:
 
 1. **Plan de Supabase** (MCP: `list_organizations`, `get_organization`, `get_project`,
    `get_cost`; Railway como respaldo) para confirmar o tumbar el GRAVE de las copias. Y
@@ -766,6 +766,82 @@ Lo que el auditor pidió que le revisen:
   no hay respaldo propio.
 - El **MEDIO de los permisos**: si merece esa etiqueta cuando hoy hay dos usuarios y los dos
   son dueños.
+
+---
+
+### [ETIQUETA CORREGIDA · MEDIO → MENOR] El de los permisos: la propia vara dice que esto no es un hallazgo — `CRITERIOS.md:63-64`
+
+El auditor preguntó y la respuesta es **no, no merece MEDIO**. El análisis es correcto y la
+propuesta —dos policies en tres tablas antes de crear la tercera cuenta, no un sistema de
+roles— está bien dimensionada; lo que no encaja es la etiqueta, por tres razones:
+
+1. **`CRITERIOS.md` lo excluye literalmente.** En «Lo que NO es un hallazgo»: *«Funciones de un
+   CRM corporativo que aquí no aplican: equipos, **permisos por rol**, embudos con veinte
+   etapas, integraciones con GDS»*. No se puede levantar como MEDIO exactamente lo que la vara
+   nombra como no-hallazgo.
+2. **No se puede completar la frase.** La vara pide poder decir *«esto hace que se pierda
+   ___»*. Hoy: nada. Dos usuarios, los dos dueños del negocio, con derecho a ver todo lo que
+   ven. No hay dinero perdido, ni cliente perdido, ni hora perdida, ni confianza rota.
+3. **La definición de MEDIO del TABLERO no se cumple**: no «engaña» (nadie cree que haya roles),
+   no «se rompe en un caso realista» (el caso requiere contratar a alguien, que es un cambio de
+   negocio, no un uso de la plataforma) y no «cuesta el triple».
+
+Es un **MENOR** de libro: «deuda que hoy no muerde», con un disparador conocido y anotado. La
+distinción no es burocracia: B8 va a ordenar por gravedad, y un MEDIO aquí desplaza hacia abajo
+cosas que sí muerden hoy —los pasaportes de prueba en producción, el rastro que no existe—.
+
+**Lo que sí conservo íntegro** es la parte accionable, que el auditor escribió bien: *decidir
+los permisos antes de crear la tercera cuenta, no después*. Y añado el motivo de oficio: en
+Lemax o Tourwriter el rol se define al alta y nadie lo piensa; aquí el momento de pensarlo es
+el día que Nico le pase una clave a alguien para que cargue tarifas, y ese día se decide en
+treinta segundos y mal si no está escrito antes.
+
+### [NOTA PARA B8] El MEDIO de los tests no es un hallazgo independiente: son tres hallazgos de otros bloques contados otra vez
+
+No lo bajo de etiqueta porque el contenido es de lo mejor del bloque —tres roturas concretas,
+cada una con su prueba mínima y su coste en líneas, exactamente lo que pedía B6.6 y lo
+contrario de «falta un test»—. Pero **las tres roturas ya están levantadas en B1, B3 y B4** con
+sus propias etiquetas; si B8 suma este MEDIO a aquellas, el mismo problema cuenta dos veces.
+Sugerencia para la síntesis: tratarlo como **la respuesta a la tarea B6.6 y el plan de arreglo**
+de esos tres, no como una entrada más de la lista de gravedad.
+
+---
+
+## VEREDICTO: revisar
+
+El bloque es **sólido y honesto**: comprobé al dígito los tres recuentos que sostiene (27
+tablas con RLS, 13 endpoints de `/api`, 23 usos del cliente de servicio) y **los tres son
+correctos**; la tabla endpoint por endpoint y la sección de rendimiento medido están por encima
+de lo que se suele ver, y el GRAVE de las copias, que el auditor solo pudo sospechar, **queda
+confirmado con evidencia dura**. No hay ni un hallazgo inflado ni ninguno inventado.
+
+Va a `revisar` y no a `aprobado` por cinco huecos concretos, todos acotados:
+
+1. **`GUIA.md:354-356` y `:540` afirman algo falso** —que Supabase hace copias diarias— y ya
+   está verificado que el plan es `free`. Es «un texto que miente» de la regla 9 del TABLERO:
+   pequeño, reversible y urgente, porque un plan de recuperación falso impide que alguien monte
+   uno de verdad. No lo toqué porque la GUIA no es mi archivo de bloque. **Que lo haga la ronda.**
+2. **Mover el hallazgo de permisos de MEDIO a MENOR** en la sección de Hallazgos, con el
+   argumento de `CRITERIOS.md:63-64`, y anotar la nota para B8 sobre el MEDIO de los tests.
+3. **Incorporar a la sección de Hallazgos los tres nuevos** que levanté aquí, para que B8 los
+   vea sin leer la crítica: el grant a `anon` sobre 16 tablas (MENOR), el rastro de auditoría
+   inexistente con `quotes.created_by` en NULL (MEDIO), y los 27 pasaportes sin dueño con cero
+   retención (MEDIO).
+4. **Borrar las cuatro carpetas `CS-TEST-*` de `comercial-passports`** —25 archivos— o
+   confirmar con Nico que son imágenes de relleno. Es lo único de esta crítica que se puede
+   resolver hoy mismo y sin código, y mientras no se resuelva hay documentos de identidad
+   posiblemente reales en producción sin expediente que los justifique.
+5. **Decidir con Nico dos cosas que no se tocan solas**, y dejarlas escritas en el bloque: el
+   `pg_dump` semanal por n8n (propuesta (b) del GRAVE, que sigue siendo lo de más valor de toda
+   la auditoría) y el `revoke ... from anon` sobre `comercial`. Ninguna de las dos la aplica un
+   agente: son permisos y respaldo de producción.
+
+Dos apuntes menores que **no** exigen ronda, para que no se pierdan: la versión web del correo
+(`/correo/[token]`) es la única puerta pública sin revocación ni caducidad, y
+`auth_leaked_password_protection` está desactivado en Supabase Auth (un clic en el Dashboard,
+razonable en una cuenta de dos personas que custodia pasaportes).
+
+`Estado: hecho`
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
