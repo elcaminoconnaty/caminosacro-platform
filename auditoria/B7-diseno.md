@@ -466,6 +466,15 @@ _(Vacío. Se escribe según se encuentra, nunca al final.)_
 
 _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
+### Vuelve el contorno de foco a los dos campos que lo habían perdido — `configuracion/AsistenciaForm.tsx:119`, `configuracion/TravelDocTextsForm.tsx:178`
+
+Los dos únicos controles del CRM con `focus:outline-none` y **ninguna** sustitución (ni
+`focus:ring-*` ni `focus:border-*`). Son los dos campos de título de apartado del editor de
+Asistencia y del de textos del Documento de Viaje: `bg-transparent`, sin borde propio, así que al
+tabular hacia ellos el foco desaparecía sin dejar rastro. Quitado el `focus:outline-none` a secas
+—dos tokens de clase menos— con lo que vuelve el anillo de foco del navegador. Es el arreglo más
+reversible posible y no toca ni la maqueta ni el color. `npx tsc --noEmit` limpio.
+
 ---
 
 ## Crítica del experto
@@ -601,6 +610,130 @@ esos los lee el cliente, en su propio teléfono, y ahí el argumento sube de ton
 **Propuesta:** la del auditor sirve tal cual (token nuevo `--color-dorado-texto ≈ #8a6410`), con
 dos matices: sobre crema da 4,93, que pasa AA pero sin margen —conviene bajarlo un punto más si el
 aviso va a vivir sobre crema— y el reemplazo debe **empezar por las páginas públicas**, no por el CRM.
+
+---
+
+### [NUEVO · MEDIO] Los tres estados que faltan de verdad son los del framework, y B7.2 los dio por buenos — `src/app/(dashboard)/**`
+
+Este es el que se le escapó al auditor por mirar el código de cada página y no el árbol de rutas.
+B7.2 recorrió las 15 pantallas contando `if (error)` y mensajes de vacío, y concluyó que «solo una
+se queda muda». Contado el árbol de `app/`:
+
+```
+src/app/(dashboard)/contenido/[id]/not-found.tsx   ← fuera de alcance
+src/app/(dashboard)/contenido/error.tsx            ← fuera de alcance
+src/app/contrato/[token]/error.tsx                 ← página pública
+```
+
+**En todo el CRM no hay ni un `loading.tsx`, ni un `error.tsx`, ni un `not-found.tsx`.** Los tres
+que existen están en el Estudio de Contenido (fuera de alcance) y en la firma pública. O sea que el
+patrón se conocía y **no se aplicó al panel**. Tres agujeros concretos:
+
+**1. Cargando: no existe donde más tarda.** Todas las páginas del panel son componentes de
+servidor `async`. Sin `loading.tsx`, Next **bloquea la transición**: el navegador se queda en la
+página anterior, sin spinner ni esqueleto, hasta que el servidor termina. Y el expediente hace
+**21 consultas** (`seguimiento/[id]/page.tsx:142`, 19 en el `Promise.all` + 2 en el de la línea
+224) antes de devolver un byte. El auditor certificó que «el estado cargando está donde tarda»
+citando el botón «Creando…» y `QuotesTable.tsx:229`; pero ese `opacity-50` está atado a
+`busyId && pending`, que es el **borrado**, no la navegación (`QuotesTable.tsx:66,229`). Hacer clic
+en el código de una cotización desde `/seguimiento` **no produce ninguna señal**: en el escritorio
+son unas décimas, en el celular de Nico con datos móviles son segundos de pantalla congelada, que
+es exactamente cuando la gente vuelve a hacer clic.
+
+**2. Error: la pantalla muda que B7.2 fue a buscar está aquí.** Sin `error.tsx` en `(dashboard)`
+ni `global-error.tsx`, cualquier excepción lanzada dentro de un componente de servidor del panel
+—no un `error` devuelto por Supabase, que eso sí se recoge— cae en la pantalla por defecto de
+Next. El aviso rojo bien redactado que el bloque celebra solo cubre los errores **devueltos**; los
+**lanzados** no tienen dónde caer.
+
+**3. `notFound()` sin `not-found.tsx`: comprobado en pantalla.** `seguimiento/[id]/page.tsx:212` y
+`clara/[userId]/page.tsx:33` llaman a `notFound()`, y no hay `not-found.tsx` en `(dashboard)` ni en
+la raíz de `app/`. Abrí una ruta inexistente en el navegador y esto es lo que sale, literal:
+
+> **404** │ This page could not be found.
+
+Negro sobre blanco, **en inglés**, sin la marca y **sin un solo enlace**. Y ahora júntalo con C1:
+en el celular la barra lateral no existe, así que quien llega ahí —una cotización borrada, un
+código mal tecleado, un enlace viejo de WhatsApp— **se queda sin salida que no sea el botón atrás
+del navegador**. Es la definición de «pantalla muda» del CRITERIOS, y está en el sitio donde más
+duele.
+
+**Justo lo contrario pasa en lo que ve el cliente, y hay que decirlo:** probé
+`/documentacion/token-inventado-abc` y responde con la marca, «**Enlace no válido** — Revisa que el
+enlace esté completo o pídenos uno nuevo» y un botón «Escríbenos». Impecable. El cuidado está
+puesto donde mira el cliente y no donde trabajan Nico y Naty.
+
+**Propuesta** (no lo hago: son pantallas nuevas y el encargo dice proponer, no rediseñar):
+tres archivos pequeños en `src/app/(dashboard)/` —`loading.tsx` con un esqueleto, `error.tsx` con el
+mismo aviso rojo que ya usa el resto y un botón «Reintentar», y `not-found.tsx` con la marca y
+«← Volver al seguimiento»—. Cubren de golpe las 15 pantallas. Es media hora y cierra el hueco que
+B7.2 dio por cerrado.
+
+---
+
+### [ETIQUETA CORREGIDA · de MEDIO a no-hallazgo] Los clics (B7.6) son una lectura transversal, no un hallazgo propio
+
+El auditor preguntó por esto y la respuesta es clara: **no es un hallazgo suyo, y él mismo lo
+escribe dos veces.** El titular dice «los clics que sobran **no son de diseño**: son los hallazgos
+de esta auditoría vistos desde el lado de quien trabaja», y la conclusión remata: «**no hay clics
+de más por mal diseño de pantalla**». Los cinco pasos que enumera son, uno a uno:
+
+| paso de más | ya está levantado en |
+|---|---|
+| «Generar PDF» tras el asistente | MENOR de B1 |
+| cambiar el estado a mano tras cobrar | GRAVE de B2 |
+| acordarse de poner «Pago completo» | GRAVE de B2 |
+| la tarjeta de documentación escondida tras la etiqueta | GRAVE de B2 |
+| bajar a la décima tarjeta para cobrar | el MEDIO de B7.4, en este mismo bloque |
+
+Dejarlo como `[MEDIO]` **cuenta cuatro hallazgos dos veces**, y B8 (Síntesis) los va a sumar. La
+etiqueta baja: pasa a ser una **lectura transversal**, que es lo que es y además es de las cosas
+más útiles del bloque —cruzar tres bloques técnicos con el trabajo real es justo lo que hace falta
+para priorizar—. Solo no es un hallazgo nuevo.
+
+**Lo único que sí es de B7 y merece quedarse en el hallazgo de B7.4**: la franja «Qué falta» que el
+auditor propone es **informativa**, y el clic que sobra es de **desplazamiento**. Que cada señal de
+la franja sea un ancla al bloque correspondiente (`#pagos`, `#contratos`, `#documentacion`) convierte
+el resumen en el atajo, y ahí sí desaparece el «bajar hasta la décima tarjeta». Es una línea por
+señal.
+
+---
+
+### [CORREGIDO · MENOR se mantiene] B7.7 acierta en el fondo y falla en tres números y en un color
+
+La conclusión es correcta —ningún botón se queda sin indicador de foco— pero el camino no. Contado
+con el mismo criterio de alcance del TABLERO (sin `contenido/**`):
+
+| | auditor | real |
+|---|---|---|
+| `focus:outline-none` en `src` completo | 42 | **42** ✓ |
+| …dentro del alcance del bloque | (no lo separa) | **26** |
+| de esos, **con** `focus:ring-*` | «16 controles» | **16** ✓ |
+| de esos, con `focus:border-bosque` y sin ring | **24** | **8** |
+| huérfanos, sin ninguna sustitución | **2** | **2** ✓ |
+
+El «26 sin ring → 24 con borde → 2 huérfanos» no cuadra: 26 es el **total en alcance**, no los que
+van sin ring. El desglose real es 16 + 8 + 2 = 26. Las dos cifras del titular y de la conclusión
+sobreviven; la del medio no.
+
+**Y hay una confusión de color que sí importa,** porque manda el arreglo a la pantalla equivocada.
+B7.7 dice: «los avisos **ámbar** del suplemento van a 10 px con contraste 1,96 y sin icono ni
+palabra». Son dos cosas distintas mezcladas:
+
+- Los avisos **ámbar** (`text-amber-700`) son los de tarifa que falta —`Wizard.tsx:559`,
+  `QuoteEditor.tsx:375`— y **sí llevan icono y palabra**: «⚠ No hay tarifas 2026 cargadas…». Su
+  contraste sobre blanco está bien. No les pasa nada.
+- Los del suplemento de temporada son **dorados**, y de los cuatro, dos —`Wizard.tsx:568` y
+  `QuoteEditor.tsx:382`— **también llevan icono**: empiezan por «⚡» y el nombre de la temporada.
+  Medido en el navegador, además, van a **16 px**, no a 10.
+- Los únicos que van a **10 px sin icono** son `QuoteEditor.tsx:412` y `:428` —el «+ 240,00€
+  suplemento → total cliente…» debajo de cada campo—, y esos no son avisos: son la cuenta del
+  número que tienes al lado.
+
+Así que el hallazgo real, más pequeño y más exacto, es: **dos notas de 10 px en dorado a 2,13 de
+contraste, pegadas a los dos campos de dinero del editor**. Se arregla solo con el token de
+`--color-dorado-texto` del hallazgo de B7.1; no hace falta ningún icono nuevo. La parte de los
+chips de estado que dependen solo del color sí se sostiene tal como está escrita.
 
 ---
 

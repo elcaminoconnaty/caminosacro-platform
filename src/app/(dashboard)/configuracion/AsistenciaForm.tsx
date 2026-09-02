@@ -116,7 +116,7 @@ export default function AsistenciaForm({ current, generado }: { current: Asisten
                 <input
                   value={s.titulo}
                   onChange={(e) => seccion(i, "titulo", e.target.value)}
-                  className="flex-1 bg-transparent text-sm font-medium text-bosque focus:outline-none"
+                  className="flex-1 bg-transparent text-sm font-medium text-bosque"
                 />
                 <span className="text-[11px] text-muted">{s.telefonos?.[0]?.numero || "sin teléfono"}</span>
                 <button

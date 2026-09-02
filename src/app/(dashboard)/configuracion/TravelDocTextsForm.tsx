@@ -175,7 +175,7 @@ function ListaBloques({
               <input
                 value={b.titulo}
                 onChange={(e) => onChange(i, "titulo", e.target.value)}
-                className="flex-1 bg-transparent text-sm font-medium text-bosque focus:outline-none"
+                className="flex-1 bg-transparent text-sm font-medium text-bosque"
               />
               <button onClick={() => onRemove(i)} title="Quitar bloque" className="text-muted hover:text-red-600 transition">
                 <Trash2 size={14} />
