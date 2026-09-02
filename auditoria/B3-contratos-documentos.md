@@ -564,7 +564,14 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente` — **la dejo sin empezar a propósito.** La auditoría de B3 la escribió este
+`Estado: en curso` — el agente crítico (independiente) está verificando. Orden de trabajo:
+(1) el GRAVE de Storage — recuento de huérfanos contra `storage.objects` y las cinco columnas
+de ruta; (2) las dos fechas de regreso contra `route_stages`; (3) los umbrales de maquetación
+de B3.3 renderizando de verdad; (4) lo que el auditor no miró: viajeros sin contrato, tokens
+de `travel_docs`, `email_log` tras el borrado, y el hueco entre `quote_travelers` y `contracts`.
+La nota original del auditor, que se conserva porque explica por qué esta sección estaba vacía:
+
+> **la dejo sin empezar a propósito.** La auditoría de B3 la escribió este
 mismo agente en esta misma sesión, y criticarse a uno mismo no tiene independencia: repetiría
 los mismos puntos ciegos y daría por buena la misma evidencia. Que la haga un agente distinto,
 como en B1 y B2. Lo que más agradecería que le miren:
