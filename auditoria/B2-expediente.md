@@ -746,16 +746,134 @@ queda importa.
 
 ## Crítica del experto
 
-`Estado: en curso` — verificando en código y en producción los tres GRAVE (pago sin
-convertir, CS-2026-004 pagada con etiqueta `pago_parcial`, y las 8 salidas a 45 días con
-13.816 EUR), la tensión TRM (día del movimiento vs. el pago en EUR a cuenta COP), y luego
-los huecos frente a CRITERIOS: conciliación con Pilgrim, cobro partido en dos monedas,
-devoluciones, cambio de titular y rastro de quién tocó qué.
+`Estado: en curso` — escritas las secciones 1 a 3; faltan el lado del proveedor, el borrado
+de pagos y el veredicto.
 
-**Retomada tras la muerte del agente anterior** (el `en curso` de arriba es suyo; lo dejo
-escrito porque dice bien por dónde iba). Sigo su plan en ese orden: los tres GRAVE contra el
-código y contra `comercial` en producción, después la tensión de la TRM, y al final los
-huecos frente a CRITERIOS. Donde corrija al auditor, digo con qué lo corrijo.
+Todo lo que sigue está comprobado contra el código y contra `comercial` en producción (solo
+SELECT). Donde corrijo al auditor, digo con qué. Es un informe bueno: la disciplina de
+verificar cada afirmación contra filas reales está, y los apartados «Lo que sí está bien» no
+son relleno. Lo que le falta es un eje entero —el proveedor— y tiene un hueco de datos que
+le tumba media propuesta.
+
+### 1. Los tres GRAVE: los tres ciertos, pero uno está mal repartido
+
+**GRAVE «cobrar no mueve el estado» — confirmado, y es el mejor del bloque.**
+`addClientPayment` (`actions.ts:136-159`) no toca `quotes.status`, y `isFullyPaid()`
+(`quoteStatus.ts:66`) mira `FULLY_PAID_STATUSES`, o sea la etiqueta. `page.tsx:493` envuelve
+`TravelDocCard` entera en esa condición. Las dos filas están tal cual:
+
+| | estado | total | cobrado |
+|---|---|---|---|
+| CS-2026-001 | `enviada` | 505,00 € | 200,00 € |
+| **CS-2026-004** | `pago_parcial` | 970,00 € | **970,00 €** |
+
+CS-2026-004 sale el 22 de septiembre, pagó entero el 31 de agosto y su tarjeta de
+documentación de viaje no se dibuja. Sin discusión.
+
+**GRAVE «los recordatorios» — confirmado al euro.** Repetí la consulta: **8** salidas dentro
+de 45 días con saldo, **13.816,00 €**. Y verifiqué lo que más me interesaba, que es la
+munición del hallazgo: `comercial.email_templates` tiene `recordatorio_pago` y en `src/` hay
+**cero** apariciones de esa cadena. La plantilla existe y no la lee nadie.
+
+**GRAVE «un pago sin convertir vale cero» — el mecanismo es exacto, pero el hallazgo está
+partido en dos y la mitad con evidencia viva está etiquetada MEDIO.** El código es como se
+describe, lo verifiqué línea a línea: el selector ofrece EUR/COP/USD
+(`ClientPaymentsCard.tsx:225-227`), el campo de tasa solo se dibuja `{currency === "COP" && …}`
+(línea 236), ese input **no lleva `required`** (línea 240), y
+`amountEur = currency === "EUR" ? amount : currency === "COP" && trm ? amount / trm : null`
+manda `null` a una columna nullable. El renglón esconde el problema (`línea 127`) y los tres
+consumidores lo cuentan como cero.
+
+Dos cosas que añadir, y una que reordenar:
+
+a) **`updateClientPayment` es peor que `addClientPayment`, y el informe no lo separa.** La
+   misma expresión está en la edición (`actions.ts:166`). O sea que un pago **hoy correcto**
+   —de los seis que hay, todos en EUR con su `amount_eur`— se corrompe con solo abrir su
+   formulario, cambiar la moneda a COP y guardar sin tasa. No hace falta un pago nuevo: se
+   puede romper uno bueno.
+
+b) **El `&& trm` también se traga el cero.** `num()` devuelve `0` para un `"0"` tecleado, y
+   `0` es falsy, así que una tasa de cero cae en el mismo `null` en vez de dar un error de
+   división. Detalle, pero va en la misma línea de tres caracteres.
+
+c) **Y lo importante: el informe pone en GRAVE el camino sin víctima y en MEDIO la fila que
+   ya está mal.** El propio auditor es honesto y avisa de que «no hay ninguna fila rota
+   todavía» —los seis pagos son EUR con `amount_eur` puesto, lo verifiqué—. Pero dos
+   hallazgos más abajo, en un MEDIO, está **CS-2026-019: 20,00 EUR el 30-jun-2026 a
+   `bancolombia_naty`, una cuenta en pesos, con `trm_eur_cop = null`**. Esa fila ya es
+   ficción: a esa cuenta entraron pesos, en el CRM hay 20 euros, y ni la cifra en pesos ni la
+   tasa del día existen en ningún sitio (`trm_history` está vacía). Son **el mismo problema**
+   —«la cifra en euros de un pago no está garantizada y nada la valida»—, y separados quedan
+   un GRAVE que se apoya en un camino y un MEDIO que se apoya en la evidencia.
+
+   **Mi recomendación: fundirlos en un solo GRAVE** con CS-2026-019 como caso vivo y
+   USD / COP-sin-tasa / cuenta-en-pesos como los tres agujeros del mismo campo. Así el GRAVE
+   deja de ser latente y el MEDIO deja de estar enterrado. `accountCurrency()`
+   (`accounts.ts:18`), exportada y sin un solo llamador, es la pieza que cierra los tres.
+
+### 2. El hueco que le tumba media propuesta al propio informe: 11 cotizaciones sin fecha de salida
+
+Esto es lo que me hace pedir revisión, porque el auditor cometió en su hallazgo estrella el
+error que él mismo detectó en otro sitio.
+
+En B2.3 avisa muy bien de que un recordatorio apoyado en `email_sent_at` «solo verá 6 de las
+39 enviadas». Perfecto. Pero su propio titular de B2.7 —las 8 salidas dentro de 45 días— y
+su propuesta (a), la columna «Falta», se apoyan en `start_date`. Y en producción:
+
+**`start_date` es `null` en 11 de las 45 cotizaciones.** Las once están en `enviada`, o sea
+que ninguna consulta que filtre por fecha de salida las ve jamás. `end_date` falta en 12 y
+`valid_until` en 10.
+
+Seis de esas once son filas de 0,00 € (CS-2026-006, -007, -009, -010, -011, -012: ruido del
+seed). Las otras cinco no:
+
+| código | total | cobrado | costo Pilgrim | pagado a Pilgrim |
+|---|---|---|---|---|
+| **CS-2026-001** | 505,00 € | **200,00 €** | 405,00 € | **200,00 €** |
+| CS-2026-003 | 1.150,00 € | 0 € | 950,00 € | 0 € |
+| CS-2026-017 | 1.010,00 € | 0 € | 810,00 € | 0 € |
+| CS-2026-026 | 682,00 € | 0 € | 580,00 € | 0 € |
+
+**CS-2026-001 es el expediente más raro de toda la base y el informe lo usa como pie de
+tabla.** Es una venta con dinero entrando *y* saliendo —200 € cobrados al cliente, 200 €
+pagados a Pilgrim, 205 € que todavía se le deben— sobre una cotización **sin fecha de
+salida** y con etiqueta `enviada`. No aparece en las 8 salidas de los próximos 45 días, no
+aparecería en la columna «Falta» tal como está propuesta, y no aparecería en ningún
+recordatorio por fecha. Es exactamente el expediente que uno querría que el sistema
+levantara, y es invisible para todo lo que el informe propone.
+
+**Qué hay que corregir:** la propuesta (a) tiene que decir explícitamente qué hace con las
+filas sin `start_date` —listarlas aparte como «sin fecha de salida», que es en sí mismo un
+«Falta» accionable— y el hallazgo de B2.7 debe dar el número con el mismo cuidado con el que
+dio el de `email_sent_at`: son 8 salidas **de las 34 con fecha**, con 11 expedientes fuera
+del cálculo por no tenerla.
+
+### 3. Lo que el informe afirma bien y no hace falta reabrir
+
+Lo verifiqué y aguanta, así que queda dicho para que la revisión no gaste tiempo ahí:
+
+- **La TRM del movimiento.** `client_payments.trm_eur_cop` es por fila y la etiqueta dice
+  «TRM al recibir». Correcto, y bien traído el contraste con `template.ts:156`, que es lo que
+  el contrato le promete al cliente. Que `getTRMHoy()` no toque los pagos también es cierto.
+- **Lo derivado está derivado.** Repetí el arqueo sobre las 45: `total_eur` cuadra en las 45
+  y `cost_eur` en 44, con CS-2026-058 como única excepción, tal cual. La consulta de arqueo
+  que deja escrita es correcta y es la que hay que dejar en el repositorio.
+- **Los siete RPC que tiran el error** — cierto y bien localizado; `alternarOpcional()` es el
+  ejemplo correcto para contarlo.
+- **El parche de 16 columnas y la carrera de las dos pestañas** — cierto, y la comparación
+  con `actualizarCotizacion()` (que sí hace diff y corta si no hay cambios) es el argumento
+  correcto. Coincide con lo que B1 concluyó por otro camino: hay dos editores y solo uno
+  sigue las reglas. Los dos bloques llegan a la misma propuesta desde evidencias distintas,
+  lo cual la refuerza.
+- **«Cancelar» no re-siembra los campos controlados** — cierto y bien razonado; el caso de
+  CS-2026-077 es reproducible leyendo el componente.
+- **La utilidad proyectada incluye las canceladas** (10.708 € con 1.696 € de canceladas
+  dentro, el 15,8 %) y las tarjetas no reaccionan a los filtros: las dos cosas, ciertas.
+- **`aceptada` y `completada` con cero filas** — cierto, y la lectura («dos de los siete
+  estados son decoración») es la correcta.
+- Los apartados de filtros/orden/estados vacíos son buen trabajo de oficio y no tengo nada
+  que añadirles.
+
 
 ---
 
