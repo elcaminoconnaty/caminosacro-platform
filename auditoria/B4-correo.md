@@ -17,7 +17,8 @@
   su documentación prohíbe. El peor es el del contrato firmado: reduce el envío a un booleano y, cuando
   falla, **le promete al viajero un correo que nadie va a recordar mandarle**.
 - **B4.2 `email_log` sirve para lo que se creó.** ¿Registra todos los caminos? ¿Se puede reconstruir qué se mandó, a quién y con qué? El HTML guardado hace crecer la tabla: mira cuánto y si importa.
-  `Estado: pendiente`
+  `Estado: en curso` — cuántos de los siete caminos escriben en la tabla, si lo escrito basta para
+  reconstruir un envío, y medida real del peso del HTML en producción para responder si importa.
 - **B4.3 Plantillas y variables.** Una `{{variable}}` sin valor deja un hueco en el correo del cliente. Busca las que puedan quedar vacías y los textos que afirman cosas que ya no son ciertas.
   `Estado: pendiente`
 - **B4.4 Que llegue y no a spam.** Versión en texto plano, tamaño, enlaces, remitente. SPF/DKIM no se pueden comprobar desde aquí: anótalo como verificación pendiente de Nico.
