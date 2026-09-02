@@ -35,8 +35,11 @@
   de los 16 tiene precio 2027** (con respaldo avisado en ámbar, eso sí) y `optional_services` arrastra dos
   columnas de precio muertas.
 - **B5.5 Bicis.** Tarifa por bici × ruta × año, la fianza que no entra al total, el encadenado por `parent_quote_id`.
-  `Estado: en curso` — cobertura real de la matriz bici × ruta × año, cómo se trata la fianza (que no debe
-  entrar al total pero sí decirse), y el encadenado `parent_quote_id` con la cotización madre.
+  `Estado: hecho` — el tratamiento de la fianza en la **cotización** es ejemplar (fuera del total, por
+  bicicleta, en ámbar y con sus condiciones), pero **el contrato que se firma no la menciona ni una vez**:
+  cero apariciones en `template.ts` y en `contractPdf.tsx`. Y de las 42 combinaciones bici × ruta × año,
+  solo **6** tienen precio, todas de `Francés Bici Ponferrada` 2026 — las otras dos rutas de bici están
+  publicadas y no se les puede alquilar una bici.
 - **B5.6 Hoteles.** Módulo recién hecho: duplicados, ciudades que no casan con las etapas, hoteles sin fotos, qué pasa al borrar uno en uso.
   `Estado: pendiente`
 - **B5.7 Integridad referencial.** Borrar una ruta con cotizaciones, un opcional en uso, una bici cotizada. Qué protege la base y qué no.
@@ -140,6 +143,69 @@ que ya no están en el catálogo, marcadas como «retirado del catálogo» y con
 poder quitarlas; o que desactivar un opcional avise de cuántas cotizaciones vivas lo tienen
 antes de hacerlo. Lo primero es lo barato y resuelve el caso.
 
+### [MEDIO] La fianza de la bici se anuncia en la cotización y desaparece en el contrato — `quotePdf.tsx:924-930` vs `src/lib/contracts/**`
+
+La fianza del alquiler es plata real que el peregrino tiene que poner y que hay que
+devolverle. En la **cotización** está tratada con un cuidado que se agradece: va **fuera** del
+recuadro del total, en un cuadro ámbar, calculada **por bicicleta** y no por línea ni por
+persona, y con el texto exacto:
+
+> «Fianza del alquiler: N × X € = Y € — **adicional al total y reembolsable**»
+
+Además dispara las condiciones de alquiler en el PDF, y BayMax la explica en su expediente
+(`agentQuoteStatus.ts:109-116`: «la fianza NO entra al total, se cobra y se devuelve aparte»).
+
+**El contrato no la menciona.** Buscada la palabra en `src/lib/contracts/template.ts` y
+`src/lib/contracts/contractPdf.tsx`: **cero apariciones en los dos**. El documento que la
+persona firma —el que fija qué se paga, cuándo y con qué condiciones— no dice que además
+tendrá que dejar una fianza, ni de cuánto, ni cuándo se le devuelve, ni de qué se le puede
+descontar.
+
+Qué se rompe: el día que una bici vuelva con un golpe y haya que retener parte de la fianza,
+la agencia no tiene base contractual para hacerlo, y el cliente no tiene nada firmado que le
+garantice la devolución. Es el punto de fricción clásico de un alquiler y está fuera del
+único documento que lo podría resolver. Y ojo con la asimetría: el cliente **sí** lo leyó en
+la cotización, así que sabe que existe; lo que no hay es acuerdo sobre sus condiciones.
+
+**Honestidad sobre el caso:** hoy hay 2 cotizaciones de bici (`Francés Bici Ponferrada`) y
+ninguna ha llegado a contrato firmado, así que no ha mordido.
+
+**Propuesta (no se toca: es texto legal y lo decide Nico, seguramente con quien redactó el
+contrato):** una cláusula de fianza en `contractClauses()` que se incluya solo cuando la
+cotización lleve líneas de bici —el contrato ya sabe variar por plan de pago, así que la
+maquinaria de secciones condicionales existe— con importe, momento de entrega, plazo de
+devolución y causas de retención. Las cinco condiciones de alquiler que ya están escritas en
+`CONDICIONES_ALQUILER` (`quotePdf.tsx:752-761`) son el borrador.
+
+### [MENOR] Dos de las tres rutas de bici no tienen tarifa de bici — `comercial.bike_prices`
+
+La matriz es **7 bicicletas × 3 rutas × 2 años = 42 combinaciones**, y las 42 filas existen.
+Con precio hay **6**: las 6 bicis con tarifa de `Francés Bici Ponferrada` **2026**. Todo lo
+demás tiene `price_pilgrim` y `price_cs` en `null`:
+
+| ruta | 2026 | 2027 |
+|---|---|---|
+| Francés Bici Ponferrada | **6 de 7** con precio | 0 |
+| Portugués Bici Oporto | **0** | 0 |
+| Primitivo Bici Oviedo | **0** | 0 |
+
+Que 2027 esté vacío es **deliberado y está anotado en el proyecto**: faltan las tarifas que
+tiene que mandar Pilgrim. No lo cuento como hallazgo. Lo que sí lo es: **`Portugués Bici
+Oporto` y `Primitivo Bici Oviedo` no tienen tarifa de bici para 2026 tampoco**, y son
+exactamente las dos rutas que B5.3 encontró publicadas en la web sin una sola etapa cargada.
+
+O sea que hoy un visitante puede cotizar por la web un camino **en bici** de 240 o 311 km,
+recibir un PDF sin itinerario, y cuando llegue el momento de elegir la bicicleta —que es lo
+que da nombre a la ruta— el CRM responderá «Esa bicicleta no tiene tarifa 2026 para esta
+ruta. Cargala en el catálogo». El producto está a la venta con sus dos piezas centrales
+vacías.
+
+**El código se porta bien**, y por eso es MENOR y no más: `alternarBici` y
+`crearCotizacionConBici` comprueban `price_cs` **antes** de insertar nada
+(`bikeQuote.ts:109,178`) y devuelven un error que dice exactamente qué falta y dónde
+cargarlo. No se cotiza una bici a cero ni se cae al año anterior. **Propuesta:** la misma que
+en B5.3 —cargar los datos, o despublicar esas dos rutas mientras tanto.
+
 ### [MENOR] `optional_services` arrastra dos columnas de precio que ya no lee nadie — `comercial.optional_services.price_cs`, `.price_pilgrim`
 
 El precio de un opcional vive en `optional_prices`, por año (migración 0019). Pero
@@ -206,6 +272,32 @@ publicadas, con precio, y son cotizables hoy.
 el `web = true` de las tres publicadas para que no se puedan cotizar desde fuera. Y, para que
 no vuelva a pasar, un aviso en `/catalogo` en la ruta que esté publicada con cero etapas —del
 mismo estilo que el que propongo para el año de tarifa incompleto.
+
+### Lo que sí está bien: el módulo de bicis es el mejor cerrado del catálogo
+
+- **La fianza no contamina el total.** Se calcula aparte (`fianzaTotal = bikeUnits ×
+  FIANZA_POR_BICI_EUR`), sale del recuadro del total y va en ámbar, con el comentario que
+  explica por qué: «es plata que el peregrino [pone] … adicional al total y reembolsable». Y
+  la unidad de cálculo es la correcta: **por bicicleta**, con el comentario advirtiendo de los
+  dos errores fáciles («no por línea ni por persona»).
+- **El año de la tarifa de bici es coincidencia exacta, sin respaldo, y está argumentado**:
+  «una bici de 2027 cotizada con tarifa 2026 es plata perdida en cada reserva, y acá sí hay
+  dónde teclear el precio». Es la decisión contraria a la de `/cotizar` y aquí es la correcta,
+  porque el alquiler es un costo directo sin margen que lo absorba.
+- **Los dos caminos comprueban el precio antes de escribir**, con mensajes accionables que
+  nombran la bici, el año y dónde cargarlo.
+- **El encadenado por `parent_quote_id` está bien hecho**: `crearCotizacionConBici` copia la
+  cotización madre, arrastra sus opcionales, **borra la nueva si algo falla**
+  (`bikeQuote.ts:248-252`) y el expediente pinta el «← Viene de CS-… / Continúa en CS-… →».
+  B1 ya lo señaló como el patrón que le falta al asistente, y B2/B3 confirmaron que
+  `quotes.parent_quote_id` es `ON DELETE SET NULL`, así que borrar la madre no arrastra a la
+  hija. La cadena está cerrada por los dos extremos.
+- **Desmarcar una bici filtra por `type='bike'`**, «a propósito … `reference_id` es la única
+  llave que comparten» con los opcionales: quitar una bici no puede borrar un opcional con el
+  mismo id.
+- **La regla de margen de las bicis es la suya** (`pilgrim ÷ 0,85`, sin el suelo de 100 € de
+  las rutas) y el código advierte de no confundirlas. Verificado en B5.2: las 7 filas con
+  precio cumplen la regla y ninguna va bajo costo.
 
 ### Lo que sí está bien: el modelo de opcionales por año está bien resuelto
 
