@@ -12,7 +12,9 @@
 ## Tareas
 
 - **B6.1 El esquema real contra las migraciones.** Usa el MCP de Supabase: columnas muertas, tablas sin uso, índices que faltan en las consultas que sí se hacen, CHECK que ya no reflejan el código.
-  `Estado: pendiente`
+  `Estado: en curso` — inventario de tablas y su uso real en `src/`, columnas nulas al 100 %, índices
+  existentes contra los filtros que de verdad se consultan, y los CHECK cruzados con las constantes del
+  código.
 - **B6.2 Permisos.** Todas las tablas tienen una policy `auth_all` para cualquier autenticado. Con dos usuarios da igual; di qué se rompería con un tercero. Y dónde se usa `service_role` y si hace falta.
   `Estado: pendiente`
 - **B6.3 Rendimiento.** El expediente lanza dieciséis consultas por carga. Listados sin paginar, N+1, imágenes sin optimizar. Mide antes de opinar.
