@@ -578,12 +578,24 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: en curso` — el agente crítico está verificando el bloque contra el código, contra
-`comercial.email_log` / `comercial.email_templates` en producción y contra el workflow
-`HgErNCbopi95CdiI` en n8n. Orden: (1) los siete emisores y quién ignora `messageId`, (2) la
-etiqueta del secreto del webhook, (3) la rebaja a MENOR de `armarCorreoCotizacion`, (4) lo que
-falta en un CRM de agencia (rebotes, respuestas, correos que no existen). Si muero, lo escrito
-más abajo ya es definitivo.
+`Estado: en curso` — crítico independiente (veterano de CRM de agencia). Verifico contra el
+código, contra `comercial.email_log` / `comercial.email_templates` en producción y contra el
+workflow `HgErNCbopi95CdiI`. Plan numerado, escribo cada conclusión en cuanto la tengo:
+
+1. **Censo real de emisores.** Grep de todas las llamadas a `enviarCorreoWebhook` y a
+   `registrarEnvio`: comprobar que son siete y no ocho, quién ignora `messageId`, y si
+   `api/wp/lead` merece el mismo peso que los otros tres (destinatario interno, no cliente).
+2. **Etiqueta del secreto del webhook (MEDIO).** Releer el nodo «Validar y Preparar» y decidir
+   si el radio de acción sostiene MEDIO, o si sube/baja.
+3. **La rebaja a MENOR de `armarCorreoCotizacion`.** Verificar en la base que las 33 sin
+   `route_id` son todas internas y que los caminos ciegos sí lo traen; confirmar o revertir.
+4. **Lo que falta como CRM de agencia** contra `CRITERIOS.md` §3 y §7: rebotes, respuestas del
+   cliente, seguimiento de cotización sin respuesta, aviso de saldo, confirmación de pago.
+5. **Lo que el auditor no miró**: plantillas en base (todas, no solo la activa), reintento de
+   Brevo/n8n, `correo/[token]` (fuga por token, caducidad), cron de recordatorios en lo que
+   toca al correo, y los `Reply-To`/hilos.
+
+Si muero, lo escrito más abajo ya es definitivo.
 
 _(nota original del auditor, se conserva)_ — **sin empezar a propósito**, por lo mismo que en B3: la auditoría la
 escribió este agente y criticarse a uno mismo no tiene independencia. Lo que más agradecería
