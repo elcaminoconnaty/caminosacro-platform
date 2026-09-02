@@ -564,7 +564,19 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: pendiente`
+`Estado: pendiente` — **la dejo sin empezar a propósito.** La auditoría de B3 la escribió este
+mismo agente en esta misma sesión, y criticarse a uno mismo no tiene independencia: repetiría
+los mismos puntos ciegos y daría por buena la misma evidencia. Que la haga un agente distinto,
+como en B1 y B2. Lo que más agradecería que le miren:
+
+- El **GRAVE de Storage**: verificar el cruce (2 pasaportes y 4 contratos de cotizaciones
+  borradas) y decidir si la etiqueta GRAVE aguanta, dado que los buckets son privados y no hay
+  filtración — mi argumento es la promesa de supresión del contrato firmado, no la exposición.
+- Las **dos fechas de regreso** (CS-2026-080 y CS-2026-081): comprobar la aritmética
+  `fin = salida + etapas + 1` contra `route_stages`, y si el descuadre es del itinerario del
+  catálogo o del `end_date`.
+- Los **umbrales de maquetación** de B3.3: los medí renderizando, pero el corte exacto entre 51
+  y 65 caracteres no lo afiné.
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
