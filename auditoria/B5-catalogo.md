@@ -29,9 +29,11 @@
   es **más grande de lo que dice la tarea**: no son dos rutas de bici, son **cuatro rutas sin etapas y tres
   de ellas publicadas en la web** — se suma `Portugués desde Vigo`, que es de senderismo.
 - **B5.4 Opcionales.** Precios por año, opcionales activos sin precio, unidades y cantidades. Qué pasa si se desactiva uno que está en cotizaciones vivas.
-  `Estado: en curso` — opcionales activos sin precio del año, coherencia de unidades contra cómo se calcula
-  la cantidad, y qué le pasa a una cotización viva cuando se desactiva o se reprecia un opcional que ya
-  tiene contratado.
+  `Estado: hecho` — **desactivar un opcional que alguien ya contrató lo hace invisible pero lo sigue
+  cobrando**: la lista recorre el catálogo activo y la suma recorre las líneas, así que la línea deja de
+  verse y sigue en el total. Los 16 opcionales están activos hoy, así que no ha mordido. Además: **ninguno
+  de los 16 tiene precio 2027** (con respaldo avisado en ámbar, eso sí) y `optional_services` arrastra dos
+  columnas de precio muertas.
 - **B5.5 Bicis.** Tarifa por bici × ruta × año, la fianza que no entra al total, el encadenado por `parent_quote_id`.
   `Estado: pendiente`
 - **B5.6 Hoteles.** Módulo recién hecho: duplicados, ciudades que no casan con las etapas, hoteles sin fotos, qué pasa al borrar uno en uso.
@@ -104,6 +106,61 @@ con el año de salida — es la misma columna «Falta» que proponen B2.6 y B2.7
 consulta de arqueo que liste las cotizaciones vivas cuya base no cuadra con el catálogo de su
 año de salida. Con las 12 de 2027 encima, la (c) se puede correr hoy.
 
+### [MEDIO] Desactivar un opcional contratado lo hace invisible, pero se sigue cobrando — `seguimiento/[id]/page.tsx:158` · `OptionalsCard.tsx:70,96`
+
+La tarjeta de opcionales del expediente se arma con dos fuentes distintas y ahí está el
+problema:
+
+- **La lista que se pinta** recorre el **catálogo**: `for (const o of catalog)`
+  (`OptionalsCard.tsx:96`), y ese catálogo llega filtrado por `.eq("active", true)`
+  (`page.tsx:158`).
+- **La suma que se muestra** recorre las **líneas contratadas**:
+  `selected.reduce((s, l) => s + Number(l.total), 0)` (`OptionalsCard.tsx:70`).
+
+Si alguien desactiva en `/catalogo` un opcional que una cotización viva ya tiene contratado,
+esa línea **desaparece de la lista** —no hay fila del catálogo donde pintarla— pero **sigue
+en `quote_lines`**, sigue sumando en el subtotal de la propia tarjeta y sigue dentro de
+`total_eur`, porque `recompute_quote_money()` suma las líneas sin mirar si el servicio sigue
+activo.
+
+El resultado es un expediente donde los opcionales marcados no cuadran con el total que la
+misma tarjeta muestra, y donde **no hay forma de quitar la línea desde la pantalla**: para
+desmarcarla haría falta la casilla que ya no se dibuja. También sigue apareciendo en el PDF y
+en el correo a Pilgrim, que leen las líneas.
+
+**Honestidad sobre el caso:** los **16** opcionales están hoy `active = true`, así que no hay
+ninguna cotización afectada. Pero desactivar es la operación normal para retirar un servicio
+de temporada, y hay dos opcionales con líneas vivas —`Noche extra — Pensión` (3 líneas) y
+`Tour Fisterra y Costa da Morte` (3 líneas)—. El día que uno de esos se retire del catálogo,
+seis expedientes empiezan a cobrar algo que no se ve.
+
+**Propuesta (no se toca: es dinero):** que la tarjeta pinte también las líneas contratadas
+que ya no están en el catálogo, marcadas como «retirado del catálogo» y con su casilla para
+poder quitarlas; o que desactivar un opcional avise de cuántas cotizaciones vivas lo tienen
+antes de hacerlo. Lo primero es lo barato y resuelve el caso.
+
+### [MENOR] `optional_services` arrastra dos columnas de precio que ya no lee nadie — `comercial.optional_services.price_cs`, `.price_pilgrim`
+
+El precio de un opcional vive en `optional_prices`, por año (migración 0019). Pero
+`optional_services` conserva sus columnas `price_cs` y `price_pilgrim` de antes de esa
+migración, y quedaron a medio camino:
+
+- En **14 de los 16** opcionales tienen valor, y coincide exactamente con el precio 2026 de
+  `optional_prices`.
+- En los **2 más nuevos** —`Casco de bicicleta` y `Seguro a todo riesgo para la bicicleta`,
+  del módulo de bicis de agosto— están en **`null`**, porque ya se crearon con el modelo por
+  año.
+
+Lo comprobé y **hoy no las lee nadie**: los cinco sitios que consultan opcionales
+(`api/wp/pricing`, `api/agente/catalogo`, `catalogo/actions`, `seguimiento/[id]/page` y
+`optionals.ts`) hacen todos el join a `optional_prices`. Así que no hay ningún fallo activo.
+
+Lo anoto porque es una trampa bien puesta para el siguiente: son dos columnas con el nombre
+correcto, en la tabla correcta, con datos que parecen buenos en 14 de 16 filas. Quien las use
+por descuido tendrá precios plausibles casi siempre y **cero en los dos opcionales de bici**,
+que es el peor modo de fallo posible. **Propuesta:** borrarlas, o dejarlas con un comentario
+de columna que diga que son históricas.
+
 ### [MEDIO] Tres rutas publicadas en la web se venden sin itinerario — `comercial.route_stages` (dato, no código)
 
 La tarea apuntaba a las dos rutas de bici. Son **cuatro** las rutas activas sin una sola
@@ -148,6 +205,32 @@ publicadas, con precio, y son cotizables hoy.
 el `web = true` de las tres publicadas para que no se puedan cotizar desde fuera. Y, para que
 no vuelva a pasar, un aviso en `/catalogo` en la ruta que esté publicada con cero etapas —del
 mismo estilo que el que propongo para el año de tarifa incompleto.
+
+### Lo que sí está bien: el modelo de opcionales por año está bien resuelto
+
+- **El precio se congela en la línea.** `alternarOpcional` copia `price_cs` y `price_pilgrim`
+  a `unit_price` y `cost_unit` de la línea (`optionals.ts:47-48`), con el motivo escrito: «el
+  precio queda como snapshot en la línea, así que cambiarle la fecha después no la re-tarifa
+  sola». Es lo correcto: repreciar el catálogo **no** mueve lo ya cotizado.
+- **El año de referencia se elige por la salida y el respaldo se avisa.** Usa
+  `optionalPricesForYear(filas, quoteYear(start_date))` con caída al año anterior, y la
+  tarjeta lo dice en ámbar con enlace al catálogo de ese año (`OptionalsCard.tsx:92,113`). Eso
+  importa porque **ninguno de los 16 opcionales tiene precio 2027 cargado**: las 12
+  cotizaciones de 2027 que existen añadirían opcionales a precio de 2026, pero **avisando**,
+  que es la diferencia con el caso de las rutas de B5.1.
+- **Si no hay precio en ningún año, no se inserta nada** y el mensaje dice qué hacer: «Ese
+  opcional no tiene precio cargado en ningún año. Cargalo en el catálogo.»
+- **La unidad decide la cantidad, y las unidades están bien puestas.** `isPerPerson` mira si
+  la unidad contiene «persona» y usa `people`; el resto arranca en 1. Repasadas las 16
+  unidades reales (`por persona`, `por noche`, `por unidad`, `por vehículo`), todas encajan
+  con esa regla: los tres traslados son `por vehículo` (1 por defecto, correcto), las noches
+  extra `por noche`, y los tours `por persona`.
+- **Desmarcar acota por `reference_id` y por tipo**, y las líneas de bici y de opcionales
+  llegan a tarjetas distintas con el motivo escrito: «mezclarlas haría que desmarcar en una
+  borrara líneas de la otra» (`page.tsx:159-161`). Es un error que ya alguien previó.
+
+Queda dicho aparte, porque es del mismo hallazgo de B2 y no lo repito aquí: cambiar el número
+de personas **no** re-cuantifica las líneas «por persona» ya contratadas.
 
 ### Lo que sí está bien: los itinerarios que existen están completos y bien formados
 
