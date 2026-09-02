@@ -15,8 +15,10 @@
   `Estado: hecho` — la disciplina de lo derivado se respeta (44 de 45 filas cuadran al céntimo), pero
   los 7 sitios que llaman al RPC tiran el error, y cambiar «personas» no re-cuantifica los opcionales por persona.
 - **B2.2 Pagos, saldos y monedas.** ¿La TRM que se guarda es la del día del movimiento o la de hoy? Cobrado, saldo cliente, pagado a proveedor y margen real: recalcula a mano en un expediente y compara con lo que muestra.
-  `Estado: hecho` — la TRM que se guarda **sí** es la del día del movimiento (bien), pero un pago que no
-  se puede convertir a euros vale cero en el saldo sin decirlo, y USD no tiene forma de convertirse.
+  `Estado: hecho` — la TRM que se guarda **sí** es la del día del movimiento (bien), pero la cifra en
+  euros de un pago no está garantizada por nada —CS-2026-019 ya es ficción— y el lado del proveedor
+  no se alimenta: «Margen real» y «Saldo proveedor» son KPI sin respaldo. Borrar un pago no deja
+  rastro y hace que el siguiente recibo reutilice el número.
 - **B2.3 Estados coherentes.** Busca combinaciones imposibles: pagada pero `sin_enviar`, cancelada con pagos, `pago_completo` sin cobros. Quién mueve cada estado y qué queda sin mover solo.
   `Estado: hecho` — el único evento que mueve el estado solo es el envío del correo. Cobrar y firmar
   no lo mueven: CS-2026-004 tiene los 970 € pagados y dice «pago parcial», y por eso no le sale la
@@ -33,7 +35,8 @@
   proyectada incluye 1.696 € de canceladas y no responde a los filtros) y que la tabla enseña cuánto,
   pero no qué falta hacer.
 - **B2.7 Nadie se cae del embudo.** Hoy nada avisa de una cotización enviada hace ocho días sin respuesta ni de un saldo que vence. Di qué costaría lo mínimo útil.
-  `Estado: hecho` — 8 salidas dentro de 45 días con 13.816 € sin cobrar (dos de ellas salen en 4 días)
+  `Estado: hecho` — 8 salidas dentro de 45 días con 13.816 € sin cobrar (dos de ellas salen en 4 días),
+  y otras 11 cotizaciones sin fecha de salida que no ve ninguna consulta por fecha
   y nada las señala; la plantilla `recordatorio_pago` ya está escrita en la base y no la lee ni una
   línea de código. Lo mínimo útil es una columna «Falta» en la lista, sin migración ni correos.
 
@@ -1081,16 +1084,58 @@ Concreto, para que la ronda sea una sola:
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — una sola ronda, con los cinco puntos del veredicto en este orden y un
-commit por punto, corrigiendo **en su sitio** (sección Hallazgos):
+`Estado: hecho` — los cinco puntos del veredicto, resueltos. Todo comprobado contra el código
+y contra `comercial` en producción (solo SELECT) antes de escribirlo. Los hallazgos se
+corrigieron **en su sitio**; aquí queda solo el registro. **No se tocó código**: es revisión
+del informe.
 
-1. Fundir el GRAVE del pago sin convertir con el MEDIO de CS-2026-019 en un solo GRAVE con
-   caso vivo; añadir que `updateClientPayment` corrompe un pago hoy correcto y que
-   `accountCurrency()` está exportada sin llamadores.
-2. Hallazgo nuevo del lado del proveedor: «Margen real» y «Saldo proveedor» sin respaldo.
-3. Hallazgo nuevo: borrar un pago no deja rastro y el siguiente recibo reutiliza el número.
-4. Corregir B2.7: 8 salidas **de las 34 con fecha**; 11 sin `start_date` quedan fuera de todo
-   lo propuesto, con CS-2026-001 como caso.
-5. No reabrir lo que la crítica dio por sólido.
+### Qué cambió, y por qué
 
-Sin tocar código: es revisión del informe.
+1. **Un GRAVE en vez de un GRAVE latente y un MEDIO enterrado.** La crítica tenía razón: «un
+   pago que no se puede convertir vale cero» y «el pago en euros a una cuenta en pesos» son
+   el mismo problema —`amount_eur` no está garantizado por nada— y estaban separados, con la
+   evidencia viva en el MEDIO. Fundidos, el GRAVE arranca con **CS-2026-019** (20,00 EUR a
+   `bancolombia_naty`, cuenta en pesos, sin tasa) y los tres agujeros del campo quedan
+   juntos: USD sin campo de tasa, COP con la tasa vacía o en cero, y la cuenta cuya moneda
+   nadie mira. Añadido lo que faltaba: la misma expresión está en `updateClientPayment`
+   (`actions.ts:166`), así que **un pago hoy correcto se corrompe editándolo**, y
+   `accountCurrency()` —exportada en `accounts.ts:18`, cero llamadores— es la pieza ya
+   escrita que cierra las tres bocas.
+
+2. **Hallazgo nuevo: el bloque miraba media contabilidad.** «Pagos, saldos y monedas» no
+   había mirado el lado del proveedor pese a que dos de las cinco tarjetas del expediente
+   son suyas. En producción: **6 pagos a Pilgrim por 2.617,00 €** contra **47.750,00 €** de
+   costo, y **15 salidas a 60 días con 23.992,00 € sin registrar**, 14 de ellas con cero
+   euros. Con la cautela dicha —lo más probable es que a Pilgrim se le pague por fuera del
+   CRM—, que es justo lo que convierte a «Saldo proveedor» y «Margen real» en cifras sin
+   respaldo que ninguna pantalla advierte.
+
+3. **Hallazgo nuevo: borrar un pago.** `deleteClientPayment` borra la fila y el PDF del
+   recibo sin dejar rastro, y ninguna tabla de dinero tiene autor. Lo que lo hace concreto es
+   que el consecutivo del recibo se recalcula desde las filas **vivas**
+   (`actions.ts:225-233`), así que tras un borrado el siguiente recibo **reutiliza un número
+   ya entregado**. Anotado como MEDIO y con la honestidad de que no ha pasado.
+
+4. **El titular de B2.7, corregido.** Las 8 salidas son **de las 34 con fecha**:
+   `start_date` es `null` en **11 de las 45**, `end_date` en 12 y `valid_until` en 10. Era la
+   misma trampa que el propio informe había detectado para `email_sent_at` y no se había
+   aplicado a su hallazgo estrella. Entra **CS-2026-001** como caso —200 € cobrados, 200 €
+   pagados a Pilgrim, 205 € pendientes, sin fecha de salida, etiqueta `enviada`— y la
+   propuesta (a) lleva ahora la condición de que «sin fecha de salida» sea **un valor de la
+   columna «Falta»**, no una fila que se cae del `where`.
+
+5. **No se reabrió nada de lo que la crítica dio por sólido**: la TRM del movimiento, el
+   arqueo de lo derivado, los siete RPC mudos, el parche de 16 columnas, «Cancelar», la
+   utilidad proyectada con canceladas dentro y el apartado de filtros y orden.
+
+### Lo que queda dicho para la síntesis
+
+- Los dos bloques auditados llegan por caminos distintos a la **misma propuesta**: que la
+  pantalla de Seguimiento deje de tener su propio `updateQuote` y llame a
+  `actualizarCotizacion()`. B1 lo pide por el precio y `rooms_json`; B2 lo pide por la
+  carrera de las dos pestañas y por el guardado sin cambios que regenera el PDF.
+- La **columna «Falta»** de B2.7(a) es el mejor retorno por línea de lo auditado hasta ahora,
+  y ahora resuelve cuatro cosas con la misma consulta: validez vencida, salida próxima con
+  saldo, sin fecha de salida y sin pagos a Pilgrim.
+- Tres campos de dinero sin bitácora ni autor —`quotes` (B1), `client_payments` y
+  `provider_payments` (B2)— apuntan al mismo hueco del punto 7 de CRITERIOS.
