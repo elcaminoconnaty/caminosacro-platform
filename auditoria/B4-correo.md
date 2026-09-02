@@ -22,9 +22,11 @@
   y `pilgrim` están declarados en el propio tipo y nunca se escriben. Y el peso del HTML **no importa**:
   11 kB de media, 160 kB la tabla entera; ni con mil correos al año llega a molestar.
 - **B4.3 Plantillas y variables.** Una `{{variable}}` sin valor deja un hueco en el correo del cliente. Busca las que puedan quedar vacías y los textos que afirman cosas que ya no son ciertas.
-  `Estado: en curso` — inventario de las plantillas (las dos de `comercial.email_templates` y las que viven
-  en código), qué hace el sustituidor con una variable sin valor, y contraste de lo que afirman los textos
-  contra lo que la plataforma hace de verdad hoy.
+  `Estado: hecho` — una variable sin valor se sustituye por **cadena vacía**, así que deja el hueco en la
+  frase. En la plantilla activa hay cinco que pueden quedar vacías, y `armarCorreoCotizacion` es el único
+  sitio de la plataforma que resuelve la ruta **solo por `route_id`**, que falta en 33 de 45 cotizaciones.
+  Salva el caso real que esas 33 se mandan desde la tarjeta del CRM, que enseña el texto antes. Y la
+  plantilla `recordatorio_pago` usa `{{saldo_eur}}`, que **no existe en ningún constructor de variables**.
 - **B4.4 Que llegue y no a spam.** Versión en texto plano, tamaño, enlaces, remitente. SPF/DKIM no se pueden comprobar desde aquí: anótalo como verificación pendiente de Nico.
   `Estado: pendiente`
 - **B4.5 El secreto compartido.** `QUOTE_EMAIL_WEBHOOK_SECRET` está en claro dentro del nodo de n8n. Evalúa el riesgo real y qué costaría mitigarlo. No lo cambies.
@@ -141,6 +143,111 @@ cuatro mandan texto plano, pero es la misma causa.
 
 **Propuesta:** cablear los cuatro. Es una llamada a `registrarEnvio` en cada uno, la tabla y
 la función ya existen, y los tipos ya están escritos.
+
+### [MENOR] `armarCorreoCotizacion` es el único sitio que busca la ruta solo por `route_id` — `lib/quotes/quoteEmail.ts:41-46`
+
+`renderTemplate` sustituye una variable sin valor por **cadena vacía**
+(`lib/emailTemplate.ts:6-8`: `if (v == null) return "";`). No hay marcador, no hay aviso: el
+hueco se queda en la frase. Es una decisión razonable —mejor un hueco que un `{{duracion}}`
+crudo en el correo de un cliente— pero exige que las variables lleguen llenas.
+
+En la plantilla activa `cotizacion_enviada` hay **cinco** que pueden quedar vacías, y así
+saldría el texto:
+
+| variable | cuándo queda vacía | cómo se lee |
+|---|---|---|
+| `{{dias_camino}}` | sin metadatos de ruta | «los  días de camino» |
+| `{{duracion}}` | idem | «• Duración: » |
+| `{{fechas_largas}}` | sin `start_date` o `end_date` (12 filas) | «• Fechas: » |
+| `{{validez}}` | sin `valid_until` (10 filas) | «la cotización está vigente hasta el **.**» |
+| `{{alojamiento_descripcion}}` | sin `modality` | «• Alojamiento: » |
+
+La causa de las dos primeras es concreta y es lo que merece el hallazgo:
+`armarCorreoCotizacion` solo mira `quote.route_id` para traer días y noches
+(`quoteEmail.ts:41`). Si es `null`, `routeMeta` queda en `null` y las dos salen vacías.
+**`route_id` es `null` en 33 de las 45 cotizaciones.**
+
+Y lo llamativo es que **el resto de la plataforma sí sabe hacerlo bien**. En el mismo flujo,
+`agentQuoteStatus.ts:70-73` resuelve la ruta con el patrón correcto —por id, y si no hay, por
+nombre—, igual que `pdf.ts` y `editQuote.ts`. Y la propia tarjeta del CRM la resuelve **por
+nombre** (`seguimiento/[id]/page.tsx:40`: `routes.find((x) => x.name === routeName)`). Es la
+única función de las cuatro que no tiene el respaldo.
+
+**Por qué es MENOR y no más, dicho con los datos:** las 33 sin `route_id` son **todas**
+`source = 'interna'` (del asistente), y el correo de una cotización interna se manda desde la
+tarjeta del CRM, que **renderiza el cuerpo y lo enseña en un cuadro editable antes de
+enviar** — y esa tarjeta resuelve la ruta por nombre, así que ahí el texto sale completo. Los
+tres caminos que envían **sin que nadie mire** (`webQuote.ts`, `cotizar/actions.ts` y el
+borrador de BayMax) trabajan con cotizaciones que ellos mismos crearon, y esas **sí** tienen
+`route_id`: verificado, las 5 de `wordpress` y la 1 de `baymax` lo tienen, junto con sus
+fechas y su validez. O sea: el agujero está en el código y hoy la costumbre lo tapa.
+
+**Propuesta:** una línea — el mismo respaldo por nombre que ya usa el archivo de al lado. Y
+de paso, que `renderTemplate` registre en el log qué variables resolvió vacías, para que un
+hueco no dependa de que alguien lo vea.
+
+### [MENOR] La plantilla del recordatorio de pago usa una variable que no existe — `comercial.email_templates` (`recordatorio_pago`)
+
+B2 dejó anotado que la plantilla `recordatorio_pago` está escrita, guardada y **sin un solo
+llamador** en `src/`. Al leerla se ve algo más, y conviene decirlo antes de que alguien la
+enchufe:
+
+> «Pasaba a recordarte sobre el pago de tu Camino. Saldo pendiente: `**{{saldo_eur}}**`.»
+
+**`saldo_eur` no existe en ninguno de los dos constructores de variables.** Buscada en todo
+`src/`: aparece una sola vez, en `api/agente/cotizaciones/route.ts:117`, que es un campo del
+JSON que se le devuelve a BayMax, no una variable de plantilla. Ni `buildTemplateVars`
+(`seguimiento/[id]/page.tsx:98-115`) ni `armarVariables` (`quoteEmail.ts:119-136`) la
+producen.
+
+Como `renderTemplate` sustituye lo que no encuentra por cadena vacía, el correo saldría
+diciendo:
+
+> «Saldo pendiente: ****.»
+
+—los asteriscos de la negrita, vacíos, y el punto—. A un cliente, pidiéndole plata. Quien
+implemente la propuesta (c) de B2.7 tiene que añadir `saldo_eur` a los dos constructores
+antes de activar nada. **Propuesta:** añadirla ya a los dos, que es donde se calcula el saldo
+en ambas pantallas, para que la plantilla quede lista y no sea una trampa.
+
+### [MENOR] La descripción de alojamiento solo reconoce la mitad de las etiquetas — `quoteEmail.ts:95-107` y su gemela en `page.tsx`
+
+`{{alojamiento_descripcion}}` traduce la modalidad a una frase de venta («Pensión mayormente;
+en las localidades sin disponibilidad de pensión, alojamiento en hoteles · Habitación
+doble»). El `if` encadenado busca las cadenas `"pensión doble"`, `"pensión single"`,
+`"hotel doble"` y `"hotel single"`.
+
+Pero las etiquetas que la plataforma escribe de verdad son otras, y B1 ya documentó que hay
+varias familias: el asistente y el cotizador web ponen **«Pensión, habitación doble»** —que
+**no** contiene la subcadena `"pensión doble"`— y los grupos impares llevan **«Pensión · 1
+doble + 1 individual»**. Ninguna de las dos entra por las ramas buenas: caen en el `else` y
+el correo repite la etiqueta cruda en vez de la frase.
+
+No se rompe nada —el respaldo es correcto y dice algo cierto— pero dos clientes con el mismo
+alojamiento reciben descripciones distintas según por dónde se creó su cotización, y la que
+explica el matiz importante («pensión mayormente; donde no haya, hotel») es la que casi nunca
+sale. **Propuesta:** comparar contra el tipo y la habitación por separado, como ya hace
+`modalityToSlug()` en el editor, en vez de contra la etiqueta completa.
+
+### Lo que sí está bien: las plantillas y sus dos constructores
+
+- **La plantilla vive en la base y se edita sin desplegar.** `cotizacion_enviada` está en
+  `comercial.email_templates` con su `active`, y el comentario de `quoteEmail.ts:10-13` deja
+  claro el porqué: «es el MISMO mensaje que el equipo ve en la tarjeta de correo del CRM: si
+  se edita la plantilla allá, este correo cambia solo». Un texto, un sitio.
+- **Hay respaldo si la plantilla desaparece**: `page.tsx:463` cae en un cuerpo mínimo pero
+  correcto en vez de mandar un correo vacío, y `armarCorreoCotizacion` devuelve `null` —y no
+  se manda nada— si falta la plantilla o la cotización, «el envío del correo nunca debe tumbar
+  la creación de la cotización».
+- **Los dos constructores de variables no han divergido.** El comentario avisa de que son
+  réplicas («si se agrega una variable a las plantillas, hay que añadirla en ambos lados»), y
+  lo comprobé clave por clave: los dos devuelven las **mismas 17**, y las dos únicas
+  diferencias —`total_cop` y `trm`, que en el envío automático van vacías— están documentadas
+  en la cabecera. Es duplicación consciente y hoy sana; el riesgo es que nadie la vigila.
+- **Ningún texto de las dos plantillas afirma algo falso.** Repasadas frase por frase: el
+  «Traslado de mochila incluido» del resumen es cierto para las rutas del catálogo (es parte
+  del servicio base, no un opcional), y no hay promesas de plazos ni de condiciones que la
+  plataforma no cumpla.
 
 ### Lo que sí está bien: lo que `email_log` registra, lo registra bien
 
