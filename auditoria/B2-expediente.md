@@ -131,76 +131,74 @@ where q.total_eur is distinct from (coalesce(q.base_eur,0)+coalesce(q.season_sup
    or q.cost_eur  is distinct from (coalesce(q.cost_base_eur,0)+coalesce(q.season_supplement_cost_eur,0)+coalesce(l.cost_lines,0));
 ```
 
-### [GRAVE] Un pago que no se puede convertir a euros vale cero en el saldo, y nadie lo dice — `seguimiento/[id]/actions.ts:141,166` · `ClientPaymentsCard.tsx:227,237-243` · `page.tsx:276-279`
+### [GRAVE] La cifra en euros de un pago no está garantizada por nada, y ya hay una que es ficción — `seguimiento/[id]/actions.ts:141,166` · `ClientPaymentsCard.tsx:127,225-243` · `lib/accounts.ts:18`
 
-La conversión de un pago a euros está escrita, idéntica, en el alta y en la edición:
+`amount_eur` es **la única columna de un pago que cuenta para el dinero**: de ella salen
+«Cobrado», «Saldo cliente» y «Margen real» del expediente (`page.tsx:276-286`), el saldo
+impreso en el **recibo que se le entrega al cliente** (`actions.ts:235`) y el panel de
+finanzas (`finanzas/page.tsx:28`). Nada garantiza que ese número signifique algo. Hay tres
+agujeros en el mismo campo, y el tercero ya tiene una fila viva.
+
+**El caso vivo: CS-2026-019.** Pago del **30-jun-2026 por 20,00 EUR a `bancolombia_naty`**,
+que es una **cuenta en pesos**, con `trm_eur_cop = null`. Lo que entró a Bancolombia fueron
+pesos; lo que quedó guardado son 20 euros y ninguna tasa. La cifra en pesos que de verdad se
+recibió, y la tasa de ese día, no están en ninguna parte: ni en el expediente, ni en el
+recibo, ni en `trm_history`, que está vacía. Cuando toque cuadrar el extracto de Bancolombia
+contra el CRM, ese renglón no se puede cuadrar. Es el punto 4 de CRITERIOS —«en dos monedas,
+con la tasa del día del movimiento»— fallando en el único movimiento del histórico donde
+hacía falta.
+
+Y lo que lo permite es que **`accountCurrency()` no se llama desde ningún sitio**.
+`accounts.ts:18` la exporta, sabe que `bancolombia_naty` y `bancolombia_camino` son COP y
+`santander` es EUR, y el formulario hasta **imprime esa moneda en el desplegable**
+(`ClientPaymentsCard.tsx:234`: «Bancolombia Naty (COP)»). Buscada en todo `src/`: cero
+llamadores. Nada compara la moneda del pago con la moneda de la cuenta que lo recibió.
+
+**Los otros dos agujeros, todavía sin víctima.** La conversión está escrita igual en el alta
+y en la edición:
 
 ```ts
 const amountEur = currency === "EUR" ? amount : currency === "COP" && trm ? amount / trm : null;
 ```
 
-Hay **dos caminos que caen en el `null`**, y los dos están a un clic:
+1. **USD.** El selector ofrece EUR, COP y USD (`líneas 225-227`), pero el campo de tasa solo
+   se dibuja `{currency === "COP" && …}` (línea 236): en USD **no existe ningún campo** para
+   convertir. Todo pago en dólares nace con `amount_eur = null`, y la columna es nullable sin
+   default, así que el `insert` entra sin chistar.
+2. **COP con la tasa en blanco o en cero.** El input `trm_eur_cop` **no lleva `required`**
+   (línea 240). Y `&& trm` además se traga el cero, porque `num()` devuelve `0` para un `"0"`
+   tecleado y `0` es falsy: en vez de un error de división, otro `null`.
 
-1. **USD.** El selector de moneda ofrece EUR, COP y USD (`ClientPaymentsCard.tsx:225-227`).
-   El campo de tasa solo se dibuja `{currency === "COP" && …}` (línea 237): en USD **no
-   existe ningún campo** para convertir. La expresión no contempla USD, así que todo pago
-   en dólares nace con `amount_eur = null`. La columna es `nullable` y sin default
-   (comprobado en `information_schema`), de modo que el `insert` entra sin chistar.
-2. **COP con la tasa en blanco.** El input `trm_eur_cop` **no lleva `required`**
-   (línea 240). Registrar «4.000.000 COP» y dejar la tasa vacía guarda el pago con
-   `amount_eur = null`.
+**Y la edición puede romper un pago que hoy está bien.** La misma expresión está en
+`updateClientPayment` (`actions.ts:166`), no solo en el alta. Los seis pagos de producción
+son EUR con su `amount_eur` puesto —verificado—, pero cualquiera de ellos se corrompe con
+solo abrir su formulario, cambiar la moneda a COP y guardar sin tasa. No hace falta un pago
+nuevo para producir el daño.
 
-Y a partir de ahí el pago desaparece del dinero:
+**Qué se rompe cuando `amount_eur` es `null`:**
 
-- `page.tsx:276-279` — `const v = p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0)`:
-  el pago suma **0** a «Cobrado», así que «Saldo cliente» sigue mostrando la deuda entera y
-  «Margen real» (`cobrado − pagadoPilgrim`, línea 286) sale falseado hacia abajo.
+- `page.tsx:276-279` — `p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0)`: el pago suma
+  **0** a «Cobrado», así que «Saldo cliente» sigue mostrando la deuda entera y «Margen real»
+  sale falseado hacia abajo.
 - `actions.ts:235` — el **recibo PDF que se le entrega al cliente** calcula
-  `cobrado = Σ amount_eur` y estampa `saldoEur = total − cobrado`. El cliente recibe, con
+  `cobrado = Σ amount_eur` y estampa `saldo = total − cobrado`. El cliente recibe, con
   membrete, un papel que dice que debe un dinero que ya pagó.
 - `finanzas/page.tsx:28` — el mismo cero en el panel de finanzas.
 
-**Y la pantalla lo esconde.** El renglón del pago muestra `{p.amount} {p.currency}`
-(línea 126) —o sea, «4.000.000 COP» bien grande— y la equivalencia en euros va detrás de
+**Y la pantalla lo esconde.** El renglón muestra `{p.amount} {p.currency}` (línea 126) —o
+sea, «4.000.000 COP» bien grande— y la equivalencia en euros va detrás de
 `{p.amount_eur != null && p.currency !== "EUR" && …}` (línea 127): cuando es `null`, ese
-trozo simplemente **no se dibuja**. La lista dice que cobró y la cabecera dice que no, sin
-un error, sin un ámbar, sin nada. Es el mismo patrón mudo de `/cotizar` que B1 ya señaló,
-pero acá sobre plata ya recibida.
+trozo simplemente **no se dibuja**. La lista dice que cobró y la cabecera dice que no, sin un
+error, sin un ámbar, sin nada.
 
-**Honestidad sobre el caso:** en producción **no hay ninguna fila rota todavía**. Los seis
-pagos de cliente que existen son los seis en EUR con `amount_eur` puesto (verificado). Lo
-que se describe es el camino, no un daño consumado — pero el camino es «elegir COP y no
-teclear la tasa», que es exactamente la moneda en la que esta agencia cobra.
-
-**Propuesta (no se toca: es dinero):** que la conversión no pueda devolver `null` en
-silencio. Mínimo: `required` en la tasa cuando la moneda no es EUR, un campo de tasa
-también para USD (o quitar USD del selector si no se usa), y que la acción devuelva
-`{ error: "Falta la tasa para convertir el pago a euros" }` en vez de insertar. Y, para lo
-ya guardado, que el renglón pinte «sin convertir — no cuenta en el saldo» cuando
-`amount_eur` sea `null`.
-
-### [MEDIO] El único pago a una cuenta en pesos está registrado en euros, y nada lo impide — `lib/accounts.ts:18` (`accountCurrency` sin usar) · `ClientPaymentsCard.tsx:230-236`
-
-`accounts.ts` sabe la moneda de cada cuenta: `bancolombia_naty` y `bancolombia_camino` son
-COP, `santander` es EUR. El formulario incluso **imprime esa moneda en el desplegable**
-(`ClientPaymentsCard.tsx:234`: «Bancolombia Naty (COP)»). Pero `accountCurrency()`
-—exportada en la línea 18— **no se llama desde ningún sitio del código**; lo comprobé
-buscando en todo `src/`. Nada compara la moneda del pago con la moneda de la cuenta que lo
-recibió.
-
-El caso vivo: **CS-2026-019**, pago del **2026-06-30 por 20,00 EUR a `bancolombia_naty`**,
-una cuenta en pesos, con `trm_eur_cop = null`. Lo que entró a Bancolombia fueron pesos; lo
-que quedó guardado son 20 euros y ninguna tasa. La cifra en pesos que de verdad se recibió,
-y la tasa de ese día, **no están en ninguna parte**: ni en el expediente, ni en el recibo,
-ni en `trm_history` (que está vacía). Cuando toque cuadrar el extracto de Bancolombia
-contra el CRM, ese renglón no se puede cuadrar.
-
-Es literalmente el punto 4 de CRITERIOS —«en dos monedas, con la tasa del día del
-movimiento»— fallando en el único movimiento del histórico donde hacía falta.
-
-**Propuesta:** usar `accountCurrency()` donde ya existe: al elegir una cuenta COP, fijar la
-moneda del pago en COP y exigir la tasa; al elegir Santander, fijarla en EUR. Es cerrar el
-círculo con código que ya está escrito.
+**Propuesta (no se toca: es dinero).** Las tres bocas se cierran con la misma pieza que ya
+está escrita: **llamar a `accountCurrency()`**. Al elegir una cuenta en pesos, fijar la
+moneda del pago en COP y exigir la tasa; al elegir Santander, fijarla en EUR. Además:
+`required` en la tasa siempre que la moneda no sea EUR, un campo de tasa también para USD (o
+quitar USD del selector si no se usa), y que la acción devuelva
+`{ error: "Falta la tasa para convertir el pago a euros" }` en vez de insertar o actualizar.
+Para lo ya guardado, que el renglón pinte «sin convertir — no cuenta en el saldo» cuando
+`amount_eur` sea `null`, y decidir con Nico qué hacer con los 20 € de CS-2026-019.
 
 ### [MENOR] «Cobrado» está escrito tres veces, con tres fórmulas distintas — `seguimiento/[id]/page.tsx:277` · `seguimiento/[id]/actions.ts:235` · `finanzas/page.tsx:28`
 
