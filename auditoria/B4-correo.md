@@ -40,7 +40,9 @@
   cualquier correo, a cualquiera, desde `reservas@caminosacro.com`, con cualquier adjunto**. Y hoy es
   legible por API. Mitigación: dos cambios pequeños, ninguno tocado.
 - **B4.6 El cron de recordatorios.** Qué pasa si corre dos veces el mismo día, si no corre, o si el envío falla a mitad de la lista. ¿Manda duplicados?
-  `Estado: pendiente`
+  `Estado: en curso` — leyendo `api/cron/recordatorios-contrato` entero: autenticación, cómo elige a quién
+  escribir, si marca antes o después de enviar, qué pasa con un fallo a mitad de lista y qué ocurre si no
+  corre durante días.
 
 ---
 
