@@ -609,6 +609,115 @@ que le miren:
 - El **MENOR de `armarCorreoCotizacion`**: lo bajé de MEDIO porque la vista previa del CRM tapa
   el caso real. Segunda opinión bienvenida sobre esa rebaja.
 
+### [Corrección] No son siete emisores: son **nueve flujos**, y el que más pesa no está en la tabla — `lib/contracts/email.ts`
+
+El censo del auditor cuenta **llamadas a `enviarCorreoWebhook`**, y ahí acierta: son exactamente
+siete (`cotizar/actions.ts:197`, `api/wp/lead/route.ts:151`, `sendPilgrimEmail.ts:73`,
+`webQuote.ts:158`, `clientEmail.ts:106`, `contracts/email.ts:12`, `travelDocs/email.ts:149`), y
+`registrarEnvio` se llama desde tres. Nada que corregir en el recuento mecánico.
+
+Lo que sí hay que corregir es la **lectura**. `enviarCorreoContrato` no es un emisor: es un
+embudo con **tres llamadores distintos**, y el auditor solo describió uno:
+
+| llamador | qué correo es | quién lo dispara |
+|---|---|---|
+| `seguimiento/[id]/contractActions.ts:515` | **el contrato para firma**, con el enlace personal | una persona, desde el CRM |
+| `contrato/[token]/actions.ts:218` | la copia del contrato firmado | el viajero, al firmar |
+| `api/cron/recordatorios-contrato/route.ts:131` | los 5 recordatorios de firma | el cron, sin nadie mirando |
+
+En flujos de correo reales son **nueve**, y **seis** no dejan fila en `email_log`. El auditor
+eligió como «el peor» la copia firmada. Con el criterio de `CRITERIOS.md` («esto hace que se
+pierda ___»), el que más pesa es el **primero**: si ese correo no sale, el viajero nunca recibe
+el enlace de firma y **la venta se queda quieta sin que nadie lo sepa**. La copia firmada es un
+respaldo de algo que ya está registrado en la plataforma; el enlace de firma es el único camino
+que existe para cerrar.
+
+Y ahí hay un agravante que el bloque no menciona: `sendContractLink` escribe
+`status: "enviado"` y `sent_at` **antes** de intentar el correo (`contractActions.ts:481-492`) y
+**no lo revierte** si el envío falla. O sea que el expediente muestra «enviado» sobre un correo
+que nunca salió, y con la misma fecha que arranca el reloj de los recordatorios. El único
+consuelo es que el cron acabará escribiéndole a los 4 días —un «recordatorio» a alguien que no
+recibió nada—.
+
+**No se tocó** (toca estado de venta, va a la lista de Nico). **Propuesta:** revertir a
+`borrador`/`sent_at` previo si el envío falla, o mejor, marcar solo cuando haya fila confirmada
+en `email_log`.
+
+### [Confirmado, con datos nuevos] Lo que no se registra ya se perdió: once correos de contrato sin rastro desde que existe la tabla
+
+El auditor argumentó el hueco de `email_log` con el tipo declarado y sin escrituras. Es
+correcto, pero se quedó corto: **hay envíos reales, posteriores a la migración 0028, de los que
+no queda ni una fila**. Consultado en producción (`comercial.contracts`):
+
+- **4 contratos enviados para firma el 31-ago** (`sent_at`), uno de ellos el mismo día en dos
+  tandas.
+- **2 firmas con su copia por correo**: 31-ago y **hoy, 2-sep a las 15:33**.
+- **5 recordatorios** al contrato del 30-jul, el último el 21-ago (`reminder_count = 5`).
+
+Son **once correos** salidos por el embudo del contrato, ninguno con fila en `email_log`, y el
+más reciente es de hace unas horas. No es una migración «a medias» en abstracto: es un agujero
+que ya se está tragando el rastro del único documento legal que la plataforma manda.
+
+Dos precisiones más sobre los datos del auditor:
+
+- Dice que de `pilgrim` hay 0 filas «todavía no se ha mandado ninguno». **Sí se mandó uno**:
+  `CS-2026-034` tiene `pilgrim_email_sent_at = 28-jul-2026`. Lo que pasa es que es **anterior a
+  la tabla**, así que la conclusión («ese sí está cableado») se sostiene; el dato, no.
+- Las 6 cotizaciones con `email_sent_at` frente a 3 filas `cliente` no prueba nada: las otras 3
+  son de agosto, anteriores a 0028. Aquí el auditor no afirmó lo contrario, pero conviene
+  dejarlo escrito para que nadie lo lea como un hueco.
+
+**Se mantiene MEDIO.** Con la evidencia de arriba está en el borde de GRAVE («se pierde… el
+rastro»), pero no se pierde dinero ni se corrompe nada: el contrato firmado y su hash **sí**
+quedan guardados. Es trazabilidad, no integridad.
+
+### [Corrección de énfasis] El agujero de los cuatro emisores no es `messageId`: es que no dejan fila
+
+El hallazgo es correcto y la tabla de llamadores está bien. Pero el énfasis está mal puesto, y
+lo dicen los datos: en producción, **las 9 filas de `email_log` están en `confirmado`**. Es
+decir, `ok: true` **siempre** ha venido con `messageId`; el estado `aceptado` —el que existe
+justamente para el caso que el hallazgo teme— **no se ha dado ni una vez**. El montaje del
+workflow (el `Respond to Webhook` colgando de «Enviar por Brevo») lo explica: o hay `messageId`,
+o hay 500.
+
+Así que «tiran la prueba a la basura» es cierto pero hoy es de segundo orden. Lo que de verdad
+duele de esos cuatro —y lo demuestra el hallazgo de arriba— es que **no dejan fila**: sin fila
+no hay destinatario, ni asunto, ni HTML, ni versión web, ni forma de contestar «¿esto se
+mandó?» dentro de seis meses. La propuesta del auditor (pasar los cuatro por `registrarEnvio`)
+es exactamente la correcta; lo que cambia es el motivo por el que hay que hacerla, y por tanto
+el orden en que se hace: **primero el embudo del contrato, que son tres flujos de una sola vez.**
+
+### [MEDIO] `api/wp/lead` no merece menos peso que los otros tres: merece más — es el único sitio donde vive un lead
+
+El auditor pregunta en su nota si este emisor pesa igual que los otros. Leído el endpoint, la
+respuesta es que **pesa más**, y por dos motivos que la tabla del hallazgo no recoge:
+
+1. **No manda «el aviso de lead a reservas@»**: manda **dos** correos, y el primero va **al
+   visitante** (`email: datos.email`, `route.ts:151`). Es un correo de cara al cliente, no
+   interno.
+2. Su propia cabecera dice: «En los dos casos **NO se crea cliente, ni cotización, ni PDF**».
+   El lead **no se persiste en ninguna parte de la plataforma**. El correo a reservas@ **es** el
+   registro. Si el webhook falla, no queda fila, no queda cotización, no queda `email_log`, y
+   el único rastro es un `console.error` en Railway que se borra con el despliegue.
+
+Y el respaldo que el comentario invoca —«el respaldo de `wp_mail()` sigue vivo del otro lado»—
+es precisamente **lo que la misma cabecera documenta como roto**: «el `wp_mail()` de WordPress
+nunca llegó a Microsoft 365 (ni con el Email Routing de cPanel corregido). **Sin esto, estos
+leads se pierden en silencio**». El endpoint existe porque el respaldo no funciona, y al mismo
+tiempo se apoya en él para justificar el 200.
+
+El caso que lo dispara no es raro: el motivo `sin_tarifas_ano` cubre **«hoy, casi todo 2027»**,
+o sea el grueso de la demanda que entra ahora. Un webhook caído durante una tarde = los leads de
+2027 de esa tarde, desaparecidos, con el visitante viendo su pantalla de «gracias».
+
+Completa la frase de `CRITERIOS.md` mejor que ningún otro hallazgo de este bloque: **esto hace
+que se pierda un cliente**, entero y sin enterarse.
+
+**Propuesta (no se tocó):** guardar el lead antes de intentar el correo —una tabla mínima, o
+una fila en `quotes` sin precio con `status = 'sin_enviar'`— y registrar el envío en
+`email_log` con `tipo: "lead"`, que ya está declarado. Mientras eso no exista, como mínimo que
+el `console.error` se acompañe de un aviso a Nico por otro canal.
+
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
 
