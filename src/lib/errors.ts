@@ -11,8 +11,10 @@ type AnyError = {
 
 // Restricciones CHECK / UNIQUE conocidas → mensaje en español.
 const CONSTRAINT_MESSAGES: Record<string, string> = {
+  // Debe seguir a QUOTE_STATUSES (src/lib/quoteStatus.ts) y al CHECK de la migración 0033,
+  // que añadió "sin_enviar" y este mensaje no recogió.
   quotes_status_check:
-    "El estado de la cotización no es válido. Estados permitidos: Enviada, Aceptada, Pago parcial, Pago completo, Completada o Cancelada.",
+    "El estado de la cotización no es válido. Estados permitidos: Sin enviar, Enviada, Aceptada, Pago parcial, Pago completo, Completada o Cancelada.",
   quotes_code_key: "Ya existe una cotización con ese código.",
   clients_phone_key: "Ya existe un cliente con ese teléfono.",
 };
