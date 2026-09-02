@@ -18,7 +18,8 @@
   cosas: `route_catalogs` tiene 7 filas y **no la lee nadie**, y `contracts` es la **única** tabla hija de
   `quotes` sin índice por `quote_id`. Arreglado de paso un mensaje de error que listaba mal los estados.
 - **B6.2 Permisos.** Todas las tablas tienen una policy `auth_all` para cualquier autenticado. Con dos usuarios da igual; di qué se rompería con un tercero. Y dónde se usa `service_role` y si hace falta.
-  `Estado: pendiente`
+  `Estado: en curso` — inventario de las policies reales (¿RLS activo en las 27 tablas?), qué podría hacer
+  una tercera cuenta, y los sitios donde se usa el cliente admin: si cada uno lo necesita de verdad.
 - **B6.3 Rendimiento.** El expediente lanza dieciséis consultas por carga. Listados sin paginar, N+1, imágenes sin optimizar. Mide antes de opinar.
   `Estado: pendiente`
 - **B6.4 Secretos y configuración.** Qué claves llegan al navegador, qué hay en `.env`, qué pasa si falta `APP_BASE_URL` en producción.
