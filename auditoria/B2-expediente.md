@@ -981,6 +981,16 @@ Concreto, para que la ronda sea una sola:
 
 ## Revisión tras la crítica
 
-`Estado: pendiente`
+`Estado: en curso` — una sola ronda, con los cinco puntos del veredicto en este orden y un
+commit por punto, corrigiendo **en su sitio** (sección Hallazgos):
 
-_(Solo si el veredicto fue `revisar`. Una ronda.)_
+1. Fundir el GRAVE del pago sin convertir con el MEDIO de CS-2026-019 en un solo GRAVE con
+   caso vivo; añadir que `updateClientPayment` corrompe un pago hoy correcto y que
+   `accountCurrency()` está exportada sin llamadores.
+2. Hallazgo nuevo del lado del proveedor: «Margen real» y «Saldo proveedor» sin respaldo.
+3. Hallazgo nuevo: borrar un pago no deja rastro y el siguiente recibo reutiliza el número.
+4. Corregir B2.7: 8 salidas **de las 34 con fecha**; 11 sin `start_date` quedan fuera de todo
+   lo propuesto, con CS-2026-001 como caso.
+5. No reabrir lo que la crítica dio por sólido.
+
+Sin tocar código: es revisión del informe.
