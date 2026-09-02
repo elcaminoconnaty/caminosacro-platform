@@ -22,7 +22,8 @@
   y es la peor de la lista: descarta el error de sus dos consultas y, si fallan, pinta **0 € cobrado, 0 €
   pagado, 0 € de margen** como si fuera la verdad.
 - **B7.3 Desde el celular.** El expediente, las tablas anchas y el wizard en 390 px. Es donde Nico atiende cuando no está en el escritorio.
-  `Estado: pendiente`
+  `Estado: en curso` — anchos mínimos y desbordes horizontales, qué columnas quedan fuera de pantalla en 390 px,
+  tamaño de los objetivos tocables y si la navegación funciona sin escritorio.
 - **B7.4 El expediente de un vistazo.** Abre uno: ¿se sabe en diez segundos qué falta por hacer? Hoy son doce tarjetas apiladas sin jerarquía. Propón el orden y el resumen que faltan.
   `Estado: pendiente`
 - **B7.5 Los módulos pequeños.** `finanzas` (134 líneas), `calendario`, `tokens`, `clara`, `isabel` (un placeholder). Cuáles aportan, cuáles estorban y cuál merece crecer.
