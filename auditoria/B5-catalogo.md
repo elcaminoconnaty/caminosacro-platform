@@ -41,11 +41,16 @@
   solo **6** tienen precio, todas de `Francés Bici Ponferrada` 2026 — las otras dos rutas de bici están
   publicadas y no se les puede alquilar una bici.
 - **B5.6 Hoteles.** Módulo recién hecho: duplicados, ciudades que no casan con las etapas, hoteles sin fotos, qué pasa al borrar uno en uso.
-  `Estado: en curso` — duplicados por nombre y por ciudad, cruce de `hotels.city` contra las localidades de
-  `route_stages` (que es lo que usa el prellenado), hoteles sin fotos, y qué pasa al borrar uno que ya está
-  asignado a una noche.
+  `Estado: hecho` — **el módulo está limpio**: 6 hoteles, ninguno duplicado por nombre ni por ciudad, todos
+  con fotos, teléfono y dirección, y el emparejador de localidades resuelve bien los casos difíciles
+  (lo probé ejecutándolo: «Pedrouzo» encuentra «O Pedrouzo (O Pino)»). Cobertura real del prellenado: **26 %
+  de las noches**, pero **6 de 6 en `Francés desde Sarria`**, que es la ruta insignia. Lo único: al borrar
+  un hotel, las columnas de respaldo que deberían salvar la documentación **están vacías**.
 - **B5.7 Integridad referencial.** Borrar una ruta con cotizaciones, un opcional en uso, una bici cotizada. Qué protege la base y qué no.
-  `Estado: pendiente`
+  `Estado: hecho` — la base **sí protege** lo importante: no se puede borrar una ruta con cotizaciones
+  (`quotes.route_id` es `NO ACTION`). Pero el mensaje que ve quien lo intenta dice lo contrario de lo que
+  pasa, y `quote_lines.reference_id` **no es clave foránea de nada**, así que los opcionales y las bicis no
+  tienen ninguna protección de la base — solo la que ponga el código.
 
 ---
 
@@ -144,6 +149,66 @@ seis expedientes empiezan a cobrar algo que no se ve.
 que ya no están en el catálogo, marcadas como «retirado del catálogo» y con su casilla para
 poder quitarlas; o que desactivar un opcional avise de cuántas cotizaciones vivas lo tienen
 antes de hacerlo. Lo primero es lo barato y resuelve el caso.
+
+### [MENOR] Al borrar un hotel, el respaldo que debería salvar la documentación está vacío — `travelDocs/render.ts:150-166` · `travelDocActions.ts:126-137`
+
+`quote_hotels.hotel_id` es `ON DELETE SET NULL` y está bien elegido: borrar un hotel del
+catálogo **no** destruye las noches ya montadas. El código lo explica
+(`hoteles/actions.ts:84`: «así que la documentación ya generada no se rompe») y la
+confirmación de la pantalla es honesta: «Las noches que lo usaban quedarán sin hotel
+asignado».
+
+El plan B está escrito: `render.ts` lee cada campo con respaldo a la copia guardada en la
+propia noche —`hotel_name: h?.name || n.hotel_name`, `address: h?.address || n.address`,
+`phone: h?.phone || n.contact`—. La idea es exactamente la correcta.
+
+**El problema es que ese respaldo no se rellena.** `saveTravelNights` inserta once campos
+—`day`, `night_date`, `stage_label`, `km`, `city`, `hotel_id`, `room_label`, `regimen`,
+`notes`, `position`, `quote_id`— y **no escribe `hotel_name`, `address` ni `contact`**
+(`travelDocActions.ts:126-137`). Medido en producción:
+
+| | filas |
+|---|---|
+| noches en `quote_hotels` | 12 |
+| con `hotel_id` (las del módulo nuevo) | 6 |
+| con `hotel_name` (las viejas, de texto libre) | 6 |
+| con `address` | **0** |
+| con `contact` | **0** |
+
+O sea que las columnas de respaldo están llenas exactamente en las noches que **no** las
+necesitan (las viejas, que no tienen `hotel_id` que se pueda anular) y vacías en las seis que
+sí. Si se borra un hotel del catálogo y luego se **regenera** el Documento de Viaje, esa
+noche sale sin nombre de alojamiento, sin dirección y sin teléfono — las tres cosas que el
+peregrino necesita a las siete de la tarde en un pueblo que no conoce.
+
+Va como MENOR porque hace falta borrar un hotel **y** regenerar el documento: el PDF ya
+generado en Storage no cambia solo. **Propuesta:** que `saveTravelNights` copie
+`hotel_name`, `address` y `contact` del hotel elegido al guardar la noche. Es una foto fija
+del mismo estilo que la del precio de los opcionales, y hace que el respaldo que ya está
+escrito en `render.ts` funcione de verdad.
+
+### [MENOR] El mensaje de «no se puede borrar» dice lo contrario de lo que pasa — `src/lib/errors.ts:26`
+
+La base **sí** protege lo importante: `quotes.route_id` es `NO ACTION`, así que Postgres
+rechaza borrar una ruta que tenga cotizaciones. Hoy eso protege a 5 rutas (`Francés desde
+Sarria` con 5 cotizaciones, `Portugués desde Tui` con 3, `Francés Bici Ponferrada` con 2,
+`Costero desde Baiona` y `Costero desde Porto` con 1 cada una).
+
+Lo que falla es lo que se lee. `deleteRoute` no comprueba nada antes: deja que la base
+rechace y traduce el error con `mensajeError()`, que para el código `23503` devuelve:
+
+> «No se puede completar: **hay un dato relacionado que no existe**.»
+
+Ese texto describe el caso contrario —insertar un hijo cuyo padre no existe— y no el que
+acaba de ocurrir, que es **borrar un padre que todavía tiene hijos**. Quien lo lee se pone a
+buscar un dato que falta, cuando lo que pasa es que la ruta está en uso por cinco
+cotizaciones. Y aplica igual a `quotes.client_id`, que es `ON DELETE RESTRICT`: intentar
+borrar un cliente con cotizaciones da el mismo mensaje engañoso.
+
+**Propuesta:** partir el `23503` en dos según la operación, o —más simple y más útil— que
+`deleteRoute` cuente las cotizaciones antes de borrar y devuelva «No se puede borrar
+«Francés desde Sarria»: tiene 5 cotizaciones. Desactivala en vez de borrarla», que es la
+acción correcta y ya existe el campo `active`.
 
 ### [MEDIO] La fianza de la bici se anuncia en la cotización y desaparece en el contrato — `quotePdf.tsx:924-930` vs `src/lib/contracts/**`
 
@@ -274,6 +339,53 @@ publicadas, con precio, y son cotizables hoy.
 el `web = true` de las tres publicadas para que no se puedan cotizar desde fuera. Y, para que
 no vuelva a pasar, un aviso en `/catalogo` en la ruta que esté publicada con cero etapas —del
 mismo estilo que el que propongo para el año de tarifa incompleto.
+
+### Lo que sí está bien: el módulo de hoteles y lo que la base protege
+
+**Los hoteles**, aunque el módulo sea reciente, están impecables como dato: **6 hoteles, los
+6 activos, los 6 con fotos, ciudad, dirección y teléfono**, ningún nombre repetido y ninguna
+ciudad repetida — así que el caso de «dos hoteles en la misma localidad, gana el primero» que
+el código contempla no se da hoy.
+
+- **El emparejador de localidades está mejor pensado de lo que parece, y lo verifiqué
+  ejecutándolo.** Mi primer cruce en SQL con `lower(btrim())` decía que `Pensión Rosella`
+  («O Pedrouzo (O Pino)») no casaba con ninguna etapa («Pedrouzo»). **Me equivocaba yo, no el
+  código**: `normalizarLugar()` quita tildes, paréntesis y el artículo gallego o castellano
+  inicial, así que las dos cadenas normalizan a `pedrouzo` y casan. Probado con la función
+  real: «Pedrouzo» → Pensión Rosella. La cabecera del archivo explica por qué existe: «con
+  igualdad exacta, dos de las seis noches del Sarria → Santiago se quedaban sin hotel».
+- **Y se niega a adivinar de más**: nunca hace «contiene» a secas, solo exacto o prefijo en
+  cualquiera de los dos sentidos, con el motivo escrito: «una propuesta mala es peor que
+  ninguna, **porque se acepta sin mirar**». Es la clase de criterio que separa una sugerencia
+  útil de una trampa.
+- **La cobertura del prellenado, medida con la función real** sobre las 275 noches con
+  localidad de las rutas activas: **71 (26 %)**. Pero el reparto no es casual: `Francés desde
+  Sarria` está al **6 de 6**, `Melide` al 6 de 7, y todas las variantes largas del Francés
+  reciben las mismas 6 propuestas porque comparten el tramo final. El catálogo se sembró
+  para la ruta que más se vende y ahí está completo; lo demás llegará. No es un defecto, es
+  un módulo a medio poblar, y conviene que el número quede escrito para saber desde dónde se
+  avanza.
+
+**Lo que la base protege, y lo que no** (mapa completo de claves foráneas del catálogo):
+
+| relación | `ON DELETE` | efecto |
+|---|---|---|
+| `quotes.route_id` | **`NO ACTION`** | **no se puede borrar una ruta con cotizaciones** ✔ |
+| `quotes.client_id` | `RESTRICT` | no se puede borrar un cliente con cotizaciones ✔ |
+| `pricing.route_id`, `route_stages.route_id` | `CASCADE` | borrar una ruta se lleva sus precios y etapas ✔ |
+| `bike_prices.bike_id` / `.route_id`, `optional_prices.optional_id` | `CASCADE` | idem, correcto |
+| `quote_hotels.hotel_id` | `SET NULL` | la noche sobrevive al borrado del hotel ✔ |
+| `route_catalogs.route_id`, `welcome_letters.route_id` | `SET NULL` | el documento sobrevive ✔ |
+
+**El hueco a nombrar: `quote_lines.reference_id` no es clave foránea de nada.** Es la columna
+que apunta al opcional o a la bici de cada línea, y no puede serlo porque apunta a **dos**
+tablas distintas según el `type` — es una referencia polimórfica, y la solución elegida
+(guardar el id suelto y filtrar siempre por `type`) es razonable. Pero hay que ser consciente
+de lo que se pierde: la base **no impide** borrar un opcional o una bici que estén cotizados,
+ni deja rastro de que la línea quedó apuntando al vacío. Que la línea sobreviva es lo
+correcto —lleva su propio precio congelado y su descripción— pero es el mismo hueco que el
+hallazgo de los opcionales desactivados: **la protección aquí no la da la base, la tiene que
+dar la pantalla**, y hoy no la da.
 
 ### Lo que sí está bien: el módulo de bicis es el mejor cerrado del catálogo
 
