@@ -352,8 +352,27 @@ alter table comercial.provider_payments add column if not exists invoice_url tex
 ```
 
 ### Backup de la DB
-Supabase hace **backups automáticos diarios** (free tier 7 días). Si necesitás más:
-- Dashboard → Database → Backups → Create backup
+**No hay backups. Ninguno.** Este proyecto está en el plan **`free`** de Supabase (verificado en
+sep-2026: organización `Camino SAcro Agencia`, plan `free`, coste 0 USD/mes), y el plan gratuito
+**no incluye backups automáticos** — ni diarios, ni de 7 días, ni point-in-time. Eso es del plan
+Pro. Si mañana la base no está, no hay de dónde volver.
+
+Dos consecuencias más del plan gratuito, para que nadie se lleve la sorpresa:
+
+- **Storage nunca entra en la copia**, en ningún plan. Los backups de Supabase son de la base de
+  datos; los objetos de los buckets van por su lado. O sea que las fotos de pasaporte
+  (`comercial-passports`) y los contratos firmados (`comercial-contracts`) —los dos únicos
+  activos irreemplazables del negocio— no tendrían copia ni pagando Pro.
+- **El proyecto se pausa a los 7 días sin actividad.** Un proyecto pausado deja de responder, y
+  con él se caen las **rutas públicas por token**: `/contrato`, `/documentacion` y `/correo`. Un
+  cliente que abra el enlace de firma que le llegó por correo se encuentra la plataforma caída.
+  Con la temporada del Camino concentrada en primavera-verano, una racha de invierno sin entrar
+  al panel es un escenario realista. Reactivarlo es manual, desde el Dashboard.
+
+**Lo que hay que montar** (decisión pendiente de Nico, ver `auditoria/B6-datos-plataforma.md`):
+un `pg_dump` semanal a un sitio que no sea Supabase, disparado por el Schedule de n8n que ya
+existe. Con 2,5 MB de base, la copia entera cabe en un correo. Y una copia manual y trimestral
+de `comercial-passports` y `comercial-contracts`, que son unos 10 MB entre los dos.
 
 ---
 
@@ -537,7 +556,10 @@ fotos-instagram/      camino-sacro/2026/06/DDC_3232.jpg
 2. Mirá la consola del navegador (Cmd+Option+I → Console)
 3. Si es un error de DB: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/logs/postgres-logs>
 4. Si es un error de Auth: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/logs/auth-logs>
-5. Backup: Supabase tiene snapshot diario automático
+5. Backup: **no hay**. El plan es `free` y no tiene snapshots automáticos — ver «Backup de la
+   DB» más arriba. Si el problema es que el proyecto no responde, mirá primero si Supabase lo
+   **pausó por inactividad** (el gratuito pausa a los 7 días sin uso): se reactiva a mano desde
+   el Dashboard, y mientras está pausado las rutas públicas por token también están caídas.
 
 ---
 
