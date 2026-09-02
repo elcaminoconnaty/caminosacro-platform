@@ -318,6 +318,136 @@ es maquinaria que se abandona en un mes. Estas tres son ficheros sueltos, corren
 sin base de datos —salvo la tercera, que solo lee dos filas— y cubren exactamente los tres
 sitios donde esta auditoría **ya encontró** roturas que nadie había visto.
 
+### [MENOR] `anon` tiene INSERT/UPDATE/DELETE concedidos sobre 16 tablas de `comercial`; lo único que lo frena es la policy — `supabase/migrations/0001_init_comercial.sql` (grants)
+
+_(Lo levantó el crítico verificando el recuento de RLS; se sube aquí para que B8 lo vea sin leer
+la crítica.)_
+
+Los **GRANT** de tabla y las **policies** son dos capas distintas, y aquí solo la segunda está
+puesta:
+
+| rol | tablas de `comercial` con `SELECT,INSERT,UPDATE,DELETE` concedidos |
+|---|---|
+| `authenticated` | las 27 (correcto) |
+| **`anon`** | **16**, entre ellas `quotes`, `clients`, `client_payments`, `provider_payments`, `pricing`, `quote_lines`, `settings` y `quote_codes` |
+
+`anon` también tiene `USAGE` sobre el esquema `comercial` y `EXECUTE` sobre las seis funciones del
+esquema, incluida `next_quote_code()`. **Hoy no se puede explotar** —está comprobado a mano contra
+PostgREST con la publishable key: no hay ninguna policy para `anon`, así que RLS devuelve vacío y
+rechaza toda escritura— y por eso es MENOR y no más. Pero el margen es de **una sola línea**: el
+día que alguien haga un `disable row level security` para depurar, o cree una policy `TO public`
+para que el cotizador lea tarifas sin pasar por el servidor, **el permiso de escritura ya está
+concedido** y la publishable key está en el navegador de cualquiera. Es la diferencia entre «no se
+puede» y «no se puede *todavía*».
+
+La señal de que es un descuido y no una decisión: las 11 tablas que **no** tienen el grant a `anon`
+son justamente las que llegaron en migraciones posteriores —`contracts`, `quote_travelers`,
+`quote_pilgrim_files`, `travel_docs`, `email_log`, `quote_hotels`, `bikes`…—. La migración inicial
+repartió `grant ... to anon` a lo ancho y las siguientes ya no. Nadie decidió que `anon` pudiera
+escribir en `client_payments`.
+
+**Propuesta (no se toca — son permisos de producción, regla 9 del TABLERO):** un `revoke` sobre
+todas las tablas y funciones del esquema, en una migración propia. Está desarrollado como decisión
+en **«Decisiones para Nico» → Decisión 2**.
+
+### [MEDIO] El rastro de auditoría no existe donde más falta, y una columna finge que sí — `comercial.quotes.created_by` (NULL en las 45 filas, sin una sola referencia en `src/`)
+
+_(Hallazgo nuevo del crítico, contra el punto 7 de `CRITERIOS.md`; se sube aquí para B8.)_
+
+| lo que pide el criterio | qué hay hoy |
+|---|---|
+| **qué versión aceptó el cliente** | **cubierto, y bien**: `contracts` guarda `doc_hash`, `signed_pdf_path`, `variables_json`, `signature_image`, `signed_at`, `signer_ip`, `signer_user_agent`. |
+| **cuándo salió el correo** | **cubierto desde el 1-sep-2026**: `email_log` guarda destinatario, asunto, adjuntos, `message_id`, estado y el HTML exacto que se envió. Pero **tiene 9 filas y 5 son de prueba**: la bitácora nació anteayer, mientras hay **6 cotizaciones con `email_sent_at`** y **6 contratos con `sent_at`**. Del correo anterior no queda rastro. |
+| **quién cambió el precio de una cotización** | **no existe**. `quotes` no tiene `updated_by` ni historial de `total_eur` / `base_eur` / `price_blocks`. `pricing_history` es del **catálogo de tarifas**, no del precio pactado en un expediente. |
+| **quién creó la cotización** | **`quotes.created_by` existe y está en NULL en las 45 filas**, y no aparece ni una vez en `src/`. Una columna que promete trazabilidad y no la da. |
+| **quién registró un pago** | **no existe**: `client_payments` no tiene autor ni `updated_at`. Es la edición de más valor del sistema. |
+| **quién borró un expediente** | **no existe**. `deleteQuote` borra en cascada y no deja lápida. Sumado al plan gratuito sin copias, un borrado es una desaparición completa y silenciosa. |
+
+Y la bitácora que sí existe está a medias: de las **67 filas de `pricing_history`, 40 tienen
+`changed_by` en NULL**. El trigger guarda `auth.uid()`, que es NULL cuando la tarifa se toca desde
+el SQL Editor o con el cliente de servicio — que es como se han hecho seis de cada diez cambios.
+Una bitácora anónima al 60 % no responde la pregunta para la que se hizo.
+
+**Por qué importa en una agencia de dos personas**, y no es pedir funciones corporativas: el caso
+es la reclamación. Un cliente dice «a mí me cotizaron 1.850 €» y en pantalla pone 2.050 €. Hoy la
+plataforma **no puede decir si el precio cambió, cuándo ni por quién**; solo cuánto vale ahora. Con
+dos socios esa conversación no es entre jefe y empleado: es entre Nico y Naty, y no tener el dato
+es peor, no mejor.
+
+**Propuesta, en orden de coste** (los cuatro son cambios de migración: **se anotan, no se tocan**):
+
+1. **Rellenar `created_by`** en el alta desde el panel (`auth.uid()`), o **borrar la columna**. Lo
+   que no puede quedarse es una columna de auditoría vacía.
+2. **Un `quotes_history` por trigger**, calcado del de `pricing`: `quote_id, field, old_value,
+   new_value, changed_by, changed_at`, limitado a `total_eur`, `base_eur`, `status`, `start_date`
+   y `people`. El patrón ya está escrito dos veces en el esquema.
+3. **`created_by` en `client_payments`** y `updated_at` con el `touch_updated_at` que ya existe.
+4. **Una lápida al borrar**: `deleted_quotes(code, snapshot_json, deleted_by, deleted_at)` con el
+   JSON del expediente. Es lo único que hace reversible el clic de B3.6 **sin** depender de una
+   copia que no existe.
+
+### [MEDIO] 27 de los 31 objetos de `comercial-passports` no los reclama nadie, y ninguno se borra nunca — bucket `comercial-passports` (31 objetos)
+
+_(Hallazgo nuevo del crítico; se sube aquí para B8. **No se borró nada**: ver «Decisiones para
+Nico» → Decisión 3.)_
+
+Cruzando `storage.objects` contra `contracts.passport_path`:
+
+- **31 objetos** en `comercial-passports`; **solo 4** están referenciados por un contrato.
+- **2** son huérfanos de cotizaciones borradas: `CS-2026-048` y `CS-2026-044`, códigos reales sin
+  fila que los reclame.
+- **25 son de la ronda de pruebas del 28-jul**: carpetas `CS-TEST-01/02/03/20`, con archivos de
+  500-700 kB que **no parecen imágenes de relleno**. Si en esas pruebas se usó la foto de un
+  pasaporte real —lo habitual—, hay documentos de identidad de personas concretas guardados en
+  producción, sin dueño, sin expediente y sin nadie que sepa que están ahí.
+
+Y por encima de eso, lo estructural: **nada borra un pasaporte, nunca**. No hay rutina de
+retención, no hay borrado al cerrar el expediente, no hay caducidad. El viaje más antiguo de la
+base salió el **10-jun-2026** y su documentación sigue entera. Un pasaporte sirve para una cosa
+—mandárselo a Pilgrim antes del viaje— y después es solo riesgo acumulado: en Colombia es dato
+personal bajo la Ley 1581, y el deber de suprimirlo cuando ya no se necesita la finalidad no
+depende del tamaño de la agencia.
+
+Junto con el GRAVE de las copias compone la peor combinación posible, y es justo lo que señala
+B3.4: **los datos personales sobreviven al expediente que los justificaba, y el expediente no
+sobrevive a nada.**
+
+**Propuesta:** (a) decidir qué se hace con las cuatro carpetas `CS-TEST-*` —25 archivos—; es una
+decisión de Nico y no la ejecuta un agente, con la consulta y el criterio en «Decisiones para
+Nico» → Decisión 3; (b) que el borrado de una cotización borre también su carpeta en
+`comercial-passports` (hoy no lo hace, B3.4); (c) una regla escrita de retención —«el pasaporte se
+borra a los 30 días de terminado el viaje»— aunque al principio se ejecute a mano una vez por
+temporada. No hace falta automatizar nada para tener la regla; hace falta tenerla.
+
+### [MENOR] `/correo/[token]` es la única puerta pública sin revocación ni caducidad — `src/app/correo/[token]/route.ts` · `lib/email/versionWeb.ts:17`
+
+_(Apunte del crítico que «no exigía ronda»; se anota para que no se pierda.)_
+
+De las tres puertas públicas por token, dos tienen freno de emergencia y una no: el descargador de
+documentación comprueba `revoked_at` **antes** de firmar la URL de Storage (y devuelve 410), y el
+contrato tiene `token_expires_at`. La versión web del correo, no. Un correo con la oferta comercial
+y los datos del cliente queda accesible **para siempre** a quien tenga el enlace — y ese enlace
+viaja por correo, se reenvía y acaba en cadenas de WhatsApp. El token en sí está bien hecho
+(`randomBytes(24)`, criptográfico, no `Math.random()`); lo que falta es poder apagarlo.
+
+**MENOR hoy** porque `email_log` tiene 9 filas y 5 son de prueba. **Propuesta:** con el índice
+`email_log_token_idx` ya existente, añadir un `revoked_at` es una columna y un `if`. Cambio de
+migración: se anota, no se toca.
+
+### [MENOR] `auth_leaked_password_protection` está desactivado en Supabase Auth — Dashboard → Authentication → Policies
+
+_(Apunte del crítico que «no exigía ronda»; se anota para que no se pierda.)_
+
+Supabase puede rechazar contraseñas que aparezcan en filtraciones conocidas (comprobación contra
+HaveIBeenPwned) y en este proyecto está **apagado**. En una cuenta de dos personas que custodia
+fotos de pasaporte y contratos firmados, y cuyo panel entero es accesible con cualquiera de las dos
+credenciales, activarlo es **un clic en el Dashboard** y no requiere ni código ni migración. No lo
+toca un agente porque es configuración de producción.
+
+_(De paso, y esto **no** es hallazgo: los advisors marcan las seis funciones de `comercial` con
+`search_path` mutable, pero **las seis son `SECURITY INVOKER`**, así que no hay escalada posible y
+el aviso es cosmético.)_
+
 ### Verificación urgente para Nico
 
 Solo se puede hacer desde la cuenta de Supabase y es la de más valor de toda la auditoría:
