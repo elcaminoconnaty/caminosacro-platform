@@ -965,9 +965,6 @@ Huecos concretos que tendría que cubrir la ronda de revisión:
    positivo de «parche mal pegado»), y la lista de verificaciones de Nico: DKIM/SPF/DMARC y
    `APP_BASE_URL` son las dos primeras.
 
-_(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
-seguido de los huecos concretos.)_
-
 ---
 
 ## Revisión tras la crítica
