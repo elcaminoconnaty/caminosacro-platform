@@ -34,8 +34,11 @@
   que **esos dos son justamente los que pueden mentir**. Todo lo accionable —si el correo salió, cuántos
   contratos hay firmados, si se pidió el cupo— vive del sexto scroll para abajo.
 - **B7.5 Los módulos pequeños.** `finanzas` (134 líneas), `calendario`, `tokens`, `clara`, `isabel` (un placeholder). Cuáles aportan, cuáles estorban y cuál merece crecer.
-  `Estado: en curso` — qué hace cada uno de verdad, con qué datos, y el juicio pedido: aporta / estorba /
-  merece crecer, con el motivo.
+  `Estado: hecho` — **el que más aporta por línea es `/calendario`** (33 líneas y es lo único que responde
+  «¿qué sale y cuándo»). **El que merece crecer es `/finanzas`**: es el sitio natural de la conciliación con
+  Pilgrim que B2 echó en falta. **El único que estorba es `/isabel`**, una entrada de menú que no lleva a
+  nada. Y un desequilibrio que dice algo: **`/tokens` (219 líneas) mide el gasto en IA con más detalle del
+  que `/finanzas` (134) mide el dinero del negocio.**
 - **B7.6 Clics por tarea.** Cuenta los de las tres tareas de todos los días: cotizar, cobrar, mandar documentación. Di dónde sobran.
   `Estado: pendiente`
 - **B7.7 Accesibilidad de lo básico.** Foco visible, etiquetas en los campos, objetivos tocables, y que no se dependa solo del color para decir algo.
@@ -229,6 +232,55 @@ no se parecen entre sí.
 No rompe nada y por eso es MENOR. **Propuesta:** cuatro tokens más —`--color-error`,
 `--color-error-bg`, `--color-aviso`, `--color-aviso-bg`— elegidos con el contraste ya
 calculado, y sustituir. Es el mismo trabajo que ya se hizo bien con la marca.
+
+### Los módulos pequeños, uno por uno
+
+| módulo | líneas | juicio |
+|---|---|---|
+| `/calendario` | **33** | **aporta, y es el mejor negocio del panel** |
+| `/clara` | 160 | aporta |
+| `/finanzas` | 134 | aporta, y **es el que merece crecer** |
+| `/tokens` | **219** | aporta, pero desproporcionado |
+| `/configuracion` | 44 | aporta |
+| `/isabel` | 23 | **estorba** |
+
+**`/calendario` es el que más da por lo que cuesta.** En 33 líneas resuelve la única pregunta
+que ninguna otra pantalla contesta —«¿qué sale y cuándo?»— y encima está mejor filtrado que la
+lista principal: **excluye las canceladas** (`.neq("status","cancelada")`), que es justo lo
+que B2 encontró que los KPI de `/seguimiento` **no** hacen. Muestra el error de la consulta y
+delega la vista a un componente. Si algo del panel merece que se le añada cosas —el saldo
+pendiente sobre cada viaje, por ejemplo— es este.
+Un matiz que hereda de B2: filtra `start_date not null`, así que las **11 cotizaciones sin
+fecha de salida** tampoco aparecen aquí. No es culpa suya, pero confirma que ese hueco de
+datos deja expedientes fuera de **todas** las vistas por fecha.
+
+**`/finanzas` es el que merece crecer, y hoy está a medias.** Es el único sitio que agrega
+dinero por cuenta y moneda, que es exactamente lo que hace falta para cuadrar contra los
+extractos de Bancolombia y Santander. Pero: descarta sus errores (hallazgo de B7.2), es una
+de las tres copias de la regla de «Cobrado» (B2), y su mitad de proveedor se alimenta de una
+tabla que casi nadie llena (B2). **Es el sitio natural de la conciliación con Pilgrim** que
+B2 pidió, y con 134 líneas está lejos de ser un módulo maduro.
+
+**`/tokens` (219 líneas) es el más grande de los pequeños**, y mide el gasto en tokens de los
+asistentes: precio por modelo, costo en USD, conversión con la TRM. Está bien hecho y sirve
+—ese gasto es real y nadie más lo vigila—. Lo anoto por la comparación, que es la que dice
+algo: **la plataforma tiene 219 líneas para saber cuánto cuesta la IA y 134 para saber cuánto
+dinero entra y sale del negocio**, con la mitad proveedor sin alimentar. No propongo recortar
+`/tokens`; propongo que la desproporción se lea como lo que es: una señal de dónde ha ido la
+atención.
+
+**`/clara` aporta** y es un tablero operativo de verdad: leads totales, activos en 24 h, no
+leídos, sin respuesta en más de 24 h, y cuántos lleva Clara. Ese «Sin respuesta >24h» es
+exactamente el tipo de señal que B2.7 echa en falta en el embudo de cotizaciones — o sea que
+**el bot de WhatsApp tiene la vigilancia de seguimiento que las ventas no tienen**. Vale la
+pena decirlo porque el patrón ya existe en casa.
+
+**`/isabel` es el único que estorba, y por poco.** Son 23 líneas honestas: dice «Próximamente»,
+explica qué mostrará y dónde se configurará, y no finge tener datos. No engaña a nadie. Lo
+que cuesta es su sitio en la barra lateral: en un menú de una decena de entradas, una que no
+lleva a ninguna parte se paga cada día, y más cuando —según B7.3— en el celular la barra ni
+siquiera existe y hay que teclear las URL. **Propuesta:** sacarla del menú hasta que haga
+algo, y dejar la página accesible por URL. Es un cambio de una línea en `Sidebar.tsx`.
 
 ### Lo que sí está bien: lo demás del móvil está contemplado
 
