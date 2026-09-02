@@ -23,8 +23,10 @@
   revisados uno a uno, ninguno sobra). Con las 2 cuentas de hoy el modelo es correcto. La respuesta a la
   pregunta de la tarea: una tercera cuenta **no se puede acotar**, entraría viendo los pasaportes.
 - **B6.3 Rendimiento.** El expediente lanza dieciséis consultas por carga. Listados sin paginar, N+1, imágenes sin optimizar. Mide antes de opinar.
-  `Estado: en curso` — contando las consultas reales del expediente y de los listados, si van en paralelo o
-  en serie, buscando N+1 de verdad (no supuestos) y midiendo el peso de lo que se trae por la red.
+  `Estado: hecho` — **sin hallazgos de rendimiento.** Medido: el expediente lanza **20** consultas, no 16,
+  pero **las 20 en un solo `Promise.all`**, así que cuestan lo que la más lenta, no la suma. No hay ningún
+  N+1: el único bucle sospechoso resuelve los hoteles con un `.in()` y cachea las fotos, con el incidente
+  que lo motivó anotado al lado. Las imágenes están optimizadas a conciencia. La base entera pesa 2,5 MB.
 - **B6.4 Secretos y configuración.** Qué claves llegan al navegador, qué hay en `.env`, qué pasa si falta `APP_BASE_URL` en producción.
   `Estado: pendiente`
 - **B6.5 Los endpoints públicos.** `/api/wp`, `/api/agente`, `/api/cron`: autenticación, límite de peticiones, validación del cuerpo, y qué devuelven cuando algo va mal.
@@ -68,6 +70,46 @@ hace falta un sistema de roles. Con una tabla `perfiles(user_id, rol)` y **dos**
 distintas en las tres tablas sensibles —`contracts`, `client_payments`, `provider_payments`—
 más el bucket de pasaportes, se cubre el 90 % del riesgo. Decidirlo antes de crear la tercera
 cuenta, no después.
+
+### Lo que sí está bien: el rendimiento, medido y no supuesto
+
+La tarea pide medir antes de opinar, así que aquí van las medidas y no hay hallazgo que
+levantar.
+
+**El expediente hace 20 consultas, no 16 — y da igual, porque van en paralelo.** Conté los
+elementos del `Promise.all` de `seguimiento/[id]/page.tsx:142`: son **20**. Después hay una
+segunda tanda de 2 (línea 224), un `list` a Storage y una consulta condicional para la
+cotización madre. En total unas 24 por carga, en **tres oleadas paralelas**, no en serie: el
+coste es el de la consulta más lenta de cada oleada, no la suma de las 24. Con una base de
+2,5 MB y todos los índices en su sitio (B6.1), eso es ruido. Traerlas en una sola oleada es,
+además, lo que permite que la página sea un componente de servidor sin cascadas de carga.
+
+**No hay N+1.** Fui a buscarlo al sitio más probable, el render del Documento de Viaje con
+sus fotos de hotel, y está resuelto **dos veces**:
+
+- los hoteles de todas las noches se traen con **una sola consulta** `.in("id", ids)` sobre
+  el conjunto de ids únicos (`travelDocs/render.ts:119-126`), no uno por noche;
+- las fotos tienen **caché por hotel** y las tres de cada uno se bajan en `Promise.all`, con
+  el motivo escrito: «el Hostal Suso sale dos veces en un Sarria-Santiago típico. Sin esta
+  caché, un viaje de 7 noches con repetición bajaba el mismo JPG dos veces».
+
+Lo único que queda en serie ahí es el bucle exterior, que espera las fotos de un hotel antes
+de pasar al siguiente. Con 6 hoteles distintos son 6 esperas encadenadas en una operación que
+se hace una vez por viaje: no lo cuento como hallazgo, pero es lo único que quedaría por
+paralelizar si algún día molesta.
+
+**Las imágenes están optimizadas, y con la cicatriz documentada.** `next.config.ts` configura
+el optimizador con `imageSizes` acotado a los cuatro tamaños que de verdad se piden,
+`qualities: [75]` y un mes de `minimumCacheTTL`, y el comentario cuenta el problema real que
+resolvió: sin eso, el selector de fotos «cargaba las 48 miniaturas A TAMAÑO COMPLETO: 320 KB
+cada una, unos 15 MB por abrir el modal». También queda anotada la trampa de Next 16 con el
+parámetro `q`, que dejó todas las fotos en blanco. Eso no es configuración copiada: es
+alguien que midió.
+
+**Los listados**: `/seguimiento` hace 3 consultas en paralelo. Su tope de 500 filas y el
+hecho de que se traiga `client_payments` y `provider_payments` **enteras** ya están levantados
+en B2 con su plazo («con 500 cotizaciones son mil filas por la red para calcular 500 sumas que
+la base hace con un `group by`»), así que no lo repito aquí. Hoy son 12 pagos.
 
 ### Lo que sí está bien: el uso del cliente de servicio está justificado en los 23 sitios
 
