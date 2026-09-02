@@ -557,7 +557,97 @@ escribir nada). Plan numerado, escribo cada conclusión en cuanto la tengo:
 5. Contra `CRITERIOS.md` punto 8: qué trae de serie un CRM de agencia en catálogo, tarifas y
    proveedores que aquí falte.
 
-Voy por: (1).
+Voy por: (4) — el GRAVE ya está escrito abajo. Pendiente: cerrar (2), (3) y (5).
+
+---
+
+### [GRAVE] Un opcional con la fila del año creada y sin precio se cotiza a **0 €**, sin aviso — `lib/pricing/year.ts:78-88` · `lib/quotes/optionals.ts:34-37`
+
+Éste es el GRAVE que le faltaba al bloque, y está justo donde la auditoría miró sin verlo.
+La auditoría escribió dos veces que el modelo de opcionales por año está bien resuelto —«el
+respaldo se avisa en ámbar» y «si no hay precio en ningún año, no se inserta nada»—. Las dos
+frases son ciertas **solo cuando el año que falta no tiene fila**. Y en producción hay dos
+opcionales que **sí la tienen, vacía**.
+
+**El dato, medido hoy** (`comercial.optional_prices`, 18 filas):
+
+| opcional | 2026 | 2027 |
+|---|---|---|
+| los otros 14 | precio | *(sin fila)* |
+| **Casco de bicicleta** | 52 / 40 | **fila creada, `NULL` / `NULL`** |
+| **Seguro a todo riesgo para la bicicleta** | 42 / 32 | **fila creada, `NULL` / `NULL`** |
+
+**El código, ejecutado de verdad** (`npx tsx` sobre `optionalPricesForYear` con esas filas
+reales):
+
+```
+casco 2027 => { price_pilgrim: 0, price_cs: 0, priceYear: 2027, isFallback: false }
+tour  2027 => { price_pilgrim: 50, price_cs: 65, priceYear: 2026, isFallback: true }
+```
+
+La cadena es de tres eslabones, y cada uno por separado parece razonable:
+
+1. `ratesForYearWithFallback` decide si hay tarifa del año **contando filas**, no precios:
+   `const exact = ratesForYear(rows, year); if (exact.length > 0) return {…isFallback:false}`.
+   Una fila con los dos precios en `NULL` cuenta como año cargado. **El respaldo no se
+   dispara.**
+2. `alternarOpcional` convierte los `NULL` en ceros antes de llegar ahí —
+   `price_cs: Number(p.price_cs) || 0` (`optionals.ts:36`)— así que el año 2027 «tiene
+   precio»: cero.
+3. La guarda que debería atajarlo es `if (!precio)`, y `precio` **existe**: es
+   `{price_cs: 0, price_pilgrim: 0}`. El mensaje «Ese opcional no tiene precio cargado en
+   ningún año» no llega nunca.
+
+**Qué ve Nico y qué pasa.** En cualquiera de las **12 cotizaciones vivas con salida en 2027**,
+la tarjeta de opcionales pinta «Casco de bicicleta — Pilgrim 0 € — 0 €», **sin la etiqueta
+ámbar «precio 2026»** que sí llevan los otros catorce (`OptionalsCard.tsx:161`, condicionada a
+`isFallback`), y **sin el aviso de cabecera** por el mismo motivo. Una casilla. Al marcarla se
+inserta una línea con `unit_price = 0` y `cost_unit = 0`, `recompute_quote_money()` la suma
+tal cual, y esa línea viaja al PDF, al total y al correo a Pilgrim como servicio contratado.
+
+**Cuánto cuesta.** Con las tarifas 2026 que sí están cargadas, y siendo los dos opcionales
+`por persona` (así que la cantidad arranca en `people`):
+
+| | precio CS | costo Pilgrim | 2 personas |
+|---|---|---|---|
+| Casco de bicicleta | 52 € | 40 € | 104 € regalados |
+| Seguro a todo riesgo | 42 € | 32 € | 84 € regalados |
+| **total** | | | **188 € de venta y 144 € de costo real que Pilgrim factura igual** |
+
+Y el daño es doble, porque `cost_unit = 0` mete el costo a cero: la utilidad del expediente
+sale **inflada** justo en la línea que la está destruyendo. Es el modo de fallo que la propia
+auditoría nombró bien para las columnas muertas de `optional_services` —«precios plausibles
+casi siempre y cero en los dos opcionales de bici, que es el peor modo de fallo posible»— y
+que no vio que ya estaba ocurriendo por otra puerta.
+
+**Honestidad sobre el caso:** barrí `quote_lines` y **hoy no hay ninguna línea a 0 €**, así
+que todavía no ha mordido. Lo etiqueto GRAVE igualmente y no MEDIO por tres razones: (a) el
+estado de datos que lo dispara **ya existe en producción**, no hay que hacer nada raro para
+llegar —a diferencia del MEDIO del opcional desactivado, que necesita que alguien desactive—;
+(b) basta **un clic** en cualquiera de las 12 cotizaciones de 2027, y son el camino normal de
+trabajo de los próximos meses; y (c) falla **en silencio y hacia abajo**: no hay error, no hay
+ámbar, y el número que queda mal es el que nadie vuelve a mirar. El bloque decía que su mayor
+riesgo era vender 2027 con tarifa de 2026; el riesgo real es venderlo a **cero**.
+
+**Contraste que confirma que es un descuido y no una decisión:** el módulo de bicis, para el
+mismo problema y con los mismos datos, sí tiene la guarda: `if (!bike.price_cs) return {error:
+"Esa bicicleta no tiene tarifa … Cargala en el catálogo."}` (`bikeQuote.ts:109,178`), y por eso
+las 35 filas de `bike_prices` sin precio no cotizan nada a cero. La auditoría lo elogió en
+`bike_prices` sin preguntarse por qué el gemelo de `optional_prices` no la tenía.
+
+**Propuesta (no se toca: es dinero, y la regla del TABLERO manda anotarlo).** Tres arreglos,
+del más barato al más completo:
+1. En `optionals.ts:37`, cambiar la guarda a `if (!precio || !precio.price_cs)` con el mismo
+   mensaje accionable que usan las bicis. Dos palabras, cierra la fuga.
+2. En `year.ts`, que `ratesForYearWithFallback` **filtre las filas sin precio antes de decidir
+   el año**: un año con la fila vacía debe comportarse como un año sin fila, y entonces el
+   respaldo en ámbar vuelve a funcionar solo. Es el arreglo correcto y beneficia a todo el que
+   use la función.
+3. Y, ya en el catálogo, no crear filas de precio vacías, o marcarlas en la pantalla: las dos
+   filas 2027 en blanco son las que abrieron el hueco.
+
+Mientras no se toque, el parche de datos es de un minuto: borrar esas dos filas 2027 vacías
+de `optional_prices` devuelve a esos dos opcionales al respaldo en ámbar de los otros catorce.
 
 Lo que la auditoría pedía que revisen:
 
