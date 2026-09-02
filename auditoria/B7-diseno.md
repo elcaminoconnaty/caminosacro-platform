@@ -486,7 +486,121 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
    del punto 1 de «Cómo se juzga el diseño».
 7. Revisar si el auditor dedujo cosas del código que la pantalla desmiente (o al revés).
 
-**Por dónde voy:** acabo de escribir el plan; empiezo por levantar la app.
+**Por dónde voy:** app levantada en local y medida en el navegador. Escritos C1 (móvil) y C2
+(contrastes). Faltan: etiqueta de B7.6, los tres estados en pantalla, y el «vistazo» de oficio.
+
+### Cómo verifiqué (importante para quien venga detrás)
+
+`npm run dev` levanta bien (Next 16.2.4, Turbopack, listo en <1 s). **No pude entrar al panel**:
+el login es correo + contraseña —no el magic link que dice `GUIA.md:14`— y no me está permitido
+autenticarme. Tampoco pude abrir producción. Así que verifiqué **en el navegador de verdad**, no
+con grep, montando el shell real (`layout.tsx` + `Sidebar` + `Topbar`, copiados tal cual) dentro
+de un **iframe de 390 px sobre la hoja de estilos compilada de la propia app**, servida por el
+dev server. Los media queries, los tokens, los tamaños y los colores son los reales, resueltos
+por Chrome. Lo que no pude ver son las pantallas **con datos**: eso queda como hueco declarado.
+
+---
+
+### [CONFIRMADO · MEDIO] En el celular no hay navegación — pero el mapa del auditor está a medias
+
+Verificado con los ojos, en un viewport de 386 px: `<aside class="hidden md:flex w-60">` da
+**`display: none`, ancho 0**. La `Topbar` se dibuja con **TRM + correo + «Salir»** y nada más.
+El auditor tiene razón en el hecho.
+
+Pero su descripción —«para pasar de `/seguimiento` a cualquier otra hay que escribir la URL»— es
+**demasiado dura en una mitad y demasiado blanda en la otra**, y las dos correcciones importan
+porque cambian cuál es el arreglo:
+
+**Se le escapó que el bucle de venta sí se navega en móvil.** Hay enlaces dentro de las páginas:
+
+| desde | hasta | dónde |
+|---|---|---|
+| expediente | Seguimiento | `seguimiento/[id]/page.tsx:372` — «← Volver al seguimiento» |
+| Nueva cotización | Seguimiento | `cotizaciones/nueva/page.tsx:40` — mismo enlace |
+| Seguimiento | Nueva cotización | `seguimiento/page.tsx:94` |
+| Seguimiento | expediente | las filas de la tabla |
+| `/cotizaciones` | Seguimiento | `cotizaciones/page.tsx:20` |
+
+O sea que **seguimiento ⇄ expediente ⇄ nueva cotización —el trabajo de todos los días— sí se
+recorre desde el teléfono** sin tocar la barra de direcciones. Eso rebaja el hallazgo bastante.
+
+**Y se le escapó lo que lo empeora: la pantalla en la que aterrizas es un callejón sin salida.**
+`src/app/page.tsx` hace `redirect("/clara")`, y el proxy manda a `/clara` a quien ya tiene sesión
+(`proxy.ts:57`). Así que **abrir la app en el celular te deja en `/clara`**, cuya única salida son
+los enlaces a `/clara/[userId]`: **cero enlaces hacia el resto del CRM**. Para entrar al bucle de
+venta desde el arranque hay que **teclear `/seguimiento` a mano, cada vez**.
+
+Fuera del bucle quedan sin ninguna puerta en móvil: `/calendario`, `/finanzas`, `/catalogo`,
+`/hoteles`, `/tokens`, `/configuracion`. No hay manifest ni PWA, ni un solo `md:hidden` de
+navegación en todo el proyecto (comprobado).
+
+**Sobre la etiqueta: MEDIO se queda, y no se queda corto.** El auditor escribió que «por impacto
+diario es lo más grande de B7»; con los enlaces internos a la vista, eso ya no se sostiene: lo que
+falla no es *usar* el CRM en el celular, es **entrar** a él y salirse del bucle de venta. Y por la
+letra del TABLERO no hay dinero perdido ni algo que vea el cliente. MEDIO es exacto.
+
+**Corrección a la propuesta, con la pantalla delante.** El auditor propone «una fila de enlaces en
+la `Topbar`, visible solo en móvil». **En 390 px la `Topbar` ya va llena**: con `h-14` fija, el
+bloque de la TRM envuelve en dos líneas y deja justo el hueco del botón «Salir» (lo vi
+renderizado). Meterle cuatro enlaces más ahí revienta la barra. Dos arreglos que sí caben, en
+orden de coste:
+
+1. **Una línea, hoy:** que `/clara` y la `Topbar` dejen de ser un callejón — basta con envolver el
+   «Camino Sacro» de la marca en la `Topbar` en móvil, o añadir a `/clara` los tres enlaces del
+   bucle. Quita el «teclear la URL» del arranque, que es el 80 % del dolor.
+2. **La fila `md:hidden`, pero debajo del header**, no dentro, y ocultando la TRM en móvil
+   (`hidden sm:inline-flex`): la TRM es un dato de consulta, no de navegación, y en el teléfono
+   está ocupando el sitio de lo único que hace falta.
+
+**Propuesta**, no aplicada: es cambiar el shell, y eso no entra en «pequeño y reversible».
+
+---
+
+### [CORREGIDO · MEDIO se mantiene] El contraste del dorado está bien calculado; el recuento de usos está inflado
+
+Recalculado en Chrome, con la hoja de estilos compilada de la app y `getComputedStyle`, no sobre
+el hexadecimal del archivo. **La aritmética del auditor es correcta, dígito a dígito:**
+
+| par | auditor | medido |
+|---|---|---|
+| `dorado-oscuro` sobre blanco | 2,13 | **2,13** |
+| `dorado-oscuro` sobre crema | 1,96 | **1,96** |
+| `muted` sobre blanco | 5,98 | **5,98** |
+| `bosque` sobre blanco | 12,48 | **12,48** |
+| su candidato `#8a6410` sobre blanco | ~5,3 | **5,37** |
+| su candidato `#8a6410` sobre crema | ~5,0 | **4,93** (pasa, pero por poco) |
+
+**El criterio de «texto grande» está bien aplicado, y lo verifiqué en píxeles renderizados.** El
+KPI sale de `font-display text-2xl` → Chrome computa **24 px, peso 400, Caladea (serif)**. WCAG
+llama grande a 18 pt = 24 px en peso normal, así que el mínimo **sí es 3,0** y no 4,5. El auditor
+usó 3,0. Correcto. Y falla igual: 2,13 < 3,0.
+
+**Lo que el auditor no dijo y agrava el caso:** ese KPI no es solo 24 px, es **24 px de una serif
+en peso 400**. Las astas finas de una Caladea a ese contraste se pierden más que las de una
+sans del mismo tamaño; el umbral de 3,0 asume trazo normal, no serif de contraste alto. En el
+render de 390 px se ve: el «3.480 €» queda claramente más pálido que su propia etiqueta gris
+(`muted`, 5,98). **El número más importante de la pantalla se lee peor que su rótulo.** Ese es el
+argumento de verdad, y es más fuerte que el ratio a secas.
+
+**Lo que sí hay que corregir: «36 usos» no es cierto para este bloque.** Contado:
+
+| ámbito | usos de `text-dorado-oscuro` |
+|---|---|
+| todo `src` | 42 |
+| de esos, en `contenido/**` — **fuera del alcance** (TABLERO, línea 7) | 19 |
+| **dentro del alcance** | **23** |
+| …de los cuales, en páginas públicas del cliente (`/cotizar`, `/contrato`, `/documentacion`) | 8 |
+| …en el CRM propiamente dicho | **15** |
+
+O sea que la cifra del titular está inflada **2,4×** respecto del CRM y **1,6×** respecto del
+alcance total. No cambia la etiqueta —los 15 que quedan son los que importan: los dos KPI con
+`accent`, los avisos de temporada y los chips— pero un número inflado en el titular es justo lo
+que el TABLERO pide no hacer. **Los 8 de las páginas públicas, además, no son un detalle menor:
+esos los lee el cliente, en su propio teléfono, y ahí el argumento sube de tono.**
+
+**Propuesta:** la del auditor sirve tal cual (token nuevo `--color-dorado-texto ≈ #8a6410`), con
+dos matices: sobre crema da 4,93, que pasa AA pero sin margen —conviene bajarlo un punto más si el
+aviso va a vivir sobre crema— y el reemplazo debe **empezar por las páginas públicas**, no por el CRM.
 
 ---
 
