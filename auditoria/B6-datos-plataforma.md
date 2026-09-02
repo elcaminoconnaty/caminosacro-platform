@@ -585,6 +585,69 @@ toda copia y sin respaldo propio, esto seguiría siendo **MEDIO como mínimo**: 
 únicos activos irreemplazables del negocio (un contrato firmado con su `signer_ip` no se puede
 volver a generar) y viven en un único sitio. La pregunta es discutible; el hecho, no.
 
+### [CONFIRMADO] El recuento de RLS es exacto, y lo probé también por fuera — `comercial` (27 tablas) + `storage.objects` (34 policies)
+
+No me fié del informe y lo consulté yo. **El auditor acertó al dígito**:
+
+- **27 tablas** en `comercial`, **las 27 con `relrowsecurity = true`**, **una sola policy cada
+  una**, todas llamadas `auth_all`, todas `FOR ALL`, todas `TO authenticated`, todas con
+  `USING (true) WITH CHECK (true)`. Ni una excepción, ni una tabla olvidada, ni un `TO public`
+  colado. Es raro encontrar un esquema tan uniforme; aquí lo está.
+- **Storage:** los **9 buckets `comercial-*` son privados** (`storage.buckets.public = false`
+  en los nueve) y tienen **34 policies** sobre `storage.objects`, todas `TO authenticated` y
+  todas acotadas por `bucket_id`. Ningún bucket del CRM es público. Los tres públicos que hay
+  (`contenido-fotos`, `contenido-piezas`, `fotos-instagram`) son de otros productos y fuera de
+  alcance.
+- **Prueba hostil, no solo lectura del catálogo.** Con la *publishable key* del navegador
+  —que va en el JS de cada página y cualquiera puede copiar— pedí directamente a PostgREST:
+  ```
+  GET /rest/v1/quotes?select=id,code,total_eur   Accept-Profile: comercial  → 200 []
+  GET /rest/v1/clients?select=*                  Accept-Profile: comercial  → 200 []
+  ```
+  **RLS aguanta**: 200 con lista vacía, que es exactamente lo que debe pasar. El esquema
+  `comercial` sí está expuesto a PostgREST (el cliente del navegador lo usa con
+  `db:{schema:"comercial"}`, `lib/supabase/client.ts:6`), así que esta era la comprobación que
+  faltaba y sale limpia.
+
+### [MENOR · lo que al auditor se le escapó] `anon` tiene INSERT/UPDATE/DELETE concedidos sobre 16 tablas de `comercial`; lo único que lo frena es la policy — `grants de la migración 0001`
+
+Verificando lo anterior encontré algo que el informe no menciona. Los **GRANT** de tabla y las
+**policies** son dos capas distintas, y aquí solo la segunda está puesta:
+
+| rol | tablas de `comercial` con `SELECT,INSERT,UPDATE,DELETE` concedidos |
+|---|---|
+| `authenticated` | las 27 (correcto) |
+| **`anon`** | **16**, entre ellas `quotes`, `clients`, `client_payments`, `provider_payments`, `pricing`, `quote_lines`, `settings` y `quote_codes` |
+
+`anon` también tiene `USAGE` sobre el esquema `comercial` y `EXECUTE` sobre las seis funciones
+del esquema, incluida `next_quote_code()`. **Hoy no se puede explotar** —lo acabo de
+comprobar arriba: no hay ninguna policy para `anon`, así que RLS devuelve vacío y rechaza toda
+escritura— y por eso es MENOR y no más. Pero el margen es de **una sola línea**: el día que
+alguien haga un `disable row level security` para depurar, o cree una policy `TO public` para
+que el cotizador lea tarifas sin pasar por el servidor, **el permiso de escritura ya está
+concedido** y la publishable key está en el navegador de cualquiera. Es la diferencia entre
+«no se puede» y «no se puede *todavía*».
+
+La señal de que es un descuido y no una decisión: las 11 tablas que **no** tienen el grant a
+`anon` son justamente las que llegaron en migraciones posteriores —`contracts`,
+`quote_travelers`, `quote_pilgrim_files`, `travel_docs`, `email_log`, `quote_hotels`,
+`bikes`…—. O sea, la migración inicial repartió `grant ... to anon` a lo ancho y las
+siguientes ya no. Nadie decidió que `anon` pudiera escribir en `client_payments`.
+
+**Propuesta (no se toca, se anota — son permisos de producción):** un
+`revoke all on all tables in schema comercial from anon;` más el `revoke ... on all functions`,
+en una migración propia y con una prueba antes de aplicarla (hay que confirmar que la ruta
+pública `/cotizar` no usa la publishable key contra `comercial` — por lo que vi usa el cliente
+de servicio en el servidor, así que no debería romper nada). Es la corrección más barata de
+toda esta crítica y sube el suelo de seguridad de un escalón a dos.
+
+De paso, dos apuntes de los *advisors* de Supabase que el auditor no consultó y que **no**
+levanto como hallazgo, con el motivo: (a) las seis funciones de `comercial` salen marcadas con
+`search_path` mutable, pero **las seis son `SECURITY INVOKER`**, así que no hay escalada
+posible y el aviso es cosmético; (b) `auth_leaked_password_protection` está **desactivado** —
+en una cuenta de dos personas que guarda pasaportes, activarlo es un clic en el Dashboard y lo
+dejo dicho en el veredicto, no como hallazgo.
+
 ---
 
 <!-- nota del auditor, se conserva -->
