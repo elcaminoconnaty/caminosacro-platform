@@ -1067,6 +1067,28 @@ seguido de los huecos concretos.)_
 
 ## Revisión tras la crítica
 
-`Estado: pendiente`
+`Estado: en curso` — una sola ronda, cerrando los seis huecos del veredicto. Plan, en este orden,
+commiteando por partes (si muero a mitad, lo commiteado dice por dónde iba):
 
-_(Solo si el veredicto fue `revisar`. Una ronda.)_
+1. **Este plan**, commiteado solo.
+2. **Los cuatro hallazgos nuevos del crítico suben a «Hallazgos»** con el formato del TABLERO,
+   para que B8 los lea sin entrar en la crítica: los tres archivos del framework, el vacío que
+   miente bajo el aviso, las doce formas para tres ideas, y el eje del tiempo.
+3. **Correcciones de texto del bloque** (huecos 1, 2 y 3): el «36 usos» del titular del dorado
+   pasa a 23 en alcance / 15 en el CRM; la frase de cierre de B7.2 deja de decir «solo una se
+   queda muda»; y la línea de objetivos tocables de B7.7 deja de citar el botón de hoteles.
+   De paso, arreglar el encabezado roto del hallazgo del móvil (se comió su propio `###`).
+4. **Re-etiquetado de B7.6**: de `[MEDIO]` a lectura transversal, con nota expresa para B8.
+5. **Arreglos pequeños y reversibles** (regla 9), un commit cada uno:
+   - `/seguimiento` y `/calendario`: si la consulta falla, **no** pintar KPI en 0,00 € ni
+     «Sin cotizaciones aún» / «con los filtros actuales». Aviso de error de verdad, con
+     contraste arreglado.
+   - `role="alert"` / `aria-live` en los avisos de error del CRM, que hoy tiene cero.
+   - Unificar los cinco trajes del mismo error rojo (12 vs 14 px, `red-700` vs `red-800`).
+6. **«Propuestas para Nico»**: la franja «Hoy» del eje del tiempo (hueco 5), escrita bien —qué
+   cuesta y qué se pierde hoy sin ella—. **No se rediseña ninguna pantalla.**
+7. **El hueco 6 queda anotado como abierto**: nadie ha visto el panel con datos.
+
+Lo que **no** se toca: el shell del móvil, el token del dorado (36 → 23 es corrección de texto,
+el reemplazo de color es propuesta), los tres archivos del framework y la franja «Hoy». Son
+pantallas nuevas o cambios de maqueta, y la regla 9 dice proponer, no rediseñar.
