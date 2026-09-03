@@ -502,10 +502,13 @@ reversible posible y no toca ni la maqueta ni el color. `npx tsc --noEmit` limpi
 7. Revisar si el auditor dedujo cosas del código que la pantalla desmiente (o al revés).
 
 **Por dónde voy (2º crítico, retoma tras muerte por límite):** hechos los puntos 1, 2 y 3, y
-escrito ya en esta sección el juicio del punto 4 y la parte del 7 que toca a B7.7. **Ahora
-mismo:** (a) bajar la etiqueta del hallazgo de B7.6 en la sección Hallazgos, que sigue diciendo
-`[MEDIO]` aunque aquí ya se decidió que no es hallazgo propio; luego (b) punto 5 —los tres
-estados vistos en pantalla, no en el código—, (c) punto 6 —el «vistazo» de oficio— y (d) cerrar
+escrito ya en esta sección el juicio del punto 4 y la parte del 7 que toca a B7.7. **Hecho (a):** bajada
+la etiqueta del hallazgo de B7.6 en la sección Hallazgos. **Ahora mismo (b) punto 5 —los tres
+estados vistos en pantalla, no en el código**: monto en un iframe, sobre la hoja de estilos
+compilada, los avisos y vacíos reales de las pantallas del panel uno al lado del otro, a 390 px
+y a 1280 px, para juzgar la **coherencia** entre ellos (sospecha de partida: el error de carga
+de página es **ámbar** y el de acción es **rojo**, y el vacío de tarifas de bici usa el mismo
+ámbar que el error). Luego (c) punto 6 —el «vistazo» de oficio— y (d) cerrar
 el punto 7 con lo que el código promete y la pantalla desmiente. Método: el mismo del
 antecesor (iframe sobre la hoja de estilos compilada del dev server); sigo **sin poder
 autenticarme**, así que las pantallas **con datos** siguen siendo hueco declarado.
