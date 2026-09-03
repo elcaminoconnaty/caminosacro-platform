@@ -1226,6 +1226,25 @@ hoteles, que ya tiene dos cálculos independientes que dan lo mismo.
 
 ## Revisión tras la crítica
 
-`Estado: pendiente`
+`Estado: en curso` — cierro los siete huecos del crítico **en su orden**, subiendo cada
+hallazgo nuevo a la sección **Hallazgos** con el formato del TABLERO para que B8 no tenga que
+leer la crítica. Plan, y lo voy commiteando por partes:
+
+1. **GRAVE del opcional a 0 €** → subir a Hallazgos con las dos salidas (parche de datos /
+   arreglo de `year.ts`); es dinero, se anota, no se toca. Verifico antes contra producción que
+   las dos filas 2027 vacías siguen ahí.
+2. **Desempate de hoteles sin `.order()`** (`travelDocActions.ts:56-59`) → es una línea, no toca
+   dinero: **lo arreglo** y lo dejo en «Arreglos aplicados»; el arreglo de fondo (no proponer
+   nada si hay empate) queda como propuesta.
+3. **`route_id` en NULL** → hallazgo propio en Hallazgos, con el número refrescado. Toca
+   expedientes vivos: se anota.
+4. **Las cuatro rutas con el catálogo vacío** (12.180 €) y el costo al 85 % → hallazgo + punto
+   para Nico con qué pedirle a Pilgrim.
+5. **El lead de `sin_tarifas_ano` sin fila** → hallazgo remitido a B4 (es suyo), sin duplicar la
+   propuesta.
+6. **Los tres números caducados** → los vuelvo a medir contra producción con el MCP y los dejo
+   **fechados al 2-sep-2026** en todo el bloque.
+7. **Las cuatro puertas: dejar escrito que NO hay GRAVE ahí**, y la sección **Para Nico** con lo
+   que se decide y no se toca.
 
 _(Solo si el veredicto fue `revisar`. Una ronda.)_
