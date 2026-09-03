@@ -1458,3 +1458,103 @@ orden, escribiendo y commiteando por partes (el límite de gasto mata sin avisar
 - Punto 5 — **pendiente**: la sección «Para Nico».
 
 _(Solo si el veredicto fue `revisar`. Una ronda.)_
+
+---
+
+## Para Nico
+
+Lo que esta ronda **no toca** porque no le toca: son decisiones de negocio, o migraciones, o
+cambian lo que dice un documento ya enviado. En orden de urgencia. Todos los datos verificados
+contra producción **al 3-sep-2026**.
+
+### 1. URGENTE (19 días) — dos viajes pagados enteros salen con un viajero sin firmar
+
+| | sale | cobrado | quién firmó | quién **no** |
+|---|---|---|---|---|
+| **CS-2026-004** · Francés desde Sarria · 2 pers. | **22-sep-2026** | 970,00 € (`pago_completo`) | Isabel Beatriz Londoño Cataño | **Johana Marcela Giraldo** |
+| **CS-2026-019** · Francés desde Sarria · 2 pers. | **13-oct-2026** | 932,00 € (`pago_completo`) | Marcela Villada Vargas | **Carlos Mario Serna Carmona** |
+
+Los dos contratos están en `enviado` desde el **31-ago**. Al 3-sep **ninguno de los dos ha
+recibido todavía un recordatorio** (`reminder_count = 0`): la cadencia del cron es de 4 días
+desde el último contacto, así que el primero cae el **4-sep**. Son 5 recordatorios cada 4 días,
+o sea que la escalera se agota alrededor del **20-sep** — dos días antes de que CS-2026-004
+salga— y a partir de ahí hay **silencio permanente**, porque el cron filtra por
+`reminder_count < 5` y **no mira la fecha de salida** (`api/cron/recordatorios-contrato/route.ts:77-80`).
+
+**Qué decides tú:** (a) si escribes o llamas tú a esas dos personas esta semana, sin esperar al
+cron; y (b) si Camino Sacro acepta que alguien viaje con el dinero cobrado y sin contrato firmado
+—que es lo que hoy va a pasar por defecto—. Lo que la plataforma puede hacer sin decidir nada de
+dinero está en el hallazgo MEDIO correspondiente: una columna «firmas: N/M» en la lista de
+Seguimiento (hoy `seguimiento/page.tsx` **no consulta `contracts` en absoluto**, hay que entrar
+expediente por expediente para verlo) y que el cron reabra la escalera a T-15 y T-5 de la salida.
+
+### 2. URGENTE, comercial — CS-2026-081: la oferta que ya está en el correo de la clienta promete dos noches que nadie cotizó
+
+`Costero desde Porto`, 2 personas × 1.450 € = **2.900 €**, salida **1-abr-2027**, estado
+`enviada`. El PDF que se le mandó dice **15 días / 14 noches**, «14 noches en acomodación privada»
+y «14 desayunos», con el hotel de cada noche nombrado en la tabla. Lo cotizado y lo pedido a
+Pilgrim son **13 días / 12 noches**. La causa no es el PDF: es que a la ruta le faltan en
+`route_stages` las filas de llegada y de fin de servicios, y el generador las suple solas (el
+detalle completo, con las trece rutas del catálogo en la misma situación, está en el GRAVE de las
+fechas del PDF).
+
+**Qué decides tú:** (a) si se avisa a la clienta **antes** de que acepte, y con qué palabras;
+(b) si acepta antes de que se corrija, quién pone las dos noches; y (c) cuándo se completan las
+**13 rutas descuadradas** del catálogo —es dato, no código, y es una migración—. Ojo con
+`Portugués desde Porto`: nunca se ha cotizado, y su primer PDF prometería **cuatro días menos** de
+Camino de los que se cobran.
+
+### 3. El contrato se marca «enviado» antes de saber si el correo salió
+
+`sendContractLink` escribe `status: "enviado"` y `sent_at` **antes** de llamar al webhook, y no
+los revierte si el envío falla (`contractActions.ts:477-493`). La tarjeta avisa con un toast en
+ese momento, pero mañana la base dice «enviado» igual, el «✓ enviado» del CRM no comprueba nada
+y —peor— el cron de recordatorios solo mira contratos en `enviado`, así que un contrato que nunca
+salió entra igualmente en la escalera de recordatorios de algo que el viajero no recibió.
+
+La otra mitad de este hallazgo **ya está arreglada**: los tres flujos de correo del contrato
+dejan rastro en `email_log` desde el commit `20ad15e`. Esta mitad **no se toca porque cambia el
+estado de un contrato**: los otros tres emisores guardan `estado: 'error'` con el mensaje, y
+hacer lo mismo aquí significa que expedientes que hoy figuran «enviado» pasarían a figurar
+«error». **Qué decides tú:** si se aplica, y qué se hace con los que ya están marcados.
+
+### 4. La mitad de las condiciones las puedes cambiar tú; la otra mitad exige un despliegue
+
+Los textos del Documento de Viaje —**incluidas sus condiciones**— viven en `comercial.settings` y
+los editas desde Configuración sin desplegar. El articulado del contrato **no**: son 330 líneas de
+TypeScript en `lib/contracts/template.ts`, y la **cláusula sexta** —la política de cancelación, con
+sus tramos de 60/16/15/11/10/6/5 días y sus penalidades del 15/50/80 %— es una plantilla de cadena
+en la línea 205. Ya está anotado en el proyecto que las condiciones del documento tienen que cuadrar
+con esa cláusula sexta: la primera vez que Pilgrim mueva su política de cancelación, lo natural es
+que se actualice el lado fácil y el contrato siga diciendo lo viejo. Y no hay `template_version` en
+`contracts`: dentro de dos años, la única forma de saber qué firmó alguien es abrir su PDF.
+
+**Qué decides tú:** si el articulado se mueve a `settings` con la misma mecánica que el documento de
+viaje. Es migración **y es la letra de un contrato**: no se toca sin ti.
+
+### 5. ¿Por qué se tocó CS-2026-080 el 2-sep a las 13:44?
+
+Esa cotización (`Costero desde Baiona`, 13 personas, 8.350 €, `enviada`) tiene
+`updated_at = 2026-09-02 13:44:51`, **después** de escrita la auditoría. Hoy cuadra todo: sale el
+**17-oct** y termina el **24-oct**, y eso es exactamente lo que pinta su PDF. Pero la auditoría
+anotó su salida el **18-oct** y por eso la dio por descuadrada.
+
+**La pregunta es tuya:** ¿movió alguien la fecha de salida un día ese mediodía, o el auditor la
+leyó mal? Importa por una razón concreta: si la fecha se movió, **hay un PDF ya enviado a un grupo
+de 13 personas con las fechas viejas**, y habría que reenviarlo. Si fue un error de lectura, no hay
+nada que hacer y solo hay que dejarlo dicho para que B8 no lo cuente como incidencia.
+
+### 6. Y de fondo: borrar sigue sin tener una sola guarda
+
+No es urgente esta semana, pero es el GRAVE del bloque y solo tú puedes decidirlo. `deleteQuote`
+borra un expediente con contrato firmado, dinero cobrado y documentación enviada tras un
+`confirm()` genérico, y se lleva por delante la prueba de firma electrónica completa. Y borrar
+**es rutina**: se han emitido **84 códigos** y quedan **44 cotizaciones** al 3-sep (eran 83 y 45 el
+2-sep: en 24 horas se creó una y se borró otra). La propuesta —que `deleteQuote` se niegue cuando
+haya contratos firmados o pagos registrados y que se use el estado `cancelada`, que ya existe— no
+la aplica esta ronda porque toca estados de venta.
+
+**Quedan anotadas, sin urgencia, tres cosas más que son migración:** la caducidad del pasaporte que
+hoy no se guarda (`quote_travelers`), el índice duplicado `travel_docs_token_idx`, y la falta de
+anexos o versiones al contrato firmado (`contracts.traveler_id` es único, así que un viajero no
+puede tener nunca dos contratos). Cada una tiene su hallazgo arriba con la propuesta escrita.
