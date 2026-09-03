@@ -658,6 +658,180 @@ para cuando se toque el tema.
 
 ---
 
+## Decisiones para Nico
+
+Tres cosas de este bloque **no las puede aplicar un agente**: son respaldo, permisos y datos
+personales en producción —la regla 9 del TABLERO—. Van aquí las tres, cada una con lo mismo:
+qué resuelve, qué cuesta y qué pasa si no se hace. Ninguna necesita que se escriba código para
+decidirse; las tres necesitan un sí o un no.
+
+_(La «Verificación urgente para Nico» de más arriba ya tiene respondido su punto 1: el crítico
+confirmó por MCP que la organización está en plan `free` con coste 0 USD/mes, y `GUIA.md` ya
+está corregida. Lo que quedaba de aquella lista es exactamente lo que sigue.)_
+
+---
+
+### Decisión 1 — Montar un `pg_dump` semanal fuera de Supabase, disparado por n8n
+
+**Es lo de más valor de toda la auditoría.** Hoy la plataforma **no tiene ninguna copia**: el
+plan es `free`, no hay backups automáticos de ningún tipo, no hay `pg_dump` en `scripts/`, no
+hay exportación a CSV y no hay nada en n8n que saque datos.
+
+**Qué resuelve.** Que exista un sitio del que volver. Cubre las tres formas realistas de perder
+todo, que hoy no tienen red debajo:
+
+- El clic de más en `/seguimiento`: `deleteQuote` borra en cascada una cotización con contrato
+  firmado y dinero cobrado sin comprobar nada (B3.6). Hoy hay tres expedientes en ese estado.
+- Un `delete` o un `update` mal escrito desde el SQL Editor, que es como se han hecho seis de
+  cada diez cambios de tarifa (B6, rastro de auditoría).
+- Que el proyecto se pierda, se suspenda o se pause y no vuelva.
+
+**Qué cuesta.** Poco, y esa es la gracia: la base entera son **2,5 MB**. El Schedule de n8n que
+dispara los recordatorios de contrato ya existe y ya sabe hablar con esta plataforma, así que
+es un workflow más, no una infraestructura nueva. Dos cosas que hay que comprobar al montarlo,
+para que no sorprendan:
+
+- **Que ese n8n pueda ejecutar `pg_dump`.** Si es autoalojado, es un nodo de comando y la
+  cadena de conexión de Supabase. Si es n8n Cloud, no hay binario que ejecutar: la alternativa
+  equivalente es un nodo Postgres que exporte las 27 tablas a JSON/CSV y las adjunte. Mismo
+  resultado, mismo tamaño.
+- **Dónde se deja la copia.** Un `pg_dump` de esta base contiene **todo el dato personal del
+  negocio**: clientes, correos, teléfonos, pagos y márgenes. Mandarlo por correo cada semana es
+  cómodo y cabe, pero es sacar la base entera a un buzón. Lo razonable es un destino privado
+  (Drive de la agencia, o un bucket de otro proveedor) y una retención corta —ocho semanas—, no
+  un histórico infinito de copias con datos personales.
+- **Storage va aparte, y a mano.** Los backups de Supabase no incluyen los buckets **en ningún
+  plan**. `comercial-passports` y `comercial-contracts` son unos 10 MB entre los dos y son los
+  únicos activos irreemplazables: una descarga manual por temporada ya es infinitamente mejor
+  que nada.
+
+**Qué pasa si no se hace.** Sigue siendo cierto lo que dice hoy `GUIA.md`: si mañana la base no
+está, no hay de dónde volver. No es un riesgo abstracto —45 cotizaciones, 8 contratos firmados
+con su firma manuscrita y su `signer_ip`, y los pagos— y no es proporcional al error: un clic
+equivocado cuesta lo mismo que un desastre.
+
+---
+
+### Decisión 2 — `revoke ... from anon` sobre el esquema `comercial`
+
+**Qué resuelve.** Quita un permiso que nadie decidió dar. `anon` —el rol con el que corre la
+publishable key que está en el navegador de cualquiera— tiene hoy
+`SELECT, INSERT, UPDATE, DELETE` sobre **16 tablas** de `comercial` (entre ellas `quotes`,
+`clients`, `client_payments`, `provider_payments`, `pricing` y `settings`), `USAGE` sobre el
+esquema y `EXECUTE` sobre sus seis funciones. Es el reparto a lo ancho de la migración inicial:
+las 11 tablas posteriores no lo tienen, o sea que fue un descuido, no una decisión.
+
+**Hoy no se puede explotar** —no hay ninguna policy para `anon`, así que RLS devuelve vacío y
+rechaza toda escritura, comprobado a mano contra PostgREST—. Lo que arregla el `revoke` es el
+margen: que dejar de estar protegido no dependa de **una sola línea** escrita por descuido un
+día de depuración (`disable row level security`, o una policy `TO public` para que el cotizador
+lea tarifas sin pasar por el servidor).
+
+**Qué cuesta.** Una migración de cinco líneas y ningún cambio de código:
+
+```sql
+-- 00XX_revoke_anon_comercial.sql
+revoke all on all tables    in schema comercial from anon;
+revoke all on all sequences in schema comercial from anon;
+revoke all on all functions in schema comercial from anon;
+revoke usage on schema comercial from anon;
+alter default privileges in schema comercial revoke all on tables from anon;
+```
+
+**Qué se rompería:** por lo que se ve en el código, **nada**. Lo comprobé antes de proponerlo:
+los dos únicos sitios del navegador que hablan con Supabase —`login/LoginForm.tsx` y el
+selector de fotos del Estudio de Contenido— usan `createPublicClient()`, que **no** apunta al
+esquema `comercial`; y `createClient()`, el que sí lo hace, **no lo importa nadie**. Todo lo
+público (`/cotizar`, `/contrato`, `/documentacion`, `/correo`, `api/wp/**`, `api/agente/**`)
+pasa por el **cliente de servicio en el servidor**, que es `service_role` y no `anon`. Quien
+entra al panel es `authenticated`, no `anon`. Aun así se aplica en una migración propia y se
+comprueba el cotizador público justo después: es un permiso de producción y el coste de
+equivocarse es que se caiga la puerta de entrada de los clientes.
+
+**Qué pasa si no se hace.** No pasa nada hoy, y por eso el hallazgo es MENOR. Pasa el día que
+alguien toque RLS para depurar algo: en ese momento la escritura ya está concedida y la clave
+está en el navegador de cualquiera. Es la diferencia entre «no se puede» y «no se puede
+*todavía*».
+
+---
+
+### Decisión 3 — Qué se hace con los 25 archivos `CS-TEST-*` de `comercial-passports`
+
+**No se ha borrado nada, y no debe borrarlo un agente.** Son posibles documentos de identidad
+de personas reales: el borrado es irreversible (no hay copia de Storage, Decisión 1) y quien
+sabe qué se subió el 28-jul es Nico, no un modelo mirando nombres de archivo.
+
+**El estado exacto del bucket:** 31 objetos, **4** reclamados por un contrato, **2** huérfanos
+de cotizaciones borradas (`CS-2026-048`, `CS-2026-044`, códigos reales) y **25** en las carpetas
+`CS-TEST-01/02/03/20`, de 500-700 kB cada uno.
+
+**La consulta exacta para listarlos** (SQL Editor de Supabase, solo lectura):
+
+```sql
+-- El inventario entero, con quién reclama cada archivo.
+select o.name,
+       round((o.metadata->>'size')::numeric / 1024) as kb,
+       o.created_at,
+       (c.id is not null) as reclamado
+from storage.objects o
+left join comercial.contracts c
+       on c.passport_path = 'comercial-passports/' || o.name
+where o.bucket_id = 'comercial-passports'
+order by reclamado, o.name;
+
+-- Solo los de la ronda de pruebas.
+select name, round((metadata->>'size')::numeric / 1024) as kb, created_at
+from storage.objects
+where bucket_id = 'comercial-passports'
+  and name like '%CS-TEST-%'
+order by name;
+```
+
+**La trampa del cruce, para que no se repita:** `contracts.passport_path` guarda la ruta **con
+el bucket delante** (`comercial-passports/2026/CS-2026-034/Pasaporte-…`) y `storage.objects.name`
+la guarda **sin él**. Si se cruzan a pelo con `=`, salen los 31 como huérfanos y el susto es
+falso. De ahí la concatenación de la consulta.
+
+**El criterio para distinguir prueba de real**, en orden de lo que cuesta mirarlo:
+
+1. **El nombre de la carpeta no decide nada.** `CS-TEST-*` dice que el *expediente* era de
+   prueba —no lo emitió `next_quote_code()`, que produce `CS-AAAA-NNN`—, no que la *foto* lo
+   fuera. Es lo que hay que resistirse a asumir.
+2. **El peso es la señal fuerte, y apunta a real.** 500-700 kB es una foto de cámara o de
+   celular. Una imagen de relleno (un PNG de color plano, un recorte de internet) pesa decenas
+   de kB. Ninguno de los 25 se parece a relleno.
+3. **La fecha ubica la ronda:** 28-jul-2026, que es cuando se probaron los contratos por
+   viajero, incluido el grupo de 20 —de ahí `CS-TEST-20`, que por sí sola tiene la mayoría de
+   los archivos—. En esa prueba se firmó veinte veces, y firmar exige subir un pasaporte.
+4. **Lo único que zanja la duda es abrir cuatro o cinco.** Son privadas, así que se miran desde
+   Dashboard → Storage → `comercial-passports`, o con una URL firmada a 60 segundos. Diez
+   minutos.
+
+**La decisión, según lo que se vea:**
+
+- **Si son fotos de relleno** → se borran igual, sin más trámite: no las reclama ningún
+  expediente y solo ensucian el inventario.
+- **Si son pasaportes reales de Nico o de Naty** → se borran, y con eso se acaba.
+- **Si hay el pasaporte de un tercero** (un amigo, un cliente que prestó la foto para la
+  prueba) → se borra **ya**, porque es un dato personal en producción sin ninguna finalidad que
+  lo justifique (Ley 1581), y conviene decírselo a esa persona.
+
+**Aparte, los 2 huérfanos reales.** `CS-2026-048` y `CS-2026-044` **sí** son pasaportes de
+clientes: sus cotizaciones se borraron y las fotos sobrevivieron. Es la misma decisión pero con
+más filo, porque borrarlos es irreversible y no hay copia. Lo estructural que hay detrás no lo
+arregla borrar: **el borrado de una cotización no borra su carpeta de pasaportes** (B3.4), así
+que el problema se vuelve a producir con el próximo expediente que se elimine.
+
+**Qué cuesta.** Diez minutos de mirar y un borrado manual desde el Dashboard. Cero código.
+
+**Qué pasa si no se hace.** El bucket sigue acumulando documentos de identidad que no reclama
+nadie, sin caducidad y sin copia — y conviene decidir de paso la regla que hoy no existe: **el
+pasaporte se borra a los 30 días de terminado el viaje**. Aunque al principio se ejecute a mano
+una vez por temporada, tener la regla escrita ya cambia el resultado; automatizarla puede
+esperar.
+
+---
+
 ## Arreglos aplicados
 
 ### El mensaje de estado inválido no listaba todos los estados — `src/lib/errors.ts:14-16`
