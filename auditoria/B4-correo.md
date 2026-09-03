@@ -1027,3 +1027,146 @@ Bitácora de la ronda, para que quien la retome no repita trabajo. Se actualiza 
 Comprobado antes de escribir: la ronda de B3 corre en paralelo y **todavía no ha tocado**
 `lib/contracts/email.ts` ni sus llamadores (`git log` a la altura de `60c411a`; el árbol de
 trabajo solo tiene el trabajo ajeno del Estudio de Contenido).
+
+---
+
+## Propuestas para Nico
+
+Los cinco huecos que la revisión **no** implementa, porque son mejoras de producto, tocan
+estado de venta o tocan el workflow de producción. Nada de esto está hecho: son decisiones,
+no tareas pendientes de alguien.
+
+Cada una lleva **qué resuelve**, **qué cuesta** (horas de trabajo, estimadas por comparación
+con lo que ya existe en la plataforma) y **qué se pierde hoy** por no tenerla. Van en orden
+de lo que yo haría primero.
+
+### 1. Persistir el lead de `/api/wp/lead` antes de intentar el correo — 3 h · **la primera**
+
+**Qué se pierde hoy.** Este endpoint atiende al visitante que la web **no puede cotizar**: o
+eligió un año sin tarifas cargadas (`sin_tarifas_ano`, que hoy es **casi todo 2027**) o pidió
+una ruta a medida. Su propia cabecera lo dice: «NO se crea cliente, ni cotización, ni PDF».
+O sea que **el correo era el único registro del lead**. Si el webhook de n8n está caído una
+tarde, esos leads desaparecen: el visitante ve su pantalla de «gracias», nadie recibe nada, y
+el rastro es un `console.error` que se borra con el siguiente despliegue.
+
+**Por qué sube de prioridad respecto a la crítica.** El crítico de **B5** llegó al mismo sitio
+por otro camino —mirando el catálogo, no el correo— y añadió el argumento que lo cierra: la
+demanda de **2027 que se está perdiendo hoy es inaveriguable por construcción**. No es que no
+la hayamos medido; es que **no hay dónde medirla**. Nadie puede contestar «¿cuánta gente pidió
+2027 este mes?» porque el dato no se guarda en ninguna parte. Y esa es exactamente la cifra
+que decidiría si vale la pena cargar las tarifas de 2027 ya o esperar. Dos auditores
+independientes señalando el mismo agujero desde ángulos distintos es la señal más fuerte que
+salió de esta ronda.
+
+**Qué resuelve.** Una tabla mínima —`comercial.leads`: fecha, motivo, ruta, fecha de salida,
+personas, tipo de alojamiento, nombre, correo, teléfono, opt-in— escrita **antes** de intentar
+el correo. Con eso: ningún lead se pierde aunque el correo falle, y aparece por primera vez la
+cifra de demanda de 2027 por ruta y por mes.
+
+**Ya hecho en esta ronda, y por qué no basta:** el endpoint ahora deja fila en `email_log` con
+`tipo: "lead"` (commit `2a240be`). Eso salva el nombre, el correo, el asunto y si salió o no —
+se puede rescatar a mano—, pero **no** la ruta, la fecha de salida ni el número de personas,
+que es justo lo que haría falta para contar demanda. Es una red de seguridad, no el registro.
+
+**Coste:** una migración de una tabla, un `insert` antes del envío y una pantalla de listado
+(o ni eso: al principio basta con una consulta). 3 h.
+
+### 2. Los tres apuntes del workflow de n8n — 1,5 h en total · **la más barata**
+
+**No se tocó nada:** `update_workflow` por SDK descarta las credenciales de los dos nodos HTTP
+y ese workflow es el único emisor de correo de la plataforma. Los cuatro cambios son de pegar
+a mano en el canvas, como los parches anteriores (`scripts/n8n_*.md`).
+
+| # | Cambio | Qué resuelve | Coste |
+|---|---|---|---|
+| a | **Lista blanca del host en la URL del adjunto** — `if (!a.url.startsWith('https://<proyecto>.supabase.co/')) return null` en «Validar y Preparar» | Hoy quien tenga el secreto puede mandar **cualquier correo, a cualquiera, con cualquier adjunto, desde `reservas@caminosacro.com`** y —si el DKIM está puesto— firmado con la autenticación del dominio. Con la lista blanca, como mucho puede mandar texto. Acota el daño antes que el secreto, que es lo que de verdad lo reduce. No rompe nada: todos los adjuntos de hoy salen de ahí. | 20 min |
+| b | **El orden de las dos ramas de «Validar y Preparar»** — que `¿Avisar a Reservas?` corra **antes** que `Enviar por Brevo`, o poner `onError: continueRegularOutput` en el nodo de Brevo | Hoy las dos salidas son paralelas, Brevo corre primero y no tiene `onError`: un 400 aborta la ejecución entera y **la rama del aviso interno nunca corre**. Caso concreto y abierto de punta a punta: el viajero sube un pasaporte **HEIC** (`PASSPORT_TYPES` lo acepta a propósito), firma, Brevo devuelve 400 — y ni él recibe su copia ni Nico recibe el aviso de que alguien firmó. Los dos únicos avisos del evento se apagan con el mismo error. | 15 min |
+| c | **Sacar el secreto del nodo a `$env.QUOTE_EMAIL_WEBHOOK_SECRET`, y rotarlo** | Hoy el `const SECRET = '…'` está en claro en el JSON del workflow **y en cada ejecución guardada** (`redaction: { policy: "none" }`), así que sale por dos rutas de la API de n8n. Rotarlo no es un «ya puestos»: **el histórico de ejecuciones conserva el valor viejo**. Coordinar con la variable de Railway de la app, que es el único consumidor. | 45 min |
+| d | **Un Error Workflow** en `HgErNCbopi95CdiI` (hoy `settings` no tiene ninguno) | Un rechazo o un fallo de Brevo deja hoy una ejecución en rojo **que nadie mira**. El rechazo de un secreto malo es justamente la señal que uno querría ver llegar. | 10 min |
+
+**Del lado de la app**, el complemento de (b): llamar a `adjuntosNoSoportados()` —que ya está
+escrita y aquí no se usa— antes de mandar el contrato firmado, para evitar el 400 de raíz. 20
+min, y esa sí es código: puede ir en la próxima ronda si Nico quiere.
+
+### 3. Los tres correos que faltan — 8 h en total, se pueden hacer por separado
+
+`CRITERIOS.md` §3 es explícito: «**No dejar caer a nadie.** […] Es lo que más plata deja sobre
+la mesa cuando falta». De las tres piezas, la plataforma tiene **una** —el contrato sin firmar,
+resuelto con el cron de recordatorios, que además está bien hecho—. En los tres casos que
+faltan **el dato ya está en la base y el patrón ya está escrito**: `api/cron/recordatorios-contrato`
+es la plantilla exacta de cómo se hace (umbral en vez de calendario, tope de repeticiones,
+escalado a una persona al final).
+
+**Orden obligatorio dentro de este punto — el aviso de saldo va primero, y con una condición.**
+La plantilla `recordatorio_pago` está escrita, guardada, `active = true` y **sin un solo
+llamador**. Y usa `{{saldo_eur}}`, que **no existe en ninguno de los dos constructores de
+variables** (`buildTemplateVars` en `page.tsx` y `armarVariables` en `quoteEmail.ts`). Como
+`renderTemplate` sustituye lo que no encuentra por cadena vacía, hoy ese correo saldría
+diciendo «Saldo pendiente: **.**» — los asteriscos de la negrita, vacíos, y el punto. **A un
+cliente, pidiéndole plata.** Está peor que ausente: está puesta y rota, y basta con que alguien
+la enchufe para que salga así.
+
+> **Condición:** añadir `saldo_eur` a los **dos** constructores **antes** de activar nada. El
+> saldo ya está calculado en las dos pantallas; es copiarlo a la variable. 30 min, y es lo
+> primero de este punto.
+
+| correo | qué resuelve | qué se pierde hoy | coste |
+|---|---|---|---|
+| **Aviso de saldo** (`recordatorio_pago`, ya escrita) | el saldo que vence, sin que Nico se acuerde | 6 pagos en 4 cotizaciones y ningún aviso automático; y la plantilla rota descrita arriba | 3 h (+ 30 min de `saldo_eur`) |
+| **Seguimiento de cotización sin respuesta** | la cotización enviada hace ocho días que nadie contestó | **3 cotizaciones** llevan más de 5 días enviadas sin avanzar de estado. Nadie las persigue salvo que Nico se acuerde | 3 h |
+| **Confirmación de pago recibido** | el acuse que corta la llamada de «¿les llegó?» | Se registra el pago en `client_payments` y **al cliente no le llega nada**. En un negocio donde el pilgrim transfiere desde otro país, eso es una llamada garantizada | 2 h |
+
+**Fuera de alcance a propósito**, para que no vuelva como hueco: recibir las **respuestas** del
+cliente dentro del CRM. El `replyTo` está bien puesto y las respuestas caen en `reservas@`,
+que en una agencia de dos personas es donde tienen que caer.
+
+### 4. Un endpoint que reciba los eventos de Brevo — 4 h
+
+**Qué se pierde hoy.** `confirmado` en `email_log` significa «Brevo **aceptó** el mensaje para
+su cola», no «llegó». Todo lo que pasa después —`hard_bounce` por un correo mal tecleado,
+`blocked` por reputación, `spam` porque alguien lo marcó— ocurre fuera de la plataforma, y
+aquí **no hay ningún endpoint que lo reciba**: el expediente enseña un **✓ Enviada** verde
+sobre un correo que rebotó.
+
+El disparador más común no es exótico: **un correo de cliente mal tecleado**, copiado a mano
+desde un WhatsApp. Cuando pasa, la cotización se da por enviada, nadie llama, y el cliente se
+va con otro pensando que no le contestaron. Es el mismo pecado que motivó crear `email_log`,
+un paso más allá: la tabla arregló «el CRM decía enviado sin preguntarle a nadie», pero se
+quedó en la puerta de Brevo.
+
+**Qué resuelve.** Un `POST /api/brevo/eventos` autenticado como los de `wp` (el
+`timingSafeEqual` de `api/wp/auth.ts` ya está escrito), que case el evento por `message_id` y
+escriba `estado = 'rebotado' | 'entregado'` en `email_log`. Una ruta, una columna y una
+migración — del mismo tamaño que la 0028 que ya se hizo—, y los tres estados actuales se
+convierten en la cadena completa.
+
+**Gratis mientras tanto:** dejar dicho en el expediente que «confirmado» significa *aceptado
+por Brevo*, no *entregado*, para que el verde no prometa de más. Y mirar el panel
+**Statistics → Transactional** de Brevo de vez en cuando (verificación 3 de la lista de Nico):
+hoy es el único sitio donde se ve un rebote.
+
+### 5. `sendContractLink` marca `status: "enviado"` antes de enviar — 1 h · **decisión de Nico, no se toca**
+
+**Toca estado de venta**, y el contrato del tablero es explícito: eso se anota, no se cambia.
+
+**Qué pasa.** `contractActions.ts:481-492` escribe `status: "enviado"` y `sent_at` **antes** de
+intentar el correo, y **no lo revierte** si el envío falla. El expediente muestra «enviado»
+sobre un correo que nunca salió, con la misma fecha que arranca el reloj de los recordatorios.
+El único consuelo es que el cron acabará escribiéndole a los 4 días — un «recordatorio» a
+alguien que no recibió nada.
+
+**Por qué pesa.** De los tres flujos del embudo del contrato, este es **el que más pesa del
+bloque entero**: si ese correo no sale, el viajero nunca recibe el enlace de firma y **la venta
+se queda quieta sin que nadie lo sepa**. La copia firmada es un respaldo de algo que ya está
+registrado; el enlace de firma es el único camino que existe para cerrar.
+
+**Las dos opciones**, para que Nico elija:
+
+- **(a) Revertir** a `borrador` y al `sent_at` anterior si el envío falla. Simple, pero deja
+  una ventana en que el estado es mentira, y si el proceso muere entre medias no revierte.
+- **(b) Marcar solo cuando haya fila confirmada en `email_log`.** Ahora es posible: desde el
+  commit `20ad15e` el embudo del contrato **sí** deja fila, con el `messageId` de Brevo. Es la
+  buena, y es la que el registro de esta ronda acaba de habilitar.
+
+**Nota:** este hueco se anotó como «no se toca» **antes** de que existiera el registro. Con
+`email_log` ya cableado, la opción (b) pasó de teórica a una hora de trabajo.
