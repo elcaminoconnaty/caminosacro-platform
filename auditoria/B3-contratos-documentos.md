@@ -106,6 +106,10 @@ caduca nunca, solo se revoca), y la vacuna es una entrada en `headers()` de `nex
 que además cubriría lo que se añada mañana. El propio proyecto ya demostró que sabe hacerlo,
 en `/correo`.
 
+**Arreglado:** una entrada `headers()` en `next.config.ts` que fija `Referrer-Policy: no-referrer`
+y `X-Robots-Tag: noindex, nofollow` en las **tres** rutas por token, y de paso cubre las que se
+añadan mañana. Ver «Arreglos aplicados».
+
 ### [GRAVE] Se puede borrar de un clic un expediente firmado y pagado, y el aviso no dice qué se lleva por delante — `seguimiento/[id]/actions.ts:100` · `QuotesTable.tsx:133`
 
 > **Re-etiquetado en la ronda de revisión: era MEDIO, pasa a GRAVE.** Motivo (crítica, punto 1):
@@ -455,9 +459,10 @@ sale como **«2 individ-uales»**. En un titular de 30 pt de la portada de una o
 eso se ve, y en español el guionado por sílabas que hace la librería no es el correcto (parte
 donde cabe, no donde toca).
 
-**Propuesta:** una línea, una vez, junto al registro de fuentes:
-`Font.registerHyphenationCallback((w) => [w])`, que desactiva el corte y manda la palabra
-entera a la línea siguiente. Es reversible y no cambia ningún dato.
+**Arreglado:** `Font.registerHyphenationCallback((word) => [word])` en los **cuatro** sitios que
+registran fuentes —`pdfChrome.tsx` (del que cuelgan cotización, documento de viaje y asistencia),
+`receiptPdf.tsx`, `contracts/contractPdf.tsx` y `bikes/catalogPdf.tsx`—, porque no todos los
+generadores pasan por el mismo módulo. Ver «Arreglos aplicados».
 
 ### [MENOR] En la portada de la cotización, el código de cotización se sube encima de la foto — `src/lib/quotePdf.tsx:563` (`coverEyebrow`)
 
@@ -836,6 +841,45 @@ refrescar.  ·  (Evidencia: crítica, punto 5.4.)
 ## Arreglos aplicados
 
 _(Solo lo pequeño y reversible. Un commit por arreglo.)_
+
+Los cuatro de la ronda de revisión (punto 4 del veredicto). Los tres primeros son los que la
+crítica ordenó por relación coste/beneficio; el quinto de su lista —el índice duplicado
+`travel_docs_token_idx`— **es una migración y no se toca**: queda anotado como hallazgo MENOR.
+
+| # | qué | dónde | commit |
+|---|---|---|---|
+| 1 | `registrarEnvio` en el emisor del contrato: los tres flujos de correo del contrato ya dejan rastro en `email_log` | `lib/contracts/email.ts` | `20ad15e` |
+| 2 | Guionado desactivado en los cinco generadores de PDF | `pdfChrome.tsx`, `receiptPdf.tsx`, `contracts/contractPdf.tsx`, `bikes/catalogPdf.tsx` | `146b943` |
+| 3 | El teléfono y el correo del cliente ya no se salen del Documento de Viaje | `travelDocPdf.tsx:181` (`clientBar`) | `433d062` |
+| 4 | `Referrer-Policy: no-referrer` y `X-Robots-Tag` en las tres rutas públicas por token | `next.config.ts` | `b4912db` |
+
+**1 — `registrarEnvio`.** Lo cerró la ronda de B4 en el commit `20ad15e`, «Registra en email_log
+los tres flujos de correo del contrato»: envío inicial, reenvío y recordatorio del cron. **No hay
+que repetirlo.** Lo que queda vivo del hallazgo es la otra mitad, que sí toca el estado del
+contrato: `sent_at` y `status: "enviado"` se siguen escribiendo *antes* de intentar el correo y no
+se revierten si el webhook falla. Eso va en «Para Nico». *(Comprobación al 3-sep-2026: las 12 filas
+de `comercial.email_log` siguen siendo `cliente` y `documentacion`, cero de `contrato` — es lo
+esperado, porque el arreglo está commiteado pero desde entonces no se ha enviado ningún contrato.
+La primera fila de tipo `contrato` es la prueba de que funciona; conviene mirarla tras el próximo
+envío.)*
+
+**2 — Guionado.** `@react-pdf` corta la palabra donde cabe, no donde toca en español, y ya se veían
+«(per-sonalizada)» en el titular de la portada de una oferta y «2 individ-uales» en el Documento de
+Viaje. La llamada es global al módulo `Font`, pero se repite en los cuatro registros de fuentes
+porque `receiptPdf`, `contractPdf` y `catalogPdf` no pasan por `pdfChrome` y podrían renderizarse
+sin él en el mismo proceso.
+
+**3 — `clientBar`.** Reproducido y **medido con `pdftotext -bbox`** a cuatro longitudes de nombre de
+ruta (51, 58, 74 y 92 caracteres, con el nombre de cliente más largo que existe hoy). Antes: a 74
+caracteres el texto llegaba a **591,6 pt** sobre un A4 de 595,3 y a 92 se salía de la hoja (596,0).
+Después: el margen derecho queda clavado en **563,3 pt en las cuatro**, y el nombre de ruta envuelve
+en dos líneas sin pisar el bloque del cliente. **`flexShrink` no bastaba** —se probó y el desborde
+seguía, porque la columna izquierda no se comprime hasta su ancho de contenido mínimo—: hizo falta
+ancho explícito, 56 % / 44 %. Lo que queda del hallazgo es cosmético: recortar con elipsis el nombre
+de ruta y poner tope de longitud aguas arriba (`route_name`), que B1 ya propuso.
+
+**4 — `Referrer-Policy`.** Verificado con `npm run build`. `/correo/[token]` ya se protegía sola
+desde su `route.ts`; ahora las tres rutas van por el mismo sitio.
 
 ---
 
