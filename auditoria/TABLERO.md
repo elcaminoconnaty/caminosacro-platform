@@ -85,14 +85,18 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 |---|---|---|---|---|---|
 | B1 | Cotizador y alta | `B1-cotizador.md` | `hecho` | `hecho` | `hecho` |
 | B2 | Expediente y estados | `B2-expediente.md` | `hecho` | `hecho` | `hecho` |
-| B3 | Contratos y documentos | `B3-contratos-documentos.md` | `hecho` | `hecho` | `en curso` |
+| B3 | Contratos y documentos | `B3-contratos-documentos.md` | `hecho` | `hecho` | `hecho` |
 | B4 | Correo | `B4-correo.md` | `hecho` | `hecho` | `hecho` |
 | B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `hecho` | `hecho` |
 | B6 | Datos y plataforma | `B6-datos-plataforma.md` | `hecho` | `hecho` | `hecho` |
 | B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `hecho` | `hecho` |
-| B8 | Síntesis | `SINTESIS.md` | `pendiente` | `—` | `—` |
+| B8 | Síntesis | `SINTESIS.md` | `en curso` | `—` | `—` |
 
 Valores: `pendiente` · `en curso` · `hecho`. En Revisión, además: `—` (no hizo falta).
+
+> **Estado a 3-sep-2026:** **los siete bloques están cerrados enteros** —auditoría, crítica y
+> revisión—. Queda **B8, la síntesis**, y con ella se acaba la auditoría. Los números de cada
+> bloque están remedidos y fechados al 3-sep; B8 copia de ahí, no recalcula.
 
 > **Estado a 2-sep-2026 (noche):** **las cinco críticas de B3 a B7 están cerradas**, las cinco
 > con veredicto `revisar` y con los huecos escritos al final de cada bloque. Lanzadas **en
