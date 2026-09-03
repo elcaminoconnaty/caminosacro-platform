@@ -47,6 +47,7 @@ function buildTemplateVars(
   total: number,
   trmRow: { eur_cop: number; date: string } | null,
   routeMeta: { days: number | null; nights: number | null; origin: string | null; destination: string | null } | null,
+  cobrado = 0,
 ): Record<string, string | number | null | undefined> {
   const trm = trmRow?.eur_cop || 0;
   const totalCop = trm > 0 ? Math.round(total * trm) : null;
@@ -112,6 +113,13 @@ function buildTemplateVars(
     total_cop: totalCop != null ? fmtCop(totalCop) : "—",
     trm: trm > 0 ? `1 EUR ≈ ${Math.round(trm).toLocaleString("es-CO")} COP` : "",
     validez: fechaLarga(quote.valid_until),
+    // La plantilla `recordatorio_pago` lleva {{saldo_eur}} desde que se escribió, y ningún
+    // constructor la producía: `renderTemplate` sustituye lo que no encuentra por cadena
+    // vacía, así que ese correo habría salido diciendo "Saldo pendiente: **.**" — a un
+    // cliente, pidiéndole plata (hallazgo de B4). Se calcula igual que `saldoCliente` de
+    // esta misma pantalla.
+    pagado_eur: fmtEur(cobrado),
+    saldo_eur: fmtEur(Math.max(0, total - cobrado)),
   };
 }
 
@@ -467,11 +475,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
         subject={renderTemplate(
           emailTpl?.subject || "Cotización {{code}} - Camino Sacro",
-          buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name)),
+          buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name), cobrado),
         )}
         body={renderTemplate(
           emailTpl?.body_md || "Hola {{nombre}}, te envío la cotización adjunta.\n\nBuen Camino,\nCamino Sacro",
-          buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name)),
+          buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name), cobrado),
         )}
       />
 

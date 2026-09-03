@@ -23,7 +23,7 @@ export async function armarCorreoCotizacion(
   quoteId: string,
 ): Promise<{ subject: string; body: string } | null> {
   try {
-    const [{ data: quote }, { data: tpl }] = await Promise.all([
+    const [{ data: quote }, { data: tpl }, { data: pagos }] = await Promise.all([
       supabase
         .from("quotes")
         .select("code,client_name,route_name,route_id,modality,start_date,end_date,people,valid_until,total_eur")
@@ -35,6 +35,10 @@ export async function armarCorreoCotizacion(
         .eq("slug", "cotizacion_enviada")
         .eq("active", true)
         .maybeSingle(),
+      // Solo para {{saldo_eur}}. En el envío de una cotización nueva esto viene vacío y el
+      // saldo es el total, que es lo correcto; se consulta igual para que la variable no
+      // mienta si algún día se arma desde aquí un correo posterior al primer pago.
+      supabase.from("client_payments").select("amount,amount_eur,currency").eq("quote_id", quoteId),
     ]);
     if (!quote || !tpl?.subject || !tpl?.body_md) return null;
 
@@ -58,7 +62,12 @@ export async function armarCorreoCotizacion(
       }
     }
 
-    const vars = armarVariables(quote, Number(quote.total_eur) || 0, routeMeta);
+    const cobrado = (pagos || []).reduce((acc, p) => {
+      const v = p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0);
+      return acc + (Number(v) || 0);
+    }, 0);
+
+    const vars = armarVariables(quote, Number(quote.total_eur) || 0, routeMeta, cobrado);
     return {
       subject: renderTemplate(tpl.subject, vars),
       body: renderTemplate(tpl.body_md, vars),
@@ -75,6 +84,7 @@ function armarVariables(
   quote: Record<string, unknown>,
   total: number,
   routeMeta: { days: number | null; nights: number | null; origin: string | null; destination: string | null } | null,
+  cobrado = 0,
 ): Record<string, string | number | null | undefined> {
   const fmtEur = (n: number) =>
     new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(n) + " €";
@@ -136,5 +146,9 @@ function armarVariables(
     total_cop: "—",
     trm: "",
     validez: fechaLarga(quote.valid_until),
+    // Gemela de la de buildTemplateVars: ver el comentario de allá. Aquí el cobrado se
+    // consulta aparte porque este camino solo carga la cotización.
+    pagado_eur: fmtEur(cobrado),
+    saldo_eur: fmtEur(Math.max(0, total - cobrado)),
   };
 }
