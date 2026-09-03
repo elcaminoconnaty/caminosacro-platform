@@ -1228,12 +1228,19 @@ seguido de los huecos concretos.)_
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — cerrando los cinco huecos del veredicto, en este orden y commiteando por
-partes. **Por dónde voy:** huecos **1, 2 y 3 hechos y commiteados** (`525bf55`, `6da0108`,
-`b5385e2`); el 1 lo verifiqué entero en esta ronda —`GUIA.md:354-372` y `:557-562` dicen ya que
-no hay backups, que Storage no entra en ninguna hipótesis y que el proyecto se pausa a los 7 días
-sin actividad, con las rutas públicas por token cayéndose detrás—. **Quedan el 4 y el 5**, que se
-resuelven juntos en la sección «Decisiones para Nico».
+`Estado: hecho` — **los cinco huecos del veredicto están cerrados** y el bloque queda listo para
+B8. Los tres primeros, en rondas anteriores (`525bf55`, `6da0108`, `b5385e2`): `GUIA.md` ya no
+promete copias que no existen, el hallazgo de permisos bajó a MENOR y los tres hallazgos nuevos
+del crítico están en Hallazgos. Los huecos **4 y 5 se cerraron juntos** en «Decisiones para
+Nico» (`6868e94`), y lo que quedaba por escribir era esto: la Decisión 1 decía dónde y cada
+cuánto pero **no cómo se comprueba que la copia sirve** —ahora lleva la prueba de restauración
+en cuatro pasos, con la advertencia de que un Schedule que falla en silencio es peor que no
+tener copia—, y la Decisión 2 decía que no se rompe nada pero **no explicaba el concepto**, que
+es lo que Nico tiene que entender para decir que sí: dos cerraduras (el `grant` y la policy) y
+hoy solo cierra una. **No se borró ni un archivo de Storage** y no se tocó ningún permiso,
+policy, migración ni variable de producción: las tres decisiones esperan un sí o un no de Nico.
+Al cierre de la sección quedan además los dos apuntes de un minuto —`/correo/[token]` sin
+revocación y `auth_leaked_password_protection` apagado— para que no se pierdan.
 
 1. Corregir `GUIA.md:354-356` y `:540` (dicen que Supabase hace copias diarias; el plan es `free`
    y no las hay) y añadir la pausa a los 7 días sin actividad.
