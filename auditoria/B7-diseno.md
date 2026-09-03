@@ -493,7 +493,8 @@ borrado ni la confirmación. `npx tsc --noEmit` limpio. Detalle en la crítica.
 
 ## Crítica del experto
 
-`Estado: en curso` — crítico independiente. **Plan de verificación** (se tacha según avanza):
+`Estado: hecho` — crítico independiente (dos agentes: el primero murió por el límite tras los
+puntos 1-3; el segundo cerró 4-7). **Plan de verificación**, los siete puntos recorridos:
 
 1. Levantar la app en local y abrirla con Chrome. Si no arranca, decirlo y verificar por código.
 2. **Móvil (390 px)**: entrar al panel, buscar CUALQUIER forma de navegar (hamburguesa, cajón,
@@ -509,16 +510,9 @@ borrado ni la confirmación. `npx tsc --noEmit` limpio. Detalle en la crítica.
    del punto 1 de «Cómo se juzga el diseño».
 7. Revisar si el auditor dedujo cosas del código que la pantalla desmiente (o al revés).
 
-**Por dónde voy (2º crítico, retoma tras la muerte del primero por el límite):** cerrados los
-puntos 1, 2 y 3 por el antecesor, y escritos ya el juicio del punto 4 y la parte del 7 que toca a
-B7.7. En esta sesión: **(a) hecho** —bajada la etiqueta del hallazgo de B7.6 en Hallazgos, que
-seguía diciendo `[MEDIO]`—; **(b) hecho** el punto 5, los tres estados vistos en pantalla, con dos
-hallazgos nuevos escritos (el vacío que miente cuando falla la consulta, y las doce formas para
-tres ideas). **(c) hecho** el punto 6 —el «vistazo» de oficio: un MEDIO nuevo (falta el eje del tiempo) y el
-juicio comparado con el oficio—. **(d) hecho** el punto 7. Plan
-terminado; queda solo el veredicto. Método: el del antecesor —los componentes reales sobre la hoja de estilos compilada,
-servida por el dev server, medidos con `getComputedStyle` en Chrome—; sigo **sin poder
-autenticarme**, así que las pantallas **con datos reales** siguen siendo hueco declarado.
+**Por dónde voy: terminado.** Los siete puntos del plan están recorridos —1, 2 y 3 por el primer
+crítico; 4, 5, 6 y 7 por el segundo— y la sección cierra con veredicto. Si alguien retoma esto,
+lo que queda no es crítica: son los seis huecos listados en el VEREDICTO, al final de la sección.
 
 ### Cómo verifiqué (importante para quien venga detrás)
 
@@ -529,6 +523,17 @@ con grep, montando el shell real (`layout.tsx` + `Sidebar` + `Topbar`, copiados 
 de un **iframe de 390 px sobre la hoja de estilos compilada de la propia app**, servida por el
 dev server. Los media queries, los tokens, los tamaños y los colores son los reales, resueltos
 por Chrome. Lo que no pude ver son las pantallas **con datos**: eso queda como hueco declarado.
+
+**Añadido por el segundo crítico (puntos 4 a 7).** Mismo método y mismo hueco —el login sigue
+siendo correo + contraseña y sigo sin poder autenticarme—. Lo que sumé: montar los avisos, los
+vacíos y los controles **reales** del panel (copiados clase a clase de sus componentes) sobre la
+misma hoja de estilos compilada, servida por el dev server, y medirlos con `getComputedStyle` y
+`getBoundingClientRect` en Chrome: colores resueltos a RGB por el navegador —Tailwind v4 los
+declara en `oklch`, así que calcular a ojo sobre el archivo da números falsos— y tamaños de
+objetivo tocable en píxeles renderizados. También reconstruí `/seguimiento` y `/calendario` en su
+**estado de error** para ver qué queda en pantalla cuando la consulta falla, que es lo que ninguna
+lectura del código enseña. El andamio era un HTML suelto servido desde `public/`; **queda
+borrado**, no se commiteó nada de eso.
 
 ---
 
@@ -1015,6 +1020,45 @@ escribió este mismo agente. Lo que más agradecería que revisen:
   contrastar el criterio de «texto grande» aplicado a los KPI de 24 px.
 - Si el **MEDIO de los clics** (B7.6) es un hallazgo propio o solo un resumen de B1, B2 y B3
   visto desde otro ángulo. Lo escribí como lo segundo pero le puse etiqueta de hallazgo.
+
+---
+
+## VEREDICTO: revisar
+
+**El bloque es bueno y su juicio de fondo se sostiene**: la disciplina de marca es real, el orden
+del expediente está bien defendido, los contrastes están bien calculados y los tres textos que
+más importan —el vacío de hoteles, la distinción vacío/filtro de `/seguimiento` y el error de
+catálogo de `cotizaciones/nueva`— están escritos por alguien que entiende el negocio. Nada de lo
+que sigue tumba una conclusión entera. Va a `revisar` porque **tres afirmaciones del bloque no
+resisten la pantalla** y porque la crítica levantó **cuatro hallazgos que el bloque no tiene**, y
+eso cambia lo que B8 va a sumar.
+
+**Huecos concretos para la ronda de revisión** (por orden de coste):
+
+1. **Corregir «36 usos» en el titular del MEDIO del dorado.** Dentro del alcance del bloque son
+   **23**, y en el CRM propiamente dicho **15**; los otros 19 están en `contenido/**`, que el
+   TABLERO deja fuera. El hallazgo se mantiene tal cual; el número del título, no. Y añadir al
+   arreglo que **empieza por las páginas públicas** (8 usos): esos los lee el cliente.
+2. **Reescribir la conclusión de B7.2.** «Solo una pantalla se queda muda» ya no es cierto con
+   dos cosas encima: en todo el CRM no hay `loading.tsx`, `error.tsx` ni `not-found.tsx`, y las
+   cinco pantallas que sí recogen el error pintan igualmente los ceros y un vacío que miente. El
+   `Estado: hecho` de esa tarea vale; su frase de cierre hay que cambiarla.
+3. **Reescribir la línea de objetivos tocables de B7.7.** Cita el `p-1.5` del botón de borrar
+   hoteles como prueba de lo que hace el de borrar cotizaciones. El de cotizaciones ya está
+   arreglado (27 × 27); la frase del bloque sigue diciendo lo que no era.
+4. **Decidir los tres archivos del framework** (`loading.tsx`, `error.tsx`, `not-found.tsx` en
+   `(dashboard)`). Es media hora, cubre las 15 pantallas de golpe y hoy el 404 del panel sale en
+   inglés y sin salida. Es lo más barato de todo B7 en relación a lo que arregla.
+5. **Decidir con Nico la franja «Hoy» de `/seguimiento`.** Es producto, no arreglo: tres
+   contadores sobre datos que ya están en esa página —`valid_until` (que hoy se trae y se tira),
+   `start_date` + saldo, y `email_sent_at` (una palabra en el `select`)—. Es lo que convierte el
+   listado en cola de trabajo y lo que más cambiaría el día a día.
+6. **Y el hueco que ningún crítico pudo cerrar: nadie ha visto el panel con datos.** Los dos
+   agentes verificamos con los componentes reales sobre la hoja de estilos real, pero sin sesión.
+   Falta que alguien con credenciales abra en un teléfono de verdad: (a) un expediente con sus
+   once tarjetas, (b) los KPI en dorado a la luz del día, (c) `/seguimiento` con 45 filas y la
+   tabla en scroll horizontal, y (d) un error de carga provocado. Si algo de esta crítica se cae,
+   se cae ahí.
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
