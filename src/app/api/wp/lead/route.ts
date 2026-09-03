@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
+import { registrarEnvio } from "@/lib/email/log";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { WHATSAPP_NICO } from "@/app/cotizar/constants";
 import { autorizado, noAutorizado } from "../auth";
 
@@ -148,7 +150,7 @@ export async function POST(request: Request) {
     + `------------------------------------------------\n`
     + `Ya recibió un acuse por correo diciéndole que le escribes con el precio.\n`;
 
-  const { ok: emailSent, error } = await enviarCorreoWebhook({
+  const envio = await enviarCorreoWebhook({
     code: codigo,
     nombre: datos.full_name,
     email: datos.email,
@@ -165,7 +167,29 @@ export async function POST(request: Request) {
     aviso_body,
   });
 
-  if (!emailSent) console.error("[wp-lead] no salió el correo:", error);
+  const emailSent = envio.ok;
+  if (!emailSent) console.error("[wp-lead] no salió el correo:", envio.error);
+
+  // Fila en `email_log` con tipo `lead`. Este endpoint no crea cliente ni cotización a
+  // propósito, así que hasta acá el correo ERA el único registro del lead y un fallo del
+  // webhook lo borraba del mapa: quedaba un console.error que se pierde con el despliegue.
+  // La fila no reemplaza persistir el lead —eso va en las propuestas para Nico— pero deja
+  // el nombre, el correo, la fecha y si salió o no, que es la diferencia entre poder
+  // rescatarlo a mano y no enterarse nunca. Todo dentro de un try: la creación del cliente
+  // de Supabase sí puede lanzar si falta la clave, y este endpoint debe responder igual.
+  try {
+    await registrarEnvio(createAdminClient(), {
+      code: codigo || null,
+      tipo: "lead",
+      destinatario: datos.email,
+      asunto: subject,
+      adjuntos: 0,
+      messageId: envio.messageId ?? null,
+      error: emailSent ? null : (envio.error ?? "No se pudo enviar el correo."),
+    });
+  } catch (e) {
+    console.warn("[wp-lead] no pude registrar el envío:", e);
+  }
 
   // 200 aunque el correo falle: WordPress ya le mostró su pantalla al visitante y no
   // gana nada con un error. El respaldo de wp_mail() sigue vivo del otro lado.

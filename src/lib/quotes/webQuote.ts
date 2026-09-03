@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
+import { registrarEnvio } from "@/lib/email/log";
 import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
 import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 import { mensajeError } from "@/lib/errors";
@@ -155,7 +156,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   //    del CRM: es el mismo mensaje que ve el equipo en la tarjeta de correo.
   //    La notificación interna a reservas@ la envía WordPress; aquí solo va la del cliente.
   const correo = await armarCorreoCotizacion(supabase, quote.id);
-  const { ok: emailSent } = await enviarCorreoWebhook({
+  const envio = await enviarCorreoWebhook({
     code: quote.code,
     nombre: datos.full_name,
     email: datos.email,
@@ -169,6 +170,19 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     subject: correo?.subject ?? null,
     body: correo?.body ?? null,
   });
+  // Mismo motivo que en /cotizar: nadie mira este envío, así que la fila de `email_log`
+  // es todo el rastro que va a quedar del correo que recibió el cliente de WordPress.
+  await registrarEnvio(supabase, {
+    quoteId: quote.id,
+    code: quote.code,
+    tipo: "cliente",
+    destinatario: datos.email,
+    asunto: correo?.subject ?? null,
+    adjuntos: pdfUrl ? 1 : 0,
+    messageId: envio.messageId ?? null,
+    error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
+  });
+  const emailSent = envio.ok;
 
   if (emailSent) await marcarCotizacionEnviada(supabase, quote.id);
 

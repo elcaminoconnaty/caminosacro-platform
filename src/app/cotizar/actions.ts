@@ -7,6 +7,7 @@ import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
+import { registrarEnvio } from "@/lib/email/log";
 import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
 import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 import { mensajeError } from "@/lib/errors";
@@ -194,7 +195,7 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
   //    falla, la cotización ya existe y el cliente igual ve su enlace en pantalla:
   //    no se pierde el lead.
   const correo = await armarCorreoCotizacion(supabase, quote.id);
-  const { ok: emailEnviado } = await enviarCorreoWebhook({
+  const envio = await enviarCorreoWebhook({
     code: quote.code,
     nombre: datos.full_name,
     email: datos.email,
@@ -208,6 +209,21 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
     subject: correo?.subject ?? null,
     body: correo?.body ?? null,
   });
+  // Fila en `email_log` pase lo que pase: este camino manda sin que nadie mire, así que
+  // el registro es la única forma de contestar después "¿esto se envió, y a qué correo?".
+  // `registrarEnvio` nunca lanza, y el estado que escribe distingue `confirmado` (Brevo
+  // devolvió messageId) de `aceptado` (el workflow terminó pero no hay prueba).
+  await registrarEnvio(supabase, {
+    quoteId: quote.id,
+    code: quote.code,
+    tipo: "cliente",
+    destinatario: datos.email,
+    asunto: correo?.subject ?? null,
+    adjuntos: pdfUrl ? 1 : 0,
+    messageId: envio.messageId ?? null,
+    error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
+  });
+  const emailEnviado = envio.ok;
 
   // Nace en `sin_enviar` como todas; si el correo salió, pasa a `enviada`. Antes este
   // camino ni siquiera escribía `email_sent_at`, así que en el CRM una cotización del
