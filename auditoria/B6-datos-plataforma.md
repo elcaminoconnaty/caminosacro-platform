@@ -1005,7 +1005,12 @@ seguido de los huecos concretos.)_
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — cerrando los cinco huecos del veredicto, en este orden y commiteando por partes:
+`Estado: en curso` — cerrando los cinco huecos del veredicto, en este orden y commiteando por
+partes. **Por dónde voy:** huecos **1, 2 y 3 hechos y commiteados** (`525bf55`, `6da0108`,
+`b5385e2`); el 1 lo verifiqué entero en esta ronda —`GUIA.md:354-372` y `:557-562` dicen ya que
+no hay backups, que Storage no entra en ninguna hipótesis y que el proyecto se pausa a los 7 días
+sin actividad, con las rutas públicas por token cayéndose detrás—. **Quedan el 4 y el 5**, que se
+resuelven juntos en la sección «Decisiones para Nico».
 
 1. Corregir `GUIA.md:354-356` y `:540` (dicen que Supabase hace copias diarias; el plan es `free`
    y no las hay) y añadir la pausa a los 7 días sin actividad.

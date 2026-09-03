@@ -554,6 +554,172 @@ detalle porque son las tres puertas sin sesión de la plataforma.
   `/documentacion` y `/correo` están, y el `some()` compara `path === p || path.startsWith(p + "/")`,
   así que no hay prefijos colados de más.
 
+### Hallazgos que aporta la crítica (no estaban en el informe)
+
+_Los ocho de los puntos 4 y 5 de la «Crítica del experto», subidos aquí en la ronda de revisión
+para que B8 los vea sin leerse la crítica entera. La evidencia completa de cada uno está en la
+sección de crítica, en el apartado que se cita._
+
+### [MEDIO] El contrato es el único de los cuatro correos que no deja rastro — `lib/contracts/email.ts:11` · `contractActions.ts:477-493`
+
+`enviarCorreoContrato` llama directo a `enviarCorreoWebhook` y **nunca a `registrarEnvio`**. Los
+otros tres emisores sí lo hacen (`lib/quotes/clientEmail.ts:146`, `lib/quotes/sendPilgrimEmail.ts:115`,
+`lib/travelDocs/email.ts:222`). Al 2-sep-2026, las 12 filas de `comercial.email_log` son de tipo
+`cliente` y `documentacion`: **cero de contrato**, con cinco contratos enviados. Y es justo el
+correo con valor legal y el que más veces se manda —el envío inicial más hasta cinco recordatorios
+automáticos: seis correos por viajero, todos invisibles—.
+
+Tres consecuencias: el panel de correos del expediente (`seguimiento/[id]/page.tsx:190`) **miente
+por omisión**, porque lee `email_log` y los contratos nunca salen ahí; si un viajero dice «no me
+llegó nada» no hay dirección, ni hora, ni `message_id` de Brevo, ni versión web. El «✓ enviado»
+**no comprueba nada**: `sendContractLink` escribe `status: "enviado"` y `sent_at` *antes* de
+intentar el correo y no los revierte si el webhook falla (la tarjeta avisa con un toast,
+`ContractCard.tsx:652`, pero mañana la base dice «enviado» igual). Y los recordatorios del cron
+fallan en silencio: `console.error` y nada más (`api/cron/recordatorios-contrato/route.ts:196`).
+
+**Arreglado:** `enviarCorreoContrato` llama ya a `registrarEnvio` con `tipo: 'contrato'` — ver
+«Arreglos aplicados».  ·  **Propuesta:** mover `sent_at`/`status: "enviado"` a *después* de que el
+envío confirme, y guardar `estado: 'error'` con el mensaje como hacen los otros tres. Eso toca el
+estado del contrato: **va en «Para Nico»**.  ·  (Evidencia: crítica, punto 4.1.)
+
+### [MEDIO] Nada avisa de que un viaje pagado entero sale sin la firma de medio grupo — `seguimiento/page.tsx` · `api/cron/recordatorios-contrato/route.ts:77-80`
+
+Al 2-sep-2026 los tres expedientes vivos con contrato están **los tres en `pago_completo`**, y en
+**dos de ellos falta una firma**: CS-2026-004 (sale el **22-sep-2026**, Johana Marcela Giraldo,
+contrato `enviado` sin firmar) y CS-2026-019 (sale el **13-oct-2026**, Carlos Mario Serna Carmona,
+igual). El estado de venta llegó a pago completo sin que esas dos personas firmaran nada y ningún
+estado, aviso ni guarda lo comenta.
+
+Dentro del expediente la tarjeta sí lo dice bien (`ContractCard.tsx:234`, «1 de 2 firmado(s) · N
+viajero(s) sin contrato»); el problema es que hay que **entrar expediente por expediente** para
+verlo, porque `seguimiento/page.tsx` **no consulta `contracts` en absoluto**. Y el cron, que es la
+red, **ignora la fecha de salida**: filtra por `status='enviado'` y `reminder_count < 5`, así que la
+escalera se agota a los ~20 días del envío y después hay silencio permanente — en CS-2026-019 son
+23 días de silencio entre el último recordatorio y la salida.
+
+**Propuesta:** (1) una columna «firmas: N/M» en la lista de Seguimiento, que es un `select` más;
+(2) que el cron reabra la escalera a T-15 y T-5 de la salida aunque `reminder_count` esté al tope,
+o al menos que dispare el aviso interno. Ninguna toca dinero. Los dos expedientes concretos, que
+salen en semanas, **van en «Para Nico»**.  ·  (Evidencia: crítica, punto 4.2.)
+
+### [MENOR] Se puede reescribir el nombre y el documento de alguien que ya firmó — `contractActions.ts:126-128`
+
+`saveTravelers` protege del **borrado** al viajero con contrato (calcula un `Set` de protegidos y se
+niega, con aviso en la tarjeta), pero el `update` de las filas que sí se conservan es
+**incondicional**: cambia `full_name`, `email`, `phone` y `document_number` sin mirar el estado del
+contrato. El PDF firmado y su `variables_json` son inmutables —la prueba legal aguanta—, pero desde
+ese momento **el CRM enseña un nombre y un documento distintos de los del contrato que esa persona
+firmó**, sin marca ni aviso. Un dedazo corrigiendo un apellido desalinea en silencio el expediente
+respecto del documento con validez legal.
+
+**Propuesta:** aplicar al `update` la misma lógica que ya existe para el borrado — si el viajero
+está en `protegidos` y su contrato está `firmado`, rechazar el cambio de `full_name` /
+`document_number` o avisar igual que con `bloqueados`. El `Set` ya está calculado tres líneas más
+arriba. No se toca aquí porque cambia el comportamiento de guardado de un expediente firmado.
+·  (Evidencia: crítica, punto 4.3.)
+
+### [MENOR] `email_log` y su URL pública `/correo/[token]` sobreviven al borrado de la cotización — `correo/[token]/route.ts:78`
+
+`email_log_quote_id_fkey` es `ON DELETE SET NULL` (los otros nueve hijos de `quotes` son `CASCADE`).
+La decisión es deliberada y defendible —así el historial de correos no se evapora—, pero al soltar
+el `quote_id` sobreviven **`code`, `destinatario`, `asunto`, `token` y el `html` completo**, y
+`/correo/[token]` sigue sirviendo ese HTML **para siempre**, sin sesión, sin caducidad y sin
+comprobar que la cotización exista. El correo de cotización lleva nombre, ruta, fechas y precios.
+
+Al 2-sep-2026 **no hay ni un caso**: las 12 filas de `email_log` son de esta semana y ninguna tiene
+`quote_id` nulo. Pero en esta plataforma se han borrado **38 expedientes**, así que el primero que
+se borre a partir de ahora deja su rastro. No es exposición a terceros —el token es de 256 bits y
+solo lo tiene el destinatario—, y por eso no sube de etiqueta.
+
+**Propuesta:** que `deleteQuote` anule `token` y `html` de las filas de `email_log` de esa
+cotización antes de borrarla, dejando la fila (quién, qué, cuándo) que es lo que justifica el
+`SET NULL`. Dos líneas, y encaja en el mismo sitio donde haya que meter el borrado de las rutas
+hijas de Storage. No se toca: es dentro de `deleteQuote`.  ·  (Evidencia: crítica, punto 4.4.)
+
+### [MENOR] `travel_docs_token_idx` es un índice duplicado de `travel_docs_token_key`
+
+Sobre `travel_docs.token` hay dos índices: el `travel_docs_token_key` que impone la unicidad (y que
+es lo que descarta la colisión de tokens, no la probabilidad) y un btree `travel_docs_token_idx`
+que no aporta nada — el índice del constraint ya resuelve cualquier búsqueda por token. Sobra,
+cuesta escrituras y confunde a quien lea el esquema.
+
+**Propuesta:** `DROP INDEX comercial.travel_docs_token_idx`. **Es una migración: se anota, no se
+toca** (regla 9 del TABLERO).  ·  (Evidencia: crítica, punto 4, preámbulo.)
+
+### [MEDIO] El articulado del contrato vive en TypeScript; las condiciones del documento de viaje, en la base — `lib/contracts/template.ts:205`
+
+`contractClauses()` son **330 líneas de TypeScript** con las dieciséis cláusulas escritas dentro; la
+sexta —la política de cancelación, con sus tramos de 60/16/15/11/10/6/5 días y sus penalidades del
+15/50/80 %— es una plantilla de cadena en la línea 205. Lo problemático no es la incomodidad: es la
+**asimetría con el otro documento**. Los textos del Documento de Viaje —incluidas sus
+`condiciones`— sí viven en `comercial.settings` y Nico los edita desde Configuración sin desplegar
+(`lib/travelDocs/texts.ts:23`, migración 0030). O sea que **Nico puede cambiar la mitad de las
+condiciones desde el CRM y la otra mitad no**, y ya está anotado en el proyecto que las condiciones
+del documento tienen que cuadrar con la cláusula sexta del contrato. La primera vez que Pilgrim
+mueva su política de cancelación, lo que va a pasar es que se actualice el lado fácil y el contrato
+siga diciendo lo viejo: «un dato, un sitio» roto en el peor sitio posible.
+
+Y no hay `template_version` en `contracts`: dentro de dos años, la única forma de saber qué decía la
+cláusula sexta el día que alguien firmó es abrir su PDF de Storage.
+
+**Propuesta:** mover el articulado a `settings` con la misma mecánica que `travel_doc` (misma
+migración, misma pantalla de Configuración) y añadir `contracts.template_version`, sellado al
+generar el PDF. Es migración y es la letra de un contrato: **se decide con Nico**.
+·  (Evidencia: crítica, punto 5.1.)
+
+### [MEDIO] No se guarda la caducidad del pasaporte, que es el dato que tumba un viaje entero — `comercial.quote_travelers`
+
+`quote_travelers` tiene once columnas y las de identidad son exactamente dos: `document_type` y
+`document_number`. **No hay fecha de vencimiento del pasaporte, ni fecha de nacimiento, ni
+nacionalidad.** Un pasaporte que caduca a menos de tres meses de la salida del espacio Schengen no
+embarca, y a un colombiano volando a Madrid se lo dicen en el mostrador de El Dorado, no antes. Hoy,
+si alguien firma en septiembre con un pasaporte que vence en enero para un viaje de abril, en esta
+plataforma no hay absolutamente nada que lo detecte.
+
+Lo que lo vuelve barato es que **el dato ya está en casa**: el viajero sube la foto de su pasaporte
+al firmar, y es obligatorio (`contrato/[token]/actions.ts:98`). Falta un campo y falta que alguien
+lo mire. Se etiqueta MEDIO y no GRAVE porque es una **ausencia de función**, no un defecto que hoy
+esté rompiendo datos ni un caso ya ocurrido; el daño, cuando llegue, es de los caros.
+
+**Propuesta:** dos columnas en `quote_travelers` (`passport_expiry`, `birth_date`), pedidas en el
+mismo formulario de firma donde ya se pide el número, y una alerta en el expediente cuando
+`passport_expiry < start_date + 6 meses`. **Es una migración: se anota, no se toca.**
+·  (Evidencia: crítica, punto 5.2.)
+
+### [MENOR] El cliente no tiene un sitio; tiene tres enlaces sueltos que llegan en tres momentos
+
+`/contrato/<t>` en la venta, `/documentacion/<t>` semanas después, `/correo/<t>` dentro de cada
+correo. Las tres rutas están bien construidas (eso ya lo dijo B3.1), pero **ninguna enlaza con las
+otras y ninguna tiene puerta común**. El punto 6 de `CRITERIOS.md` pide justo lo contrario: «todo en
+un sitio, sin pedirle que busque un correo de hace tres meses». La mitad está cumplida —los enlaces
+de documentación no caducan, y eso es mérito—; la otra mitad no. El peregrino que en el aeropuerto
+no encuentra su documentación **escribe a Nico o a Naty**, que son dos personas y una de ellas está
+guiando. El coste medible son horas de soporte en el momento en que menos las tienen.
+
+**Propuesta barata (no es un portal):** que `/documentacion/[token]` —la página que el cliente ya
+conserva— enseñe también su contrato firmado y el estado de sus pagos. El token del expediente ya
+existe, es permanente y revocable; no hace falta nada nuevo. Es una pantalla pública nueva y toca
+datos de pago: se decide antes de hacerse.  ·  (Evidencia: crítica, punto 5.3.)
+
+### [MEDIO] No hay forma de modificar lo firmado: o miente el papel, o se pierde la firma — `contracts.traveler_id` (único)
+
+Un contrato firmado es inmutable, y bien: los siete guardas de `contractActions.ts` son de lo mejor
+del bloque. Pero **los viajes cambian**: se mueve la fecha, entra un acompañante, alguien se cae del
+grupo, se añade una noche. Todo CRM de agencia resuelve esto con un **anexo o una versión nueva**
+enlazada a la original, que se firma otra vez y deja el rastro de qué cambió. Aquí no existe esa
+figura, y las tres salidas son todas malas: (a) dejar el contrato diciendo algo que ya no es cierto
+—que es el efecto del MEDIO de `variables_json`, la foto fija que solo se refresca a mano—;
+(b) borrar y rehacer, que destruye la prueba de firma (el GRAVE del borrado); o (c) arreglarlo por
+WhatsApp, que es lo que de verdad va a pasar. Y como `contracts.traveler_id` es **único** en toda la
+tabla, un mismo viajero no puede tener nunca dos contratos: la puerta al anexo está cerrada también
+en el esquema.
+
+**Propuesta:** `parent_contract_id` y `version` en `contracts`, con el `traveler_id` único
+sustituido por único-sobre-la-versión-vigente. **Es migración y toca estados de venta: se anota y
+se decide con Nico.** Lo que sí se puede hacer sin eso, y es la mitad del valor, es que la tarjeta
+**avise cuando `variables_json` no cuadre con la cotización** en vez de esperar a que alguien pulse
+refrescar.  ·  (Evidencia: crítica, punto 5.4.)
+
 ---
 
 ## Arreglos aplicados
