@@ -1120,3 +1120,8 @@ commiteando por partes (si muero a mitad, lo commiteado dice por dónde iba):
 Lo que **no** se toca: el shell del móvil, el token del dorado (36 → 23 es corrección de texto,
 el reemplazo de color es propuesta), los tres archivos del framework y la franja «Hoy». Son
 pantallas nuevas o cambios de maqueta, y la regla 9 dice proponer, no rediseñar.
+
+**Por dónde voy (segunda tanda de la ronda).** Cerrado el hueco 1 (el «36 usos» del titular del
+dorado) por el agente anterior. Retomo por lo que más pesa, no por el orden del plan: primero los
+tres arreglos de código del paso 5, luego los hallazgos nuevos (paso 2), el re-etiquetado (paso 4),
+las correcciones de texto que queden (paso 3) y por último las propuestas (pasos 6 y 7).
