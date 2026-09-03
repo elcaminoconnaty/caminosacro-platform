@@ -53,16 +53,21 @@ export async function prefillTravelNights(quoteId: string) {
   const etapas = ((st || []) as Etapa[]).filter((s) => s.accommodation);
   if (etapas.length === 0) return { error: "La ruta no tiene etapas con alojamiento cargadas en el catálogo." };
 
+  // .order("name"): con dos fichas en la misma localidad el desempate lo hace hotelParaLugar
+  // con el primero del array, y sin orden explícito ese primero lo decide Postgres — un UPDATE
+  // en una ficha podía cambiar qué pensión se propone sin tocar una línea de código.
   const { data: hotelesRaw } = await supabase
     .from("hotels")
     .select("id,name,city")
-    .eq("active", true);
+    .eq("active", true)
+    .order("name");
   const hoteles = (hotelesRaw || []) as { id: string; name: string; city: string | null }[];
 
   const rows = etapas.map((s, i) => {
     const ciudad = (s.accommodation || "").trim();
-    // Con dos hoteles en la misma localidad gana el primero: no hay forma de adivinar
-    // cuál, y esto es una propuesta que se revisa fila por fila antes de generar.
+    // Con dos hoteles en la misma localidad gana el primero por orden alfabético: no hay
+    // forma de adivinar cuál, pero al menos el desempate es estable y explicable, y esto es
+    // una propuesta que se revisa fila por fila antes de generar.
     const sugerido = hotelParaLugar(ciudad, hoteles);
     return {
       day: s.day,
