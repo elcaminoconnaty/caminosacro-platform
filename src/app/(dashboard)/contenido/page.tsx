@@ -24,7 +24,7 @@ export default async function ContenidoPage() {
       .limit(300),
     supabase
       .from("contenido_ideas")
-      .select("id,titular,pilar,formato,angulo,razon,ruta_nombre,evidencia,slides,fuente_dato")
+      .select("id,titular,pilar,formato,angulo,razon,ruta_nombre,evidencia,slides,fuente_dato,fuente,pedido")
       .eq("estado", "nueva")
       .order("created_at", { ascending: false })
       .limit(12),

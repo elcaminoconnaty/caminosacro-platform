@@ -1,8 +1,15 @@
 # n8n — permitir correo en HTML (para la documentación de viaje)
 
-El correo de **documentación de viaje** va maquetado: cabecera de marca, un bloque de
-descarga por documento con su botón, el contacto y el aviso legal. Hoy el workflow solo
-arma `textContent`, así que ese correo sale como un muro de texto plano.
+> **Estado a 3-sep-2026: el parche YA ESTÁ APLICADO** en el workflow de producción
+> (`HgErNCbopi95CdiI`, nodo «Validar y Preparar»), verificado leyendo el nodo: `textContent`
+> se conserva y `htmlContent` solo se añade `if (html)`. Lo de abajo se conserva porque hay
+> que volver a pegarlo cada vez que el nodo se reescriba, y porque la prueba de regresión
+> sigue siendo obligatoria. **Antes de rehacerlo, comprueba si ya está.**
+
+Los correos **maquetados** —la documentación de viaje y, desde el commit `bba0277`, también
+la cotización al cliente— llevan cabecera de marca, bloques con botón, contacto y aviso
+legal. Sin este parche el workflow solo arma `textContent` y esos dos correos salen como un
+muro de texto plano.
 
 **No lo apliqué automáticamente, a propósito.** Es la misma razón de siempre
 (ver `n8n_varios_adjuntos.md` y `n8n_aviso_interno.md`): `update_workflow` **descarta las
@@ -29,36 +36,47 @@ const brevoBody = {
 4. Agrega **debajo** estas tres líneas:
 
 ```js
-// Correo de documentación de viaje: viene maquetado en HTML. `textContent` se queda
-// igual como respaldo (es lo que ve quien tenga el HTML desactivado). Si el payload no
-// trae `html`, el correo sale exactamente como siempre.
+// Correos maquetados (documentación de viaje y cotización al cliente): vienen en HTML.
+// `textContent` se queda igual como respaldo (es lo que ve quien tenga el HTML
+// desactivado, y ayuda a que el correo no puntúe como spam). Si el payload no trae
+// `html`, el correo sale exactamente como siempre.
 const html = String(body.html || '');
 if (html) brevoBody.htmlContent = html;
 ```
 
 5. Guarda y publica.
 
-## Mientras tanto
+## Si el parche NO está puesto
 
-La app ya manda `html` **y** `body`. Sin este cambio, el correo de documentación sale en
-texto plano, con los cuatro enlaces completos y legibles. Se ve peor; no se rompe nada, y
-el cliente puede descargar igual.
+La app manda `html` **y** `body` siempre. Sin el parche, la documentación de viaje y la
+cotización salen en texto plano, con los enlaces completos y legibles. Se ve peor; no se
+rompe nada, y el cliente puede descargar igual.
 
 ## Después de aplicarlo — probar la regresión
 
-Es obligatorio, porque este nodo lo usan **todos** los correos:
+Es obligatorio, porque este nodo lo usan **todos** los correos. Qué debe llegar:
 
-1. Enviar la **documentación de viaje** en modo prueba → debe llegar maquetada, con los
-   botones DESCARGAR funcionando.
-2. Reenviar una **cotización** desde el CRM → debe seguir llegando en texto plano, con
-   `Cotizacion-….pdf` adjunto.
-3. Reenviar un **contrato** para firma → igual, en texto plano y con su PDF.
-4. Enviar el **correo a Pilgrim** en modo prueba → con los pasaportes adjuntos.
+| # | Prueba | Cómo debe llegar |
+|---|---|---|
+| 1 | **Documentación de viaje** en modo prueba | **Maquetada**, con los botones DESCARGAR funcionando |
+| 2 | **Cotización** reenviada desde el CRM | **Maquetada**, con `Cotizacion-….pdf` adjunto y su enlace de versión web |
+| 3 | **Contrato** para firma | En **texto plano**, con su PDF |
+| 4 | **Correo a Pilgrim** en modo prueba | En **texto plano**, con los pasaportes adjuntos |
 
-Los tres últimos no mandan `html`, así que si alguno cambia de aspecto, el parche quedó
-mal pegado.
+> **Ojo, esto cambió.** Hasta el commit `bba0277` la cotización iba en texto plano y esta
+> guía decía que si cambiaba de aspecto era señal de parche mal pegado. **Ya no.** Hoy la
+> cotización maquetada es la señal de que el parche está **bien** puesto; si llegara en
+> texto plano, es que falta. Los que **no** mandan `html` son solo dos: **contrato y
+> Pilgrim**; si alguno de esos dos cambia de aspecto, el parche quedó mal pegado.
 
 ## Verificación del envío
 
 Como siempre: `messageId` es la única prueba real de que Brevo tomó el correo. Se ve en
-`comercial.email_log`, con `tipo = 'documentacion'` para estos envíos.
+`comercial.email_log`, donde desde la revisión de B4 quedan fila **todos** los flujos:
+`documentacion`, `cliente` (los tres cotizadores), `contrato` (los tres flujos del embudo),
+`pilgrim` y `lead`. Estado `confirmado` = Brevo devolvió `messageId`; `aceptado` = el
+workflow terminó pero no hay prueba; `error` = falló.
+
+**`confirmado` significa «Brevo lo aceptó», no «llegó».** Los rebotes y los bloqueos ocurren
+después y hoy no vuelven a la plataforma (ver la propuesta del endpoint de eventos de Brevo
+en `auditoria/B4-correo.md`).

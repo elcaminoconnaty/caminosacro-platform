@@ -21,9 +21,13 @@ export const definicion: DefinicionPlantilla = {
       id: "cuerpo",
       etiqueta: "Consejo",
       tipo: "textarea",
-      maxLargo: 260,
+      // 420 y no 260: con 180 car. —lo que venía escribiendo Claude— el slide quedaba
+      // literalmente medio vacío, con el bloque de texto flotando en el centro y aire
+      // muerto arriba y abajo. Verificado por render a 400 car. en 4x5, 1x1 y 9x16: cabe
+      // con holgura en los tres. El consejo es el contenido, no un pie de foto.
+      maxLargo: 420,
       porDefecto:
-        "El 90% de las molestias del Camino son ampollas. Calzado ya domado, calcetines sin costuras y secar bien los pies en cada parada: es lo que más se agradece al cuarto día.",
+        "El 90% de las molestias del Camino son ampollas. La clave está en tres cosas: calzado ya domado (nunca lo estrenes en la primera etapa), calcetines sin costuras —mucha gente usa dos capas finas— y secar bien los pies en cada parada, aprovechando el café de media mañana. Al cuarto día es lo que más se agradece.",
     },
   ],
 };

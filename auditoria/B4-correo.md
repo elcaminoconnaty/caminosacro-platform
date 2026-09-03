@@ -290,18 +290,35 @@ aviso interno use `baseUrlApp()` en vez del literal.
 
 ### Verificaciones que solo puede hacer Nico
 
-No se pueden comprobar desde aquí y conviene que queden apuntadas en un solo sitio:
+_(Lista actualizada en la ronda de revisión: ordenada por valor, con el cómo, y con el punto 4
+del auditor ya resuelto.)_
 
-1. **SPF, DKIM y DMARC de `caminosacro.com`** delegados a Brevo. Sin DKIM firmado por el
-   dominio propio, Gmail marca «enviado por sendinblue.com» bajo el remitente, que es la
-   pinta clásica de suplantación. Es la comprobación de más valor de esta lista.
-2. **`APP_BASE_URL` en Railway**: que apunte al dominio de marca y no al `*.up.railway.app`
-   (ver el hallazgo de arriba).
-3. **Reputación del remitente en Brevo**: si `reservas@caminosacro.com` está verificado como
-   remitente y qué tasa de rebote/spam lleva.
-4. **Si el parche de HTML del workflow está pegado o no** (`scripts/n8n_correo_html.md`). De
-   eso depende que el correo de documentación y el de cotización salgan maquetados o como un
-   muro de texto. Se ve entrando al nodo «Validar y Preparar».
+No se pueden comprobar desde aquí. **Las dos primeras son las que valen; las otras son
+higiene.**
+
+1. **SPF, DKIM y DMARC de `caminosacro.com` delegados a Brevo.** Es la de más valor de la
+   lista, y de largo. Sin DKIM firmado por el dominio propio, Gmail escribe «enviado por
+   sendinblue.com» debajo del remitente —la pinta clásica de una suplantación— justo en el
+   correo donde a alguien se le pide firmar un contrato y subir su pasaporte.
+   *Cómo:* en Brevo, **Senders, Domains & Dedicated IPs → Domains → `caminosacro.com`**: los
+   tres registros deben salir en verde. Si falta alguno, Brevo da el TXT exacto que hay que
+   pegar en el DNS del dominio. Comprobación independiente: mandarse un correo a una cuenta
+   de Gmail y mirar «Mostrar original» — debe decir `SPF: PASS`, `DKIM: PASS` con
+   `header.i=@caminosacro.com` (no `@sendinblue.com`) y `DMARC: PASS`.
+2. **`APP_BASE_URL` en Railway.** Que apunte al dominio de marca y no al
+   `*.up.railway.app`. De esta variable salen los enlaces de la versión web del correo y el
+   enlace de firma. *Indicio de que hoy está mal:* `.env.example:15` documenta el host de
+   Railway, y quien montó producción copió ese archivo.
+   *Cómo:* Railway → servicio de la app → **Variables**. Después, mandar una cotización en
+   modo prueba y mirar a dónde apunta «Ver este correo en el navegador».
+3. **Reputación del remitente en Brevo**: que `reservas@caminosacro.com` esté verificado como
+   remitente y qué tasa de rebote/spam lleva. *Cómo:* Brevo → **Statistics → Transactional**.
+   Mientras no exista el endpoint de eventos (propuesta 3 de más abajo), **ese panel es el
+   único sitio donde se ve un rebote**: la plataforma no se entera de ninguno.
+4. ~~Si el parche de HTML del workflow está pegado o no~~ — **resuelto, no hace falta**. Está
+   pegado y bien pegado: se leyó el nodo «Validar y Preparar» en producción (`textContent` se
+   conserva, `htmlContent` solo se añade `if (html)`). Queda anotado en la cabecera de
+   `scripts/n8n_correo_html.md` para que nadie lo vuelva a pegar encima.
 
 ### [MEDIO] El secreto del webhook no protege «mandar cotizaciones»: protege «mandar cualquier correo como Camino Sacro» — nodo «Validar y Preparar» del workflow `HgErNCbopi95CdiI`
 

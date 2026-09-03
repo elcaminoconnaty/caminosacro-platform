@@ -6,6 +6,7 @@ import { Sparkles, Check, X, TriangleAlert, Laptop, ChevronDown } from "lucide-r
 import { encargarIdeas, recogerIdeas, aceptarIdea, descartarIdea } from "./ideasActions";
 import type { ContextoIdeas } from "@/lib/contenido/ideas";
 import { plantilla as buscarPlantilla } from "@/lib/contenido/plantillas/registry";
+import PedidoCaja from "./PedidoCaja";
 
 /** Cada cuánto se pregunta si el encargo ya está listo. */
 const ESPERA_MS = 3000;
@@ -23,6 +24,10 @@ export type FilaIdea = {
   evidencia: { nota?: string } | null;
   slides: SlideIdea[] | null;
   fuente_dato: string | null;
+  /** 'claude' = salió de los datos; 'manual' = la pidió una persona por escrito. */
+  fuente: string | null;
+  /** El texto literal del pedido, cuando la idea nació de "Pídelo tú". */
+  pedido: string | null;
 };
 
 /** Etiquetas en español para la chapita de fuente_dato. */
@@ -111,6 +116,8 @@ export default function IdeasPanel({
         </button>
       </div>
 
+      <PedidoCaja workerEncendido={workerEncendido} />
+
       <p className="px-5 py-2 border-b border-border flex items-center gap-1.5 text-[11px] text-muted">
         <Laptop size={12} className={workerEncendido ? "text-bosque-medio" : "text-muted"} />
         {workerEncendido
@@ -148,14 +155,22 @@ export default function IdeasPanel({
                     {idea.pilar && (
                       <span className="px-1.5 py-0.5 rounded bg-taupe text-muted">{idea.pilar}</span>
                     )}
-                    {idea.fuente_dato && (
-                      <span className="px-1.5 py-0.5 rounded bg-bosque/10 text-bosque-medio">
-                        {ETIQUETAS_FUENTE[idea.fuente_dato] ?? idea.fuente_dato}
-                      </span>
+                    {idea.fuente === "manual" ? (
+                      <span className="px-1.5 py-0.5 rounded bg-dorado/25 text-dorado-oscuro">tuyo</span>
+                    ) : (
+                      idea.fuente_dato && (
+                        <span className="px-1.5 py-0.5 rounded bg-bosque/10 text-bosque-medio">
+                          {ETIQUETAS_FUENTE[idea.fuente_dato] ?? idea.fuente_dato}
+                        </span>
+                      )
                     )}
                     {idea.formato && <span>{idea.formato}</span>}
                     {idea.ruta_nombre && <span>· {idea.ruta_nombre}</span>}
                   </span>
+
+                  {idea.pedido && (
+                    <p className="mt-1.5 text-[10px] text-muted italic leading-snug">«{idea.pedido}»</p>
+                  )}
 
                   {idea.angulo && (
                     <p className="mt-1.5 text-[11px] text-muted leading-snug">{idea.angulo}</p>
@@ -177,7 +192,7 @@ export default function IdeasPanel({
                     <details className="mt-2 group">
                       <summary className="flex items-center gap-1 text-[10px] text-bosque-medio cursor-pointer select-none list-none">
                         <ChevronDown size={11} className="transition group-open:rotate-180" />
-                        Ver los {idea.slides.length} slides
+                        {idea.slides.length === 1 ? "Ver el slide" : `Ver los ${idea.slides.length} slides`}
                       </summary>
                       <ol className="mt-1.5 flex flex-col gap-1 pl-2.5 border-l-2 border-border">
                         {idea.slides.map((s, i) => (

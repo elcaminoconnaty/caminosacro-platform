@@ -5,7 +5,8 @@ import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { aJsonSchema, type Encargo } from "./encargo";
 import { SYSTEM_PROMPT, PILARES, RUTAS } from "./estrategia";
-import { PLANTILLAS_LISTA, plantilla as buscarPlantilla, valoresPorDefecto } from "./plantillas/registry";
+import { PLANTILLAS_LISTA } from "./plantillas/registry";
+import { SlidePropuesto, completarCarrusel, catalogoDeSlides, REGLA_DE_LARGO } from "./propuesta";
 
 /**
  * "¿Qué publico?" respondido con datos, no con intuición.
@@ -68,12 +69,6 @@ posts se sostiene. El resto que salga del catálogo y de las cotizaciones.`;
   return `Hay ${n} posts medidos: suficiente para fiarse. Las métricas son ahora tu señal
 principal; el catálogo y las cotizaciones sirven para completar lo que Instagram no cubre.`;
 }
-
-/** Un slide propuesto por Claude: misma forma que contenido_piezas.slides, sin la foto. */
-const SlidePropuesto = z.object({
-  plantilla: z.string(),
-  valores: z.record(z.string(), z.string()),
-});
 
 export const RespuestaIdeas = z.object({
   ideas: z
@@ -291,15 +286,6 @@ export async function construirEncargoIdeas(): Promise<{ encargo: Encargo; conte
     (p) => `- ${p.definicion.id} (${p.definicion.nombre}): ${p.definicion.descripcion}`,
   ).join("\n");
 
-  // Catálogo con los campos EXACTOS de cada plantilla y su largo máximo: es la única
-  // forma de que Claude proponga `slides` que el registry vaya a aceptar tal cual.
-  const catalogoSlides = PLANTILLAS_LISTA.map((p) => {
-    const campos = p.definicion.campos
-      .map((c) => `${c.id} (máx ${c.maxLargo ?? "sin límite"} car.)`)
-      .join(", ");
-    return `- ${p.definicion.id} [rol: ${p.definicion.rol}]: campos → ${campos || "sin campos"}`;
-  }).join("\n");
-
   const user = `Propón entre 3 y 6 ideas concretas de publicación para Instagram, basadas SOLO en los datos de abajo.
 
 CUÁNTO PUEDES FIARTE DE INSTAGRAM AHORA MISMO:
@@ -342,7 +328,7 @@ CADA IDEA TIENE QUE TRAER EL CARRUSEL ENTERO REDACTADO EN "slides".
 **MÍNIMO 4 SLIDES, MÁXIMO 6. NUNCA MENOS DE 4.** Listo para publicar sin reescribir nada.
 Reglas estrictas:
 - Usa SOLO estos ids de plantilla y SOLO estos campos (nada inventado):
-${catalogoSlides}
+${catalogoDeSlides()}
 - Cada slide es { "plantilla": "<id de la lista de arriba>", "valores": { "<campo>": "<texto>" } }.
   Solo incluyas los campos que esa plantilla declara, y respeta su largo máximo.
 - Estructura del carrusel: el primer slide usa una plantilla de rol "portada", el
@@ -353,6 +339,8 @@ ${catalogoSlides}
   carrusel donde los slides del medio no aportan es peor que no proponerlo.
 - Rellena TODOS los campos con texto de verdad, en la voz de la marca. Nada de textos de
   ejemplo ni marcadores tipo "[titular aquí]".
+
+${REGLA_DE_LARGO}
 - "fuente_dato" dice de qué dato salió la idea: "metricas" (rendimiento por pilar en
   Instagram), "catalogo" (rutas sin publicar), "cotizaciones" (demanda comercial real),
   o "calendario" (tema editorial del blog). Elige el que de verdad sustenta la idea.`;
@@ -370,71 +358,6 @@ ${catalogoSlides}
   };
 }
 
-type SlideLimpio = { plantilla: string; valores: Record<string, string> };
-
-const MIN_SLIDES = 4;
-const MAX_SLIDES = 6;
-
-/** Descarta plantillas inventadas y campos que la plantilla no declara. */
-function limpiarSlides(slides: SlideLimpio[]): SlideLimpio[] {
-  return slides.flatMap((s) => {
-    const p = buscarPlantilla(s.plantilla);
-    if (!p) return [];
-    const idsCampos = new Set(p.definicion.campos.map((c) => c.id));
-    const valores: Record<string, string> = {};
-    for (const [k, v] of Object.entries(s.valores)) {
-      if (idsCampos.has(k) && v?.trim()) valores[k] = v;
-    }
-    // Un slide sin un solo campo con texto no aporta nada: fuera.
-    return Object.keys(valores).length ? [{ plantilla: s.plantilla, valores }] : [];
-  });
-}
-
-/**
- * Garantiza un carrusel de entre 4 y 6 slides, siempre, y con estructura sensata.
- *
- * Nico lo pidió tal cual: "mínimo 4 slides, máximo 6, nunca menos de 4". Antes esto podía
- * devolver un array vacío cuando la validación tumbaba slides, y entonces aceptar la idea
- * abría una pieza de relleno — justo lo que hacía sentir que la idea "no venía bien
- * entregada".
- *
- * Reglas que se imponen aquí y no se dejan al modelo, porque el modelo falla de vez en
- * cuando y esto tiene que salir bien SIEMPRE:
- *   - el primero es una portada,
- *   - el último es el cierre con CTA,
- *   - por el medio, cuerpo; si faltan, se completan con plantillas de cuerpo.
- */
-function completarSlides(slides: SlideLimpio[]): SlideLimpio[] {
-  const limpios = limpiarSlides(slides);
-
-  const rolDe = (id: string) => buscarPlantilla(id)?.definicion.rol;
-  const portada = limpios.find((s) => rolDe(s.plantilla) === "portada");
-  const cierre = limpios.find((s) => rolDe(s.plantilla) === "cierre");
-  const cuerpo = limpios.filter((s) => rolDe(s.plantilla) === "cuerpo");
-
-  // Plantillas de cuerpo con las que rellenar si Claude se quedó corto. Se rotan para no
-  // repetir siempre la misma.
-  const rellenos = ["tip-numerado", "dato-grande", "mito-realidad"].filter((id) => buscarPlantilla(id));
-
-  const salida: SlideLimpio[] = [];
-  salida.push(portada ?? { plantilla: "portada-ruta", valores: valoresPorDefecto("portada-ruta") });
-
-  // Cuántos de cuerpo caben: entre 2 y 4, para acabar con 4-6 contando portada y cierre.
-  const cuantosCuerpo = Math.min(Math.max(cuerpo.length, MIN_SLIDES - 2), MAX_SLIDES - 2);
-  for (let i = 0; i < cuantosCuerpo; i++) {
-    const propio = cuerpo[i];
-    if (propio) {
-      salida.push(propio);
-    } else {
-      const id = rellenos[i % rellenos.length] ?? "tip-numerado";
-      salida.push({ plantilla: id, valores: valoresPorDefecto(id) });
-    }
-  }
-
-  salida.push(cierre ?? { plantilla: "cierre-cta", valores: valoresPorDefecto("cierre-cta") });
-  return salida;
-}
-
 /** Valida lo que devolvió el worker y le pega la evidencia con la que se pidió. */
 export function interpretarIdeas(crudo: unknown, contexto: ContextoIdeas) {
   const r = RespuestaIdeas.safeParse(crudo);
@@ -443,7 +366,7 @@ export function interpretarIdeas(crudo: unknown, contexto: ContextoIdeas) {
     ok: true as const,
     ideas: r.data.ideas.map((i) => ({
       ...i,
-      slides: completarSlides(i.slides),
+      slides: completarCarrusel(i.slides),
       evidencia: contexto,
     })) as IdeaGenerada[],
   };

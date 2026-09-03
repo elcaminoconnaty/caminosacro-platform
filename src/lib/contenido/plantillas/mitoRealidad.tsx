@@ -21,8 +21,8 @@ export const definicion: DefinicionPlantilla = {
   usaFoto: true,
   rol: "cuerpo",
   campos: [
-    { id: "mito", etiqueta: "Lo que se cree", tipo: "textarea", requerido: true, maxLargo: 110, porDefecto: "En el Camino hay que dormir en albergues compartidos." },
-    { id: "realidad", etiqueta: "Lo que es", tipo: "textarea", requerido: true, maxLargo: 180, porDefecto: "Con nosotros duermes en hotel con baño privado cada noche y comes rico. El mismo Camino, descansando de verdad." },
+    { id: "mito", etiqueta: "Lo que se cree", tipo: "textarea", requerido: true, maxLargo: 160, porDefecto: "En el Camino hay que dormir en albergues compartidos." },
+    { id: "realidad", etiqueta: "Lo que es", tipo: "textarea", requerido: true, maxLargo: 340, porDefecto: "Con nosotros duermes en hotel con baño privado cada noche y comes rico. El mismo Camino, descansando de verdad." },
   ],
 };
 

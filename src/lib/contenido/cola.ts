@@ -51,7 +51,7 @@ export async function estadoDelWorker(): Promise<EstadoWorker> {
   };
 }
 
-export async function encolar(tipo: "copy" | "ideas", encargo: Encargo, piezaId?: string | null) {
+export async function encolar(tipo: "copy" | "ideas" | "pedido", encargo: Encargo, piezaId?: string | null) {
   const supabase = await createPublicSchemaClient();
 
   // Antes de encolar, devolver a la cola lo que quedó colgado de un worker que se cayó.

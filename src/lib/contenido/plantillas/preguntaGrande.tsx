@@ -20,7 +20,7 @@ export const definicion: DefinicionPlantilla = {
       id: "respuesta",
       etiqueta: "Respuesta",
       tipo: "textarea",
-      maxLargo: 220,
+      maxLargo: 420,
       porDefecto:
         "No. Acompañamos peregrinos de 30 a 75 años. Vas a tu ritmo, con la maleta trasladada y hotel cada noche. La edad no decide: tú decides.",
     },
