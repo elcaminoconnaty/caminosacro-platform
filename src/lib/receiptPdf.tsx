@@ -13,6 +13,13 @@ Font.register({
   ],
 });
 
+// Sin guionado: `@react-pdf` parte las palabras por guion al final de línea y con datos
+// reales ya se ven cortes como «acomo-dación» o «Ponfe-rrada». Devolver la palabra entera
+// desactiva el algoritmo. Es global al módulo `Font`, pero se repite en cada sitio que
+// registra fuentes porque no todos los generadores pasan por el mismo módulo.
+Font.registerHyphenationCallback((word) => [word]);
+
+
 const COLORS = {
   bosque: "#1a3a2a",
   bosqueMedio: "#2d5a3d",
