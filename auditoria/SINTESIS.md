@@ -286,3 +286,150 @@ mezcla con lo pendiente de arriba**:
   de toda cotización.
 
 ---
+
+## 4. Lo que un CRM de agencia trae y aquí falta
+
+Contra los ocho puntos de `CRITERIOS.md`, y **solo lo que le aplica a una agencia de dos
+personas**. Los ocho, con su nota:
+
+**1. Cotizar rápido y sin equivocarse — casi entero.** El asistente autocarga tarifa, días,
+fecha de fin, etapas y las tarjetas del PDF en cuanto se elige ruta, alojamiento y fecha; el
+buscador de cliente por teléfono evita reteclear; los precios están por año y con bitácora.
+Faltan dos cosas: **no se puede duplicar una cotización que ya existe** —el motor para hacerlo ya
+está escrito, se usa en otro sitio— y **las tarifas no tienen vigencia, tienen año**. Las
+columnas «desde» y «hasta» existen en la base y están **vacías en las 51 filas** (3-sep-2026), y
+la «temporada» tiene un único valor. O sea: no se puede cargar una subida a mitad de año ni una
+temporada alta sin pisar el precio del año entero. Y ese mismo mecanismo es el que produce el
+opcional a 0 € de §2.7.
+
+**2. Saber en qué va cada venta sin preguntar — a medias.** El expediente contesta muy bien «cómo
+va esta venta». Lo que no contesta nunca es **«cuál abro»**: la lista está ordenada por número de
+cotización, o sea por antigüedad, y ninguna de sus siete columnas dice **qué falta hacer**. No
+consulta los contratos, así que quién firmó y quién no es invisible desde ahí. Y la etiqueta
+«enviada» no prueba que se haya enviado nada: **33 de 39 no tenían fecha de envío** (1-sep-2026).
+
+**3. No dejar caer a nadie — es la pata más floja, y `CRITERIOS.md` dice que es la que más plata
+deja sobre la mesa.** De las tres piezas del oficio, la plataforma tiene **una**: el recordatorio
+de la firma del contrato, que además está bien hecho. Faltan el seguimiento de la cotización sin
+respuesta, el aviso de saldo y la confirmación de pago. En los tres casos **el dato ya está en la
+base y el patrón ya está escrito**.
+
+**4. Los números cuadran solos — media contabilidad.** El lado del cliente está bien montado y la
+tasa que se guarda es la del día del movimiento, que es lo correcto. Pero **al CRM no entra lo
+que se le paga a Pilgrim**: al 1-sep-2026 había **6 pagos al proveedor por 2.617 €** contra
+**47.750 € de costo**, y **15 salidas a menos de 60 días con 23.992 € sin registrar**. Lo más
+probable es que a Pilgrim se le pague por fuera del CRM — y precisamente por eso «Margen real» y
+«Saldo proveedor» son hoy **dos cifras sin respaldo** que ninguna pantalla advierte. Añádase el
+euro del pago que nada garantiza (§2.5) y esto: **la agencia cobra en pesos y el cotizador
+público no pinta ni un peso**. La tabla de tasas de cambio lleva **0 filas** desde que existe el
+proyecto, el fallo se traga en silencio, y la cotización que se le promete al cliente por 30 días
+**no archiva ningún peso**: lo que aguanta 30 días es el euro.
+
+**5. Documentos y firma dentro — está, y es de lo mejor de la plataforma.** Cotización, contrato
+y documentación salen de los mismos datos, sin reteclear; la firma aguanta como prueba; el
+almacenamiento está bien pensado; los cinco generadores de PDF aguantan lo que se les eche. Lo
+que falta es **poder modificar lo firmado**: un viajero no puede tener dos contratos, así que si
+cambia algo, o miente el papel o se pierde la firma. Y una incoherencia que va a doler: las
+condiciones del **Documento de Viaje** las cambias tú desde Configuración, pero **el articulado
+del contrato vive en el código** —incluida la cláusula sexta, la de cancelación, con sus tramos
+de días y sus penalidades del 15/50/80 %—. Las dos tienen que decir lo mismo. La primera vez que
+Pilgrim mueva su política, lo natural es que se actualice el lado fácil y el contrato siga
+diciendo lo viejo. Y no se guarda qué versión firmó cada quien: dentro de dos años, la única
+forma de saberlo es abrir su PDF.
+
+**6. El cliente se atiende solo — no.** No tiene un sitio: tiene **tres enlaces sueltos** que le
+llegan en tres momentos distintos (la oferta, el contrato, la documentación). Para una agencia de
+dos personas no hace falta un portal, pero sí que los tres enlaces lleven al mismo sitio.
+
+**7. Rastro de lo que pasó — es el hueco más transversal de toda la auditoría.** **Ninguna de las
+tres tablas de dinero tiene autor ni bitácora**: ni las cotizaciones, ni los pagos de cliente, ni
+los del proveedor. Hay una columna «creado por» en cotizaciones que está **vacía en todas las
+filas y no la escribe ni la lee nadie**: finge un rastro que no existe. Y hay un caso concreto:
+**borrar un pago no deja rastro y hace que el siguiente recibo reutilice un número ya
+entregado**. En la bitácora del catálogo, que sí existe, **40 de 67 entradas no dicen quién**
+—son los cambios hechos desde el editor SQL—. Cuando llegue una queja, esto es la diferencia
+entre saber y creer.
+
+**8. Un proveedor no es texto libre — la mitad sí, la mitad no.** Los precios, los opcionales y
+las bicis son datos por año con su bitácora: ahí está resuelto. Pero **el alojamiento del
+itinerario es texto escrito a mano**: de **289 etapas, 280 traen el alojamiento como texto
+libre** —**94 formas distintas de escribirlo**— frente a **12 fichas de hotel**, y entre unos y
+otros **no hay ninguna relación en la base**: el prellenado del Documento de Viaje une las dos
+cosas **comparando cadenas de texto**, y acierta **74 de 280 noches, el 26,4 %** (3-sep-2026).
+El resto se escribe a mano cada vez, y una tilde de más rompe el emparejado sin avisar. Lo mismo
+con la ruta del expediente: **vacía en 32 de 44 cotizaciones**, guardada como nombre. Y falta lo
+que en el oficio se da por hecho: **no hay cupo ni «confirmado con el proveedor»** —la
+disponibilidad solo existe como prosa en un correo— y **el costo estimado nunca se enfrenta a la
+factura real**.
+
+**Y dos cosas del uso diario que también son del listón:** en el **celular no hay navegación**
+—la barra lateral desaparece y no la sustituye nada, así que desde el teléfono solo se puede ir
+hacia atrás—, y **los números de dinero están pintados en un dorado que no se lee**: 2,13 de
+contraste donde hace falta 3,0. Los dos, verificados por reconstrucción y no por uso (ver la
+lista final).
+
+---
+
+## 5. Lo que se decidió no hacer
+
+Vale tanto como lo anterior: es donde **no** hay que volver a gastar tiempo.
+
+**Sitios donde se buscó un problema y no lo había.** Están medidos, no supuestos:
+
+- **Las cuatro puertas de cotización: no hay ningún GRAVE ahí.** Se recorrieron una por una
+  buscando el desastre que se temía —cobrar una salida de 2027 con tarifa de 2026, en silencio—.
+  **No ocurre por ninguna** (3-sep-2026): WordPress y BayMax comparten el mismo cálculo y exigen
+  coincidencia exacta de año —si falta, devuelven error y **no crean nada**—; `/cotizar` sí
+  caería al año anterior, pero **nadie la ha usado jamás** (0 cotizaciones); y el asistente del
+  CRM, por donde entra el 89 %, **avisa en ámbar** antes de dejar teclear. Que nadie repita este
+  recorrido.
+- **Los márgenes.** Barridas 74 filas: **ninguna por debajo del costo**.
+- **Los estados de la base.** No hay ni un estado imposible en ninguna cotización.
+- **Cobrar mientras otro edita no choca**, y los filtros, la búsqueda y el orden de Seguimiento
+  están bien resueltos.
+- **Las cascadas de borrado están pensadas**, no puestas por defecto, y los dos casos que dejan
+  el dato en blanco en vez de borrarlo son deliberados.
+- **El cubo de fotos de hoteles no tiene huérfanos**: sus 32 objetos se referencian desde la
+  ficha del hotel. Cualquier arqueo que no lo contemple dará 32 falsos positivos.
+- **Al navegador no llega ni un secreto**, los 13 endpoints están cerrados uno por uno, el uso
+  de la llave de servicio está justificado en los 23 sitios donde aparece, y el esquema de la
+  base aguanta el escrutinio. El rendimiento está **medido**, no supuesto.
+- **El robot de recordatorios de la firma está bien pensado** (renueva el enlace en cada envío) y
+  **que el enlace de documentación no caduque es correcto**, no un descuido.
+- **El módulo de bicis es el mejor cerrado del catálogo**, aunque esté a medio nacer: tiene la
+  guarda que le falta a los opcionales.
+
+**Cosas que se descartaron a propósito, con el motivo:**
+
+- **Plantillas de cotización por ruta.** El asistente ya autocarga todo; una plantilla encima
+  ahorraría dos clics. El hueco real es **duplicar una cotización que ya existe**.
+- **Versionado completo con historial navegable.** Maquinaria de más para dos personas: con no
+  pisar el PDF ya enviado y una bitácora de los campos de dinero se cubre el problema real.
+- **Una máquina de estados.** El problema no es que falte: es que cobrar y firmar no mueven nada.
+- **Recibir dentro del CRM las respuestas del cliente.** El «responder a» está bien puesto y las
+  respuestas caen en `reservas@`, que en una agencia de dos personas es donde tienen que caer.
+- **Permisos por rol.** La propia vara lo excluye: son dos personas. Se anota que hoy una tercera
+  cuenta lo vería todo, incluidos los pasaportes — pero no es un hallazgo, es una consecuencia.
+- **Embudos de veinte etapas, tableros arrastrables, panel de productividad, integraciones con
+  sistemas de reservas aéreas.** No aplican.
+- **Reescribir el editor de cotizaciones.** La propuesta no es hacer uno nuevo: es que la pantalla
+  llame al que ya funciona.
+
+**Dos cosas que dos bloques miraron y aquí se cuentan una sola vez**, porque contarlas dos infla
+la lista y le quita credibilidad al resto:
+
+- **«Faltan tests»** no entra como hallazgo propio. Lo que B6 escribió son **tres roturas
+  concretas con su prueba mínima**, y esas tres roturas **ya están levantadas** en B1, B3 y B4 con
+  su etiqueta. Es el plan de arreglo de aquellas, no una entrada más.
+- **«Sobran clics»** tampoco. Los cinco pasos de más que se contaron son exactamente los
+  hallazgos de §2.4, §2.6 y la franja «Hoy», vistos desde el trabajo diario. La lectura es útil
+  para priorizar; el recuento sería doble.
+
+**Y tres cosas que se anotaron y no se tocaron a propósito**, por la regla de la auditoría de no
+meter mano en migraciones ni en estados de venta: el índice duplicado de la tabla de
+documentación, la falta de fecha de caducidad del pasaporte, y que la versión web de un correo
+(`/correo/[token]`) sea la única puerta pública **que no se puede apagar** —el contrato caduca y
+la documentación se puede revocar; esa no—. Hoy es menor porque la tabla tiene 12 filas
+(3-sep-2026), pero crece sola.
+
+---
