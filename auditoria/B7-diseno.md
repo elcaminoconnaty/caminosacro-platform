@@ -1262,3 +1262,106 @@ pantallas nuevas o cambios de maqueta, y la regla 9 dice proponer, no rediseñar
 dorado) por el agente anterior. Retomo por lo que más pesa, no por el orden del plan: primero los
 tres arreglos de código del paso 5, luego los hallazgos nuevos (paso 2), el re-etiquetado (paso 4),
 las correcciones de texto que queden (paso 3) y por último las propuestas (pasos 6 y 7).
+
+---
+
+## Propuestas para Nico
+
+Lo que no se toca porque no es un arreglo: es una decisión de producto. Se escribe aquí para que
+Nico diga sí o no con el coste delante.
+
+### La franja «Hoy» de `/seguimiento` — el eje del tiempo
+
+**El problema, en una frase.** El CRM contesta muy bien «cómo va esta venta» y no contesta nunca
+**«cuál abro»**. Hoy `/seguimiento` es un listado ordenado por código descendente —o sea, por
+antigüedad de creación— con siete columnas para reordenar, y ninguna de las siete es «qué toca
+mover». Es un libro de cuentas ordenado por número de asiento. Una cola de trabajo se ordena por
+urgencia.
+
+**Qué se propone.** Una franja arriba de `/seguimiento`, encima de los cinco KPI de dinero, con
+**tres contadores**. Cada uno es un botón: al pulsarlo filtra la tabla que ya existe, no abre
+pantalla nueva.
+
+| contador | de dónde sale el dato | qué pregunta contesta |
+|---|---|---|
+| **Vencen esta semana — 4** | `valid_until` entre hoy y +7 días | ¿qué cotización se está enfriando? |
+| **Salen en menos de 15 días con saldo — 2** | `start_date` + `saldo`, ya calculados en esa página | ¿a quién hay que cobrarle antes de que salga? |
+| **Enviadas hace más de 7 días sin respuesta — 6** | `email_sent_at` frente a `status` | ¿a quién hay que llamar hoy? |
+
+**Qué cuesta, medido.** Las tres cuentas se hacen sobre datos que **ya están en memoria en esa
+página**:
+
+- `valid_until` **ya se lee de la base** (`seguimiento/page.tsx:35`) y se descarta por el camino:
+  el tipo `QuoteRow` (`QuotesTable.tsx:11-26`) ni siquiera la incluye. Coste: añadirla al tipo y
+  al `map`. Dos líneas.
+- `saldo` y `start_date` ya están en cada fila (`page.tsx:63-81`). Coste: cero.
+- `email_sent_at` es **una palabra más en el `select`**. La columna existe desde la migración
+  `0011` y el expediente ya la usa (`seguimiento/[id]/page.tsx:467`).
+
+Lo que hay que escribir de verdad es la franja —tres tarjetas contadoras— y el filtro por
+contador, que se engancha al filtrado que `QuotesTable` ya tiene. **Ni una migración, ni una
+consulta nueva, ni un campo nuevo en la base.** Es la propuesta con mejor relación entre lo que
+cuesta y lo que cambia de todo B7.
+
+**Qué se pierde hoy sin ella.**
+
+1. **Una cotización vencida se ve igual que la de ayer.** La plataforma le pone fecha de
+   caducidad a su propia oferta —`valid_until` sale impresa en el PDF que recibe el cliente,
+   `lib/quotes/pdf.ts:429`— y luego **no mira el reloj ni una sola vez**. Una de 1.800 € que
+   venció hace seis días no se distingue de una mandada anoche. La única forma de enterarse es
+   abrirlas de una en una.
+2. **La cotización que nadie contesta no tiene quien la persiga.** El único perseguidor
+   automático del proyecto es el cron de recordatorios de contrato
+   (`api/cron/recordatorios-contrato/route.ts`, migración `0012`) y está bien hecho. Pero se
+   quedó en el contrato: **antes de la firma no hay nada**. El silencio de un cliente es
+   exactamente el momento en el que se pierde una venta y hoy es invisible.
+3. **El saldo se cobra cuando alguien se acuerda.** Para saber a quién le falta pagar antes de
+   salir hay que abrir los expedientes uno por uno. Con 45 cotizaciones todavía se puede; a 150,
+   esta pantalla deja de servir para trabajar y solo sirve para consultar.
+
+**Dos añadidos pequeños que van con lo mismo y cuestan menos.**
+
+- **Un reloj en la cabecera del expediente.** `seguimiento/[id]/page.tsx:375-408` enseña código,
+  origen, cliente · ruta, estado y cinco cifras de dinero, y **no la fecha de salida**. Añadir
+  «salida el 22 de septiembre · faltan 9 días» es una línea, y es lo que le da sentido a la
+  franja «Qué falta» que ya propone B7.4: sin reloj, una lista de pendientes no distingue lo que
+  corre de lo que espera.
+- **El semáforo en `/calendario`.** Ya lista las próximas salidas con los datos cargados
+  (`CalendarView.tsx:151-170`): día, cliente, ruta, pax y estado. Falta la marca de contrato sin
+  firmar, saldo pendiente y documentación sin enviar. Es el sitio más barato del proyecto para
+  poner un semáforo, porque la lista ya está montada.
+
+**Lo que expresamente NO hace falta**, para que quede dicho: embudos de veinte etapas, permisos
+por rol, tableros arrastrables ni panel de productividad. Son dos personas. Lo que necesitan es
+que la pantalla les diga a quién llamar hoy.
+
+---
+
+## Hueco abierto: nadie ha visto el panel con datos
+
+Se cierra la ronda con esto sin resolver, y conviene que quede escrito porque es la única cosa
+que podría tumbar parte de este bloque.
+
+**Qué pasa.** Ni el auditor, ni los dos críticos, ni esta revisión han visto el CRM funcionando.
+El login es correo + contraseña de Supabase Auth y ningún agente puede autenticarse: no hay
+credenciales en el entorno y pedirlas no es algo que un agente deba hacer por su cuenta. Todo lo
+que dice B7 sobre cómo se ve la pantalla está verificado **por otro camino**: componentes reales
+montados sobre la hoja de estilos compilada, contrastes medidos en el navegador y tamaños en
+píxeles renderizados. Es un método honesto y con él se han encontrado cosas que leyendo el código
+no se veían —los KPI en cero debajo del aviso, por ejemplo—, pero **no es lo mismo que abrirlo**.
+
+**Qué haría falta para cerrarlo.** Que Nico, con su sesión iniciada y en un teléfono de verdad,
+mire cuatro cosas y diga si cuadran:
+
+1. **Un expediente con sus once tarjetas** en 390 px: cuánto hay que bajar para llegar al cobro y
+   si la cabecera dice lo suficiente.
+2. **Los KPI en dorado a la luz del día**, fuera de casa. Es el hallazgo de contraste (2,13) y es
+   el único que depende de la pantalla y la luz reales.
+3. **`/seguimiento` con las 45 filas**, la tabla en scroll horizontal y el botón de borrar ya
+   agrandado a 27 × 27.
+4. **Un error de carga provocado** —basta con quitar la red un momento y recargar— para ver el
+   aviso nuevo de esta ronda: que se lea, que no aparezca ningún 0,00 €, y que en `/calendario` ya
+   no diga «con los filtros actuales».
+
+Con eso, y con una captura de cada una, se cierra. Sin eso, la parte visual de B7 hay que leerla
+como **verificada por reconstrucción, no por uso**, y B8 debería decirlo así.
