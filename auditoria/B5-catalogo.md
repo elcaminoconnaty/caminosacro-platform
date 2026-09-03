@@ -12,7 +12,8 @@
 ## Tareas
 
 - **B5.1 El año de la tarifa.** Qué pasa el 1 de enero con las salidas del año nuevo sin tarifas cargadas. El fallback del cotizador público y el aviso `price_note`: ¿avisa de verdad o pasa desapercibido?
-  `Estado: hecho` — **la pregunta ya no es hipotética: 2027 se está vendiendo hoy** y solo **2 de las 11
+  `Estado: hecho` — _(cifras del 1-sep; la foto al 3-sep está en la tabla de arriba)_ **la pregunta
+  ya no es hipotética: 2027 se está vendiendo hoy** y solo **2 de las 11
   rutas web** tienen tarifa 2027 cargada (una de ellas a medias). Hay 12 cotizaciones con salida en 2027,
   todas `enviada`. `tarifarRuta()` se porta bien —distingue «sin tarifa este año» de «sin tarifa nunca» y
   nunca deja una base en cero—, pero **de las 12 solo 2 llevan `price_note`**: el resto se tecleó a mano y
@@ -41,7 +42,8 @@
   solo **6** tienen precio, todas de `Francés Bici Ponferrada` 2026 — las otras dos rutas de bici están
   publicadas y no se les puede alquilar una bici.
 - **B5.6 Hoteles.** Módulo recién hecho: duplicados, ciudades que no casan con las etapas, hoteles sin fotos, qué pasa al borrar uno en uso.
-  `Estado: hecho` — **el módulo está limpio**: 6 hoteles, ninguno duplicado por nombre ni por ciudad, todos
+  `Estado: hecho` — _(al 3-sep son **12** hoteles y **las 6 localidades tienen dos fichas**: ver la
+  tabla de arriba y el hallazgo del desempate)_ **el módulo está limpio**: 6 hoteles, ninguno duplicado por nombre ni por ciudad, todos
   con fotos, teléfono y dirección, y el emparejador de localidades resuelve bien los casos difíciles
   (lo probé ejecutándolo: «Pedrouzo» encuentra «O Pedrouzo (O Pino)»). Cobertura real del prellenado: **26 %
   de las noches**, pero **6 de 6 en `Francés desde Sarria`**, que es la ruta insignia. Lo único: al borrar
@@ -55,6 +57,30 @@
 ---
 
 ## Hallazgos
+
+> ### Las cifras de este bloque, remedidas contra producción **al 3-sep-2026**
+>
+> El catálogo se mueve todos los días y varios números de este informe caducaron en 24-48 h.
+> **Ésta es la foto buena; la fecha va pegada al número.** Lo que se lea más abajo con otra
+> cifra es la foto del día en que se escribió, no un error.
+>
+> | qué | al 3-sep-2026 | antes decía |
+> |---|---|---|
+> | cotizaciones en total | **44** | 45 (2-sep) |
+> | cotizaciones con salida en **2027** | **13** | 12 (1-sep) |
+> | rutas web con tarifa **2027** | **2 de 11** (Sarria completa; Tui 2 de 4 modalidades) | igual |
+> | rutas activas **sin etapas** | **4** (3 publicadas: `Portugués Bici Oporto`, `Portugués desde Vigo`, `Primitivo Bici Oviedo`; + `Espiritual desde Tui`) | 5 (2-sep, con `Norte desde Vilalba`, que **ya tiene 7 etapas**) |
+> | hoteles activos | **12**, en 6 localidades, **dos por localidad** | 6 (1-sep) → 11 (2-sep) |
+> | cobertura del prellenado de hoteles | **74 de 280 noches = 26,4 %** (20,0 % con coincidencia exacta) | 26 % / 25,8 % |
+> | etapas cargadas | **289** (280 con alojamiento, 9 sin) | 280 |
+> | textos distintos de alojamiento | **94** (92 tras normalizar) | 93 |
+> | `quotes.route_id` en `NULL` | **32 de 44** (73 %) | 33 de 45 |
+> | filas en `comercial.pricing` | **51**, con `valid_from`/`valid_to` en `NULL` **en las 51** y `season` con un único valor (`regular`) | — |
+> | cotizado sobre rutas **sin ninguna tarifa** | **12.180 €** en 4 rutas | igual |
+> | cotizaciones por puerta | `interna` **39** · `wordpress` **5** · `baymax` **0** · `web` **0** | baymax 1 (2-sep) |
+>
+> Método: consultas directas a `comercial.*` con el MCP de Supabase, y `normalizarLugar`
+> replicada en SQL para la cobertura de hoteles.
 
 ### [MEDIO] Se está vendiendo 2027 con tarifas de 2026 y casi nada lo deja anotado — `comercial.pricing` · `lib/pricing/year.ts`
 
@@ -584,11 +610,12 @@ conviene hacer las dos, en este orden:
 teléfono— podía reordenar el resultado y **cambiar qué hotel se propone**, sin que nadie
 tocara una línea de código ni el catálogo de esa localidad.
 
-**Medido contra producción al 3-sep-2026:** son **12 hoteles activos en 6 localidades, dos en
-cada una**, y en **5 de las 6** las dos fichas empatan por coincidencia exacta de localidad
-(Arzúa, Portomarín, Santiago, Sarria y Palas de Rei —esta última porque `Palas de rei` y
-`Palas de Rei` normalizan igual—). La sexta, O Pedrouzo, se desempata por el emparejado
-parcial. O sea: el desempate decide **en casi todas** las noches que hoy se prellenan.
+**Medido contra producción al 3-sep-2026, replicando `normalizarLugar` en SQL:** son **12
+hoteles activos en 6 localidades y hay exactamente dos fichas en cada una** —Arzúa,
+Portomarín, Santiago, Sarria, Palas de Rei y O Pedrouzo—, y **las 6 empatan**: en las seis, las
+dos fichas normalizan a la misma localidad (`Palas de rei`/`Palas de Rei` y
+`O pedrouzo`/`O Pedrouzo (O Pino)` se escriben distinto y normalizan igual). O sea: **hoy el
+desempate decide en el 100 % de las localidades** que el prellenado sabe resolver.
 
 **Arreglado:** `.order("name")` en la consulta (`f37e234`). El desempate pasa a ser
 alfabético: estable, explicable y el mismo hoy que mañana. Los dos comentarios del archivo
@@ -771,12 +798,14 @@ existen y están muertas) o se asume el año natural y se **borran** esas dos co
 no engañen. Lo que no puede quedarse es lo de ahora: el esquema promete vigencias y el código
 mira el año.
 
-**4. El itinerario y el catálogo de hoteles no están unidos.** Hay **289 etapas** con
-alojamiento escrito como **texto libre** —**94 textos distintos**— y **12 fichas de hotel**, y
-entre unos y otros **no hay ninguna clave foránea**: el prellenado del Documento de Viaje une
-las dos cosas **comparando cadenas** con `hotelParaLugar`. Y **9 etapas tienen como alojamiento
-la palabra «hotel»**, que no es una localidad ni un hotel: nunca van a emparejar con nada.
-*Qué se pierde hoy:* el prellenado propone hotel en aproximadamente **1 de cada 4 noches**; el
+**4. El itinerario y el catálogo de hoteles no están unidos.** De **289 etapas**, **280 traen
+alojamiento escrito como texto libre** —**94 textos distintos tal como están escritos, 92 tras
+normalizar**— frente a **12 fichas de hotel**, y entre unos y otros **no hay ninguna clave
+foránea**: el prellenado del Documento de Viaje une las dos cosas **comparando cadenas** con
+`hotelParaLugar`. Y **9 etapas tienen como alojamiento la palabra «HOTEL»**, que no es una
+localidad ni un hotel: no van a emparejar con nada, nunca.
+*Qué se pierde hoy:* el prellenado empareja **74 de esas 280 noches — el 26,4 %** (solo **20,0 %**
+si se exige coincidencia exacta de localidad, sin el emparejado parcial); el
 resto se escribe a mano cada vez, y un cambio de nombre en una ficha o una tilde de más rompen
 el emparejado sin avisar. Además hay **dos localidades escritas de dos formas** (`O pedrouzo` /
 `O Pedrouzo (O Pino)`, `Palas de rei` / `Palas de Rei`) que la base cuenta como cuatro.
@@ -1495,13 +1524,26 @@ hoteles, que ya tiene dos cálculos independientes que dan lo mismo.
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — **por dónde voy (3-sep-2026):** huecos **1 y 2 cerrados** (el GRAVE del
-opcional a 0 €, verificado contra producción, y el desempate de hoteles, arreglado en
-`f37e234` y ya escrito arriba con su hallazgo). Sigo por el **3**. Todos los números del
-bloque se están **remidiendo contra producción y fechando al 3-sep-2026**, porque caducan en
-días. Cierro los siete huecos del crítico **en su orden**, subiendo cada
+`Estado: hecho` — **los siete huecos cerrados (3-sep-2026)**, cada uno subido a **Hallazgos**
+con el formato del TABLERO para que B8 no tenga que leer la crítica:
+
+1. **GRAVE del opcional a 0 €** → escrito, con las dos filas 2027 vacías verificadas en
+   producción y las dos salidas (parche de datos / arreglo de `year.ts`). No se toca: es dinero.
+2. **Desempate de hoteles** → **arreglado** (`.order("name")`, `f37e234`) y anotado en
+   «Arreglos aplicados». Medido: hoy decide en las **6 de 6** localidades.
+3. **`route_id` en `NULL`** → hallazgo propio: **32 de 44**, cuatro rutas activas borrables sin
+   que la base chiste y el huérfano de la tilde (`CS-2026-010`) todavía sin poder prellenar.
+4. **Las cuatro rutas con el catálogo vacío** → hallazgo con los **12.180 €** remedidos y el
+   costo al 85 %; el detalle de qué pedirle a Pilgrim está en **Para Nico**.
+5. **El lead sin fila** → remitido a **B4**, sin duplicar la propuesta.
+6. **Los números caducados** → remedidos con el MCP y **fechados al 3-sep-2026** en la tabla de
+   cabecera de Hallazgos, que es de dónde debe copiar B8.
+7. **Las cuatro puertas** → queda escrito, con tabla, que **NO hay GRAVE ahí**; y la sección
+   **Para Nico** con cinco decisiones, cada una con lo que se pierde hoy.
+
+_(Bitácora original: cerré los siete huecos del crítico **en su orden**, subiendo cada
 hallazgo nuevo a la sección **Hallazgos** con el formato del TABLERO para que B8 no tenga que
-leer la crítica. Plan, y lo voy commiteando por partes:
+leer la crítica. Plan, commiteado por partes:)_
 
 1. **GRAVE del opcional a 0 €** → subir a Hallazgos con las dos salidas (parche de datos /
    arreglo de `year.ts`); es dinero, se anota, no se toca. Verifico antes contra producción que
