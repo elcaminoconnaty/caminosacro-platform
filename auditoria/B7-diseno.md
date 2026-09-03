@@ -14,8 +14,11 @@
 - **B7.1 El sistema visual.** Tokens de color y tipografía: ¿se usan o hay valores sueltos? Mide el contraste de los pares que de verdad se usan; no lo opines.
   `Estado: hecho` — **la disciplina de marca es excelente**: en todo el frontend del CRM hay **un solo
   archivo** con colores en hexadecimal, todo lo demás sale de los tokens. Y los contrastes calculados salen
-  bien… **menos uno, que se usa 36 veces**: `text-dorado-oscuro` da **2,13** sobre tarjeta blanca donde hace
-  falta 4,5 (o 3 si es grande). Y es el color de los KPI de dinero y de los avisos ámbar.
+  bien… **menos uno**: `text-dorado-oscuro` da **2,13** sobre tarjeta blanca donde hace falta 3,0 (los KPI
+  califican como texto grande, verificado por el crítico en píxeles renderizados). Es el color de los KPI de
+  dinero y de las notas del suplemento.
+  **Corregido tras la crítica:** son **23 usos dentro del alcance** del bloque —15 en el CRM y 8 en las
+  páginas públicas que lee el cliente—, no 36; los otros 19 están en `contenido/**`, fuera de alcance.
 - **B7.2 Los tres estados que siempre faltan.** Vacío, cargando y error, pantalla por pantalla. Lista las que se quedan mudas.
   `Estado: hecho` — la mayoría de pantallas tiene los tres estados, y `/seguimiento` los tiene **muy** bien
   (distingue «sin cotizaciones» de «ninguna coincide con los filtros»). La que se queda muda es **`/finanzas`**,
@@ -56,7 +59,7 @@
 
 ## Hallazgos
 
-### [MEDIO] El color de los números de dinero no se lee: 2,13 donde hace falta 4,5 — `globals.css:8` (`--color-dorado-oscuro`), 36 usos
+### [MEDIO] El color de los números de dinero no se lee: 2,13 donde hace falta 3,0 — `globals.css:8` (`--color-dorado-oscuro`), 23 usos en alcance (15 en el CRM)
 
 Calculado, no opinado. `--color-dorado-oscuro` es `#e0a840`, y estos son los contrastes WCAG
 en los fondos donde de verdad se pinta:
@@ -69,7 +72,22 @@ en los fondos donde de verdad se pinta:
 | Chip «Web» (`bg-dorado-oscuro/15`) | **1,92** | 4,5 | **falla** |
 | Chip de contrato (`bg-dorado/30`) | **1,83** | 4,5 | **falla** |
 
-Son **36 usos de `text-dorado-oscuro`** en el CRM, y no están en decoración: son
+**El recuento, corregido por el crítico.** El titular decía «36 usos» y esa cifra sale de contar todo
+`src`, incluido el Estudio de Contenido que el TABLERO deja fuera (línea 7). Contado bien:
+
+| ámbito | usos de `text-dorado-oscuro` |
+|---|---|
+| todo `src` | 42 |
+| de esos, en `contenido/**` — **fuera de alcance** | 19 |
+| **dentro del alcance** | **23** |
+| …de los cuales, en páginas públicas del cliente (`/cotizar`, `/contrato`, `/documentacion`) | **8** |
+| …en el CRM propiamente dicho | **15** |
+
+La etiqueta no cambia —los 15 del CRM son los que importan— pero el número del titular estaba inflado
+2,4× respecto del CRM, y eso es justo lo que el TABLERO pide no hacer. **Y los 8 de las páginas públicas
+no son un detalle menor: esos los lee el cliente en su propio teléfono, y ahí el argumento sube de tono.**
+
+Los 23 usos en alcance no están en decoración: son
 - **las cifras destacadas de las cuatro pantallas de números** —`seguimiento/page.tsx:128`,
   `finanzas/page.tsx:122`, `clara/page.tsx:157`, `tokens/page.tsx:216`—, que usan el mismo
   componente `Card` con `accent`;
@@ -83,9 +101,19 @@ ve. El dorado funciona **muy bien** donde nació —sobre el verde bosque de la 
 fácil de no notar porque en una pantalla buena y con buena luz se lee.
 
 **Propuesta:** no tocar el token de marca; añadir uno **para texto sobre fondo claro**. Un
-`--color-dorado-texto` alrededor de `#8a6410` da ~5,3 sobre blanco y ~5,0 sobre crema, sigue
-leyéndose como dorado y pasa AA. Cambiar las 36 clases es un buscar-y-reemplazar. El dorado
-actual se queda para fondos oscuros, rellenos y bordes, donde ya cumple.
+`--color-dorado-texto` alrededor de `#8a6410` da **5,37** sobre blanco y **4,93** sobre crema (medidos por
+el crítico en Chrome), sigue leyéndose como dorado y pasa AA. Cambiar las 23 clases es un
+buscar-y-reemplazar. El dorado actual se queda para fondos oscuros, rellenos y bordes, donde ya cumple.
+
+Dos matices de la crítica que mandan sobre el orden del trabajo:
+
+- **Se empieza por las páginas públicas** (los 8 usos que lee el cliente), no por el CRM.
+- Sobre crema, `#8a6410` da 4,93: pasa AA pero **sin margen**. Si el aviso va a vivir sobre crema,
+  conviene bajarlo un punto más.
+
+Y el argumento de verdad no es el ratio: el KPI es **24 px de una serif (Caladea) en peso 400**, y las
+astas finas a 2,13 se pierden más que las de una sans del mismo tamaño. En pantalla, **el número más
+importante se lee peor que su propio rótulo gris** (`muted`, 5,98).
 
 ### [MEDIO] Lo primero que se ve del expediente son las dos cosas que pueden estar mal — `seguimiento/[id]/page.tsx:407-418`
 
