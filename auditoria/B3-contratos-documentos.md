@@ -564,11 +564,12 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: en curso` — tercer agente crítico (los dos primeros murieron por el límite de gasto).
+`Estado: hecho` — tercer agente crítico (los dos primeros murieron por el límite de gasto).
+**Los cinco puntos están cerrados y el veredicto es `revisar`** (al final de la sección).
 
-**Por dónde voy:** puntos **1, 2, 3 y 4 cerrados** (escritos abajo). Ataco el **punto 5** — el
-listón del oficio: qué trae de serie un CRM de agencia en contratos y documentos que aquí falte y
-le cueste caro a una agencia de dos personas. Después, el veredicto.
+**Resumen:** los números del auditor son exactos, pero tres etiquetas están mal puestas, tres
+afirmaciones del informe son falsas o imprecisas, y faltan ocho hallazgos (cuatro de código, cuatro
+de oficio).
 
 Plan de verificación, en este orden; cada punto se escribe aquí en cuanto se cierra:
 
@@ -940,15 +941,166 @@ hijas de Storage.
 
 ---
 
-_(sigue: el listón del oficio)_
+### 5. El listón del oficio: cuatro cosas que trae de serie un CRM de agencia y aquí no están
 
-_(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
-seguido de los huecos concretos.)_
+Filtradas contra `CRITERIOS.md`: nada de funciones de CRM corporativo, solo lo que **le cuesta
+caro a una agencia de dos personas**. Cada una completa la frase «esto hace que se pierda ___».
+
+#### 5.1 · Las condiciones del contrato viven en el código; las del documento de viaje, en la base
+
+`lib/contracts/template.ts` son **330 líneas de TypeScript** con el articulado entero escrito
+dentro: `contractClauses()` devuelve las dieciséis cláusulas, y la sexta —la política de
+cancelación, con sus tramos de 60/16/15/11/10/6/5 días y sus penalidades del 15/50/80 %— está en
+una plantilla de cadena en la línea 205. En Lemax, Tourwriter, Travefy o YouLi las condiciones
+generales son **un documento editable con campos de fusión**, y cada contrato firmado guarda **qué
+versión** se firmó.
+
+Lo grave no es la incomodidad: es la **asimetría con el otro documento**. Los textos del Documento
+de Viaje —incluidas sus `condiciones`— sí viven en `comercial.settings` y Nico los edita desde
+Configuración sin desplegar (`lib/travelDocs/texts.ts:23`, migración 0030, y está documentado con
+ese motivo). O sea que **Nico puede cambiar la mitad de las condiciones desde el CRM y la otra
+mitad no**, y ya está anotado en el proyecto que las condiciones del documento tienen que cuadrar
+con la cláusula sexta del contrato. La primera vez que Pilgrim mueva su política de cancelación,
+lo que va a pasar es que se actualice el lado fácil y el contrato siga diciendo lo viejo. Eso es
+«un dato, un sitio» roto en el peor sitio posible.
+
+Y no hay `template_version` en `contracts`: dentro de dos años, la única forma de saber qué decía
+la cláusula sexta el día que Amalia firmó es abrir su PDF de Storage —el mismo que, si alguien
+borra el expediente, se queda ahí **sin una sola fila que diga de quién es** (los pasaportes se
+guardan como `Pasaporte-CS-2026-004-<epoch>.jpg`, sin el nombre ni la posición del viajero, así
+que en un grupo de cuatro solo la base sabe cuál es cuál… y la base es lo que se borra).
+Se pierde: **la capacidad de cambiar sus propias condiciones sin programador**, y la trazabilidad
+de qué se firmó.
+
+**Propuesta:** mover el articulado a `settings` con la misma mecánica que `travel_doc` (misma
+migración, misma pantalla de Configuración) y añadir `contracts.template_version`, que se sella al
+generar el PDF. No es urgente; es lo primero que pediría un auditor externo.
+
+#### 5.2 · No se guarda la caducidad del pasaporte, y es el dato que tumba un viaje entero
+
+`comercial.quote_travelers` tiene once columnas y las de identidad son exactamente dos:
+`document_type` y `document_number`. **No hay fecha de vencimiento del pasaporte, ni fecha de
+nacimiento, ni nacionalidad.** Todos los CRM de la lista los piden, y todos avisan: un pasaporte
+que caduca a menos de tres meses de la salida del espacio Schengen **no embarca**, y a un colombiano
+volando a Madrid se lo dicen en el mostrador de El Dorado, no antes.
+
+Lo que lo vuelve barato de arreglar es que **el dato ya está en casa**: el viajero sube la foto de
+su pasaporte al firmar —es obligatorio, `contrato/[token]/actions.ts:98` lo exige y lo hace bien—.
+Falta un campo, y falta que alguien lo mire. Hoy, si Johana firma en septiembre con un pasaporte
+que vence en enero para un viaje de abril, en esta plataforma no hay absolutamente nada que lo
+detecte.
+
+Se pierde: **un viaje entero ya pagado**, y con él la relación con el cliente, porque el mostrador
+de la aerolínea no distingue entre «no me lo pidieron» y «mi agencia no me avisó».
+
+**Propuesta:** dos columnas en `quote_travelers` (`passport_expiry`, `birth_date`), pedidas en el
+mismo formulario de firma donde ya se pide el número, y una alerta en el expediente cuando
+`passport_expiry < start_date + 6 meses`. Es una migración, así que **se anota, no se toca**.
+
+#### 5.3 · El cliente no tiene un sitio; tiene una colección de enlaces sueltos
+
+Las tres rutas por token están bien construidas —eso ya lo dijo B3.1—, pero son **tres URL
+distintas que llegan en tres momentos distintos**: `/contrato/<t>` en la venta, `/documentacion/<t>`
+semanas después, `/correo/<t>` dentro de cada correo. Ninguna enlaza con las otras y ninguna tiene
+puerta común. El punto 6 de `CRITERIOS.md` pide justo lo contrario: *«enlaces que no caducan, todo
+en un sitio, sin pedirle que busque un correo de hace tres meses»*. La mitad está cumplida (los
+enlaces de documentación no caducan, y eso es mérito); la otra mitad, no.
+
+Travefy, YouLi y WeTravel dan un portal por reserva: un enlace, y dentro el contrato, los
+documentos y los pagos. Aquí, el peregrino que en el aeropuerto no encuentra su documentación
+tiene que buscar entre correos de meses atrás, y si no lo consigue **escribe a Nico o a Naty**, que
+son dos personas y una de ellas está guiando. Ese es el coste medible: horas de soporte que se
+podrían no gastar.
+
+Se pierde: **tiempo de las dos únicas personas del negocio**, en el momento en que menos lo tienen.
+
+**Propuesta barata (no es un portal):** que `/documentacion/[token]` —que ya es la página que el
+cliente conserva— enseñe también su contrato firmado y el estado de sus pagos. El token del
+expediente ya existe, es permanente y revocable. No hace falta nada nuevo.
+
+#### 5.4 · No hay forma de modificar lo firmado: o miente el papel, o se pierde la firma
+
+Un contrato firmado es inmutable —y bien, los siete guardas de `contractActions.ts` son de lo
+mejor del bloque—. Pero **los viajes cambian**: se mueve la fecha, entra un acompañante, alguien
+se cae del grupo, se añade una noche. Todo CRM de agencia resuelve esto con un **anexo o una
+versión nueva del contrato** enlazada a la original, que se firma otra vez y deja el rastro de qué
+cambió y cuándo.
+
+Aquí no existe esa figura, y las tres salidas posibles son todas malas: (a) dejar el contrato
+diciendo algo que ya no es cierto —que es exactamente el efecto del MEDIO de `variables_json`, la
+«foto fija» que solo se refresca a mano—; (b) borrar y rehacer, que destruye la prueba de firma
+(el GRAVE del punto 1); o (c) no cambiar nada y arreglarlo por WhatsApp, que es lo que de verdad
+va a pasar. Y como `contracts.traveler_id` es **único** en toda la tabla, un mismo viajero no puede
+tener nunca dos contratos: la puerta al anexo está cerrada también en el esquema.
+
+Se pierde: **la confianza de alguien que ya pagó**, el día que reclame apoyándose en un papel que
+dice lo que se acordó en marzo y no lo que se acordó en junio.
+
+**Propuesta:** un `parent_contract_id` y un `version` en `contracts`, con el `traveler_id` único
+sustituido por único-sobre-la-versión-vigente. Es una migración y toca estados de venta: **se
+anota y se decide con Nico.** Lo que sí se puede hacer ya, y es la mitad del valor, es que la
+tarjeta **avise cuando `variables_json` no cuadre con la cotización** en vez de esperar a que
+alguien pulse el botón de refrescar.
+
+---
+
+## VEREDICTO: revisar
+
+La auditoría de B3 es **buena y honesta**: los recuentos de Storage son exactos al archivo, las
+cascadas están bien leídas, la firma como prueba está bien juzgada y los cinco generadores se
+renderizaron de verdad. Pero cinco cosas no pueden quedarse como están.
+
+**Huecos concretos para la ronda de revisión, en orden de daño:**
+
+1. **Re-etiquetar tres hallazgos** (evidencia en los puntos 1 y 2 de esta crítica):
+   - «Se puede borrar de un clic un expediente firmado y pagado» → **MEDIO a GRAVE**.
+   - «El PDF de la cotización dice un día de regreso y la base dice otro» → **MEDIO a GRAVE**,
+     y **reescrito**: el título describe el síntoma menor. Lo que hay es un PDF ya enviado
+     (CS-2026-081, 2 personas × 1.450 €) que promete **dos noches y dos desayunos que nadie
+     cotizó**, y **trece rutas del catálogo** armadas para repetirlo.
+   - «Borrar una cotización deja atrás el pasaporte y el contrato firmado» → **GRAVE a MEDIO**.
+2. **Corregir tres afirmaciones falsas o imprecisas del informe**, que son las que sostienen sus
+   etiquetas:
+   - **CS-2026-080 no tiene descuadre.** Su `start_date` es 2026-10-17 y todo cuadra. Hay que
+     quitarla del hallazgo — y preguntarle a Nico por qué esa cotización se tocó el 2-sep 13:44,
+     después de escrita la auditoría.
+   - **La fórmula es `fin = salida + etapas + 1 + noches_extra`**, no la del informe.
+   - **«La cabecera rota se repite en todas sus páginas» es falsa**: el bloque que se rompe es
+     `clientBar` (`travelDocPdf.tsx:476`), que sale **una vez**. Y falta lo peor: por encima de
+     ~74 caracteres el teléfono y el correo del cliente **se salen del papel**. Umbral exacto:
+     entre **56 y 58** caracteres, no «unos 60».
+3. **Subir a Hallazgos los cuatro nuevos del punto 4**, que no están en el informe:
+   - **[MEDIO]** Los envíos de contrato no pasan por `email_log` — el único de los cuatro correos
+     sin rastro, y el que más veces se manda.
+   - **[MEDIO]** Nada avisa de que un viaje pagado sale sin firma: dos de los tres expedientes
+     vivos están así, y `seguimiento/page.tsx` no consulta `contracts`.
+   - **[MENOR]** `saveTravelers` reescribe nombre y documento de quien ya firmó.
+   - **[MENOR]** `email_log` y su URL pública `/correo/[token]` sobreviven al borrado.
+4. **Anotar los cuatro del punto 5** (oficio) donde corresponda: articulado del contrato en código
+   mientras las condiciones del documento de viaje están en `settings`; sin caducidad de pasaporte;
+   sin sitio único del cliente; sin anexos al contrato firmado.
+5. **Los arreglos pequeños que quedan sin aplicar** (yo no los toqué: son código y el presupuesto
+   se agota sin avisar). Por orden de relación coste/beneficio:
+   - `registerHyphenationCallback(w => [w])` en los cinco generadores — una línea, mata el guionado.
+   - `flexShrink: 1` + `maxWidth` en la columna derecha de `clientBar` — evita que los datos del
+     cliente se salgan de la hoja.
+   - `registrarEnvio(...)` dentro de `enviarCorreoContrato`, y mover `sent_at`/`status` a después
+     de confirmar el envío.
+   - Borrar el índice duplicado `travel_docs_token_idx` (ya existe `travel_docs_token_key`).
+   - `Referrer-Policy` en las dos páginas públicas que no lo fijan.
+
+Lo que **no** hay que tocar y conviene dejar dicho para que nadie lo "arregle": los dos `SET NULL`
+de las cascadas son deliberados; que el enlace de documentación **no caduque** es correcto; el cron
+de recordatorios está bien pensado (renueva el token en cada envío) y el aviso interno del último
+recordatorio también; y `comercial-hotel-fotos` **no tiene huérfanos** — sus 32 objetos se
+referencian desde el jsonb `hotels.photos`, y cualquier arqueo que no lo contemple dará 32 falsos
+positivos.
 
 ---
 
 ## Revisión tras la crítica
 
-`Estado: pendiente`
+`Estado: pendiente` — el veredicto de la crítica es `revisar`. La ronda tiene los cinco huecos
+numerados al final de la sección anterior, en orden de daño.
 
 _(Solo si el veredicto fue `revisar`. Una ronda.)_
