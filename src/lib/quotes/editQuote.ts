@@ -5,6 +5,7 @@ import { mensajeError } from "@/lib/errors";
 import { isQuoteStatus, type QuoteStatus } from "@/lib/quoteStatus";
 import { tarifarRuta, type TipoAlojamiento } from "@/lib/quotes/tarifar";
 import { MAX_PERSONAS_AGENTE } from "@/lib/quotes/agentQuote";
+import { leerFilasHabitacion } from "@/lib/quotes/rooms";
 
 /**
  * Editar una cotización que ya existe, con el mismo criterio que la pantalla de
@@ -215,6 +216,14 @@ export async function actualizarCotizacion(
     if (quote.price_blocks) {
       patch.price_blocks = null;
       avisos.push("Se soltaron los precios del PDF tecleados a mano: ahora salen del catálogo.");
+    }
+    // Un reparto a medida (dobles + triples, cada habitación con su precio) no sobrevive a
+    // una re-tarifación: `rooms_json` acaba de quedar pisado por el reparto automático. Se
+    // avisa porque la cotización pasa a cobrar otra cosa, no porque falle nada.
+    if (leerFilasHabitacion(quote.rooms_json).length > 0) {
+      avisos.push(
+        "Se perdió el reparto de habitaciones a medida: la cotización volvió al reparto automático (pares en doble, el impar en individual). Si el grupo iba en triples, hay que volver a cargarlo en el expediente.",
+      );
     }
 
     if (cambiaRuta) cambios.push(`ruta → ${route.name}`);

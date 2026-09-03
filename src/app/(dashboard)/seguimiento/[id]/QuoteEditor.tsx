@@ -5,6 +5,17 @@ import { updateQuote } from "./actions";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 import { QUOTE_STATUSES, STATUS_LABELS, DEFAULT_STATUS, statusLabel } from "@/lib/quoteStatus";
 import { quoteYear, ratesForYear } from "@/lib/pricing/year";
+import RoomsPanel from "@/components/RoomsPanel";
+import {
+  MODALIDAD_A_MEDIDA,
+  etiquetaHabitaciones,
+  filaVacia,
+  leerFilasHabitacion,
+  priceBlocksDeFilas,
+  roomsJsonAMedida,
+  totalesHabitacion,
+  type RoomRow,
+} from "@/lib/quotes/rooms";
 
 type Quote = {
   id: string;
@@ -29,6 +40,8 @@ type Quote = {
   season_kind?: string | null;
   // Precios por persona de las tarjetas del PDF (migración 0016). null = usar el catálogo.
   price_blocks?: Record<string, number | string | null> | null;
+  // Reparto de habitaciones. Con `filas` es un reparto a medida (ver @/lib/quotes/rooms).
+  rooms_json?: unknown;
 };
 
 type PricingRow = {
@@ -48,7 +61,9 @@ const MODALITY_DISPLAY = [
   { slug: "hotel_single", label: "Hotel single" },
 ] as const;
 
-const EXTRA_MODALITIES = ["Doble + Triple", "Personalizada"];
+// "Habitaciones a medida" abre el panel de reparto (dobles + triples + cuádruples, cada una
+// con su precio). Las otras dos son texto libre y siguen por las cotizaciones que ya las usan.
+const EXTRA_MODALITIES = [MODALIDAD_A_MEDIDA, "Doble + Triple", "Personalizada"];
 
 /**
  * La etiqueta de alojamiento es texto libre y convive en varios formatos: "Pensión doble"
@@ -85,7 +100,18 @@ export default function QuoteEditor({
 
   // Estado controlado para auto-fill
   const [routeName, setRouteName] = useState(quote.route_name ?? "");
-  const [modality, setModality] = useState(quote.modality ?? "");
+  // Reparto de habitaciones a medida (si la cotización lo trae, el select arranca ahí: su
+  // `modality` guardada es la etiqueta larga —"Pensión · 2 dobles + 1 triple"— y no una
+  // opción de la lista).
+  const filasGuardadas = useMemo(() => leerFilasHabitacion(quote.rooms_json), [quote.rooms_json]);
+  const [roomRows, setRoomRows] = useState<RoomRow[]>(() =>
+    filasGuardadas.length > 0 ? filasGuardadas : [filaVacia()],
+  );
+  const [modality, setModality] = useState(
+    filasGuardadas.length > 0 ? MODALIDAD_A_MEDIDA : (quote.modality ?? ""),
+  );
+  const aMedida = modality === MODALIDAD_A_MEDIDA;
+  const roomTotals = useMemo(() => totalesHabitacion(roomRows), [roomRows]);
   const [people, setPeople] = useState<number>(Number(quote.people) || 1);
   const [startDate, setStartDate] = useState<string>(quote.start_date ?? "");
   const [endDate, setEndDate] = useState<string>(quote.end_date ?? "");
@@ -161,10 +187,21 @@ export default function QuoteEditor({
   // Auto-fill cuando cambian ruta/modalidad/personas y autoLink está activo
   useEffect(() => {
     if (!autoLink) return;
+    if (aMedida) return; // a medida la plata la manda el reparto, no el catálogo
     if (!catalogMatch) return;
     setTotalEur((catalogMatch.price_cs * people).toFixed(2));
     setCostEur((catalogMatch.price_pilgrim * people).toFixed(2));
-  }, [catalogMatch, people, autoLink]);
+  }, [catalogMatch, people, autoLink, aMedida]);
+
+  // Reparto a medida: base, costo Pilgrim y personas salen de las habitaciones. Igual que
+  // en el asistente, si las personas quedaran sueltas el suplemento de temporada (por
+  // persona) contaría un grupo distinto al de la base.
+  useEffect(() => {
+    if (!aMedida) return;
+    setTotalEur(roomTotals.baseEur.toFixed(2));
+    setCostEur(roomTotals.costBaseEur.toFixed(2));
+    if (roomTotals.personas > 0) setPeople(roomTotals.personas);
+  }, [aMedida, roomTotals.baseEur, roomTotals.costBaseEur, roomTotals.personas]);
 
   // Solo ruta + suplemento: los opcionales no se editan acá, así que esta cifra es
   // la utilidad DE LA RUTA. La utilidad completa es el KPI de arriba, que sí los suma.
@@ -181,19 +218,39 @@ export default function QuoteEditor({
     formData.set("cost_base_eur", costEur);
     formData.set("people", String(people));
     formData.set("route_name", routeName);
-    formData.set("modality", modality);
     formData.set("start_date", startDate);
     formData.set("end_date", endDate);
     formData.set("season_supplement_eur", seasonSuppCs.toFixed(2));
     formData.set("season_supplement_cost_eur", seasonSuppPilgrim.toFixed(2));
     formData.set("season_kind", season.type);
-    // Precios de las tarjetas del PDF: solo los que tienen valor. Vacío = volver al catálogo.
-    const blocks: Record<string, number> = {};
-    for (const { slug } of rateSlots) {
-      const v = Number(rates[slug] ?? "");
-      if (Number.isFinite(v) && v > 0) blocks[slug] = v;
+
+    if (aMedida) {
+      // El reparto manda: etiqueta, desglose del resumen del PDF y tarjetas de precio.
+      const filas = roomRows.filter((r) => r.habitaciones > 0);
+      if (filas.length === 0) {
+        setError("Agregá al menos una habitación al reparto.");
+        return;
+      }
+      if (roomTotals.baseEur <= 0) {
+        setError("Ponele tu precio por persona a las habitaciones: sin eso la cotización queda en cero.");
+        return;
+      }
+      formData.set("modality", etiquetaHabitaciones(filas));
+      formData.set("rooms_json", JSON.stringify(roomsJsonAMedida(filas)));
+      formData.set("price_blocks", JSON.stringify(priceBlocksDeFilas(filas)));
+    } else {
+      formData.set("modality", modality);
+      // Salir del modo a medida borra el reparto guardado: dejarlo haría que el PDF
+      // siguiera dibujando habitaciones que ya no son las de esta cotización.
+      if (filasGuardadas.length > 0) formData.set("rooms_json", "");
+      // Precios de las tarjetas del PDF: solo los que tienen valor. Vacío = volver al catálogo.
+      const blocks: Record<string, number> = {};
+      for (const { slug } of rateSlots) {
+        const v = Number(rates[slug] ?? "");
+        if (Number.isFinite(v) && v > 0) blocks[slug] = v;
+      }
+      formData.set("price_blocks", Object.keys(blocks).length > 0 ? JSON.stringify(blocks) : "");
     }
-    formData.set("price_blocks", Object.keys(blocks).length > 0 ? JSON.stringify(blocks) : "");
     startTransition(async () => {
       const r = await updateQuote(quote.id, formData);
       if (r?.error) setError(r.error);
@@ -257,7 +314,11 @@ export default function QuoteEditor({
   }
 
   // Modo edición
-  const allModalities = [...MODALITY_DISPLAY.map((m) => m.label), ...EXTRA_MODALITIES];
+  const conocidas = [...MODALITY_DISPLAY.map((m) => m.label), ...EXTRA_MODALITIES];
+  // La etiqueta guardada puede no ser ninguna de la lista ("Pensión · 2 dobles + 1 individual"
+  // del cotizador web). Sin agregarla, el select mostraba la primera opción y guardar le
+  // cambiaba el alojamiento a la cotización sin que nadie lo tocara.
+  const allModalities = modality && !conocidas.includes(modality) ? [modality, ...conocidas] : conocidas;
   const isCustomModality = modality !== "" && !MODALITY_DISPLAY.some((m) => m.label === modality);
   const matchesCatalog =
     catalogMatch &&
@@ -326,14 +387,18 @@ export default function QuoteEditor({
         <Input label="Válida hasta" name="valid_until" type="date" defaultValue={quote.valid_until} />
 
         <label className="block">
-          <span className="text-xs text-muted">Personas</span>
+          <span className="text-xs text-muted">
+            Personas
+            {aMedida && <span className="text-bosque ml-1">· del reparto</span>}
+          </span>
           <input
             type="number"
             min={1}
             max={30}
             value={people}
+            readOnly={aMedida}
             onChange={(e) => setPeople(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
-            className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+            className={`mt-1 w-full px-3 py-2 rounded-md border border-border ${aMedida ? "bg-taupe/40 text-muted" : "bg-white"}`}
           />
         </label>
         <label className="block">
@@ -363,7 +428,11 @@ export default function QuoteEditor({
                 <span>Auto-cargar precios del catálogo</span>
               </label>
               <div className="space-y-0.5">
-                {catalogMatch ? (
+                {aMedida ? (
+                  <div className="text-bosque">
+                    Reparto a medida: la base y el costo Pilgrim salen de las habitaciones de abajo.
+                  </div>
+                ) : catalogMatch ? (
                   <div className="text-bosque">
                     Catálogo {tarifaYear}: Pilgrim {catalogMatch.price_pilgrim.toFixed(2)}€ · CS {catalogMatch.price_cs.toFixed(2)}€ por persona
                   </div>
@@ -388,22 +457,34 @@ export default function QuoteEditor({
             <button
               type="button"
               onClick={recomputeFromCatalog}
-              disabled={!catalogMatch}
+              disabled={!catalogMatch || aMedida}
               className="text-xs px-3 py-1 rounded-md border border-border bg-white hover:bg-taupe/40 disabled:opacity-40 transition"
             >
               Cargar del catálogo
             </button>
           </div>
 
+          {/* Reparto a medida: una fila por tipo de habitación, con su precio de venta y su
+              costo Pilgrim. Sustituye a las tarifas por slot de más abajo. */}
+          {aMedida && (
+            <div className="mb-4">
+              <RoomsPanel rows={roomRows} onChange={setRoomRows} people={people} />
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <label className="block">
-              <span className="text-xs text-muted">Base ruta + alojamiento € (sin suplemento ni opcionales)</span>
+              <span className="text-xs text-muted">
+                Base ruta + alojamiento € (sin suplemento ni opcionales)
+                {aMedida && <span className="text-bosque ml-1">· calculado</span>}
+              </span>
               <input
                 type="number"
                 step="0.01"
                 value={totalEur}
+                readOnly={aMedida}
                 onChange={(e) => { setTotalEur(e.target.value); setAutoLink(false); }}
-                className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+                className={`mt-1 w-full px-3 py-2 rounded-md border border-border ${aMedida ? "bg-taupe/40 text-muted" : "bg-white"}`}
               />
               {catalogMatch && (
                 <span className="text-[10px] text-muted">= {catalogMatch.price_cs.toFixed(2)} × {people}</span>
@@ -413,13 +494,17 @@ export default function QuoteEditor({
               )}
             </label>
             <label className="block">
-              <span className="text-xs text-muted">Costo Pilgrim base — ruta + alojamiento € (sin suplemento ni opcionales)</span>
+              <span className="text-xs text-muted">
+                Costo Pilgrim base — ruta + alojamiento € (sin suplemento ni opcionales)
+                {aMedida && <span className="text-bosque ml-1">· calculado</span>}
+              </span>
               <input
                 type="number"
                 step="0.01"
                 value={costEur}
+                readOnly={aMedida}
                 onChange={(e) => { setCostEur(e.target.value); setAutoLink(false); }}
-                className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+                className={`mt-1 w-full px-3 py-2 rounded-md border border-border ${aMedida ? "bg-taupe/40 text-muted" : "bg-white"}`}
               />
               {catalogMatch && (
                 <span className="text-[10px] text-muted">= {catalogMatch.price_pilgrim.toFixed(2)} × {people}</span>
@@ -440,7 +525,7 @@ export default function QuoteEditor({
           {/* Tarjetas del PDF: un precio por persona por alojamiento. Vacío = esa tarjeta
               no se dibuja, así una cotización vendida solo en pensión no muestra un hotel
               que nadie cotizó (migración 0016). */}
-          {rateSlots.length > 0 && (
+          {rateSlots.length > 0 && !aMedida && (
             <div className="mt-4 pt-3 border-t border-border/60 space-y-2">
               <div className="text-xs text-muted">
                 Precios que salen en el PDF (€ por persona, sin suplemento). Dejá en blanco el

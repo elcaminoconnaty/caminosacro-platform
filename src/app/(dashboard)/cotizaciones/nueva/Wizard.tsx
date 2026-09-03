@@ -4,6 +4,16 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { createQuote, findClientByPhone, type ClientLite } from "./actions";
 import { createRoute, createItinerary, type NewRoutePrice, type NewStageInput } from "../../catalogo/actions";
 import CustomRoutePanel, { emptyCustomRoute, CUSTOM_MODALITIES, type CustomRouteData } from "./CustomRoutePanel";
+import RoomsPanel from "@/components/RoomsPanel";
+import {
+  MODALIDAD_A_MEDIDA,
+  etiquetaHabitaciones,
+  filaVacia,
+  priceBlocksDeFilas,
+  roomsJsonAMedida,
+  totalesHabitacion,
+  type RoomRow,
+} from "@/lib/quotes/rooms";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 import { DEFAULT_STATUS, STATUS_LABELS } from "@/lib/quoteStatus";
 import { MODALITY_SLUGS, quoteYear, ratesForYear, type ModalitySlug } from "@/lib/pricing/year";
@@ -40,7 +50,11 @@ const TIPOS = [
   { value: "hotel", label: "Hotel" },
 ] as const;
 
-const EXTRA_MODALITIES = ["Doble + Triple", "Personalizada"];
+// Alojamientos que no salen del reparto automático. "Habitaciones a medida" abre el panel
+// donde se teclea el reparto real con un precio por tipo de habitación (ver @/lib/quotes/rooms);
+// las otras dos quedan como texto libre y siguen existiendo por las cotizaciones viejas que
+// las usan.
+const EXTRA_MODALITIES = [MODALIDAD_A_MEDIDA, "Doble + Triple", "Personalizada"];
 
 const todayPlus = (days: number) =>
   new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -70,6 +84,8 @@ export default function Wizard({
   const [custom, setCustom] = useState<CustomRouteData>(() => emptyCustomRoute());
   const customMode = family === RUTA_CUSTOM;
   const [modality, setModality] = useState("");
+  // Reparto de habitaciones tecleado a mano (modalidad "Habitaciones a medida").
+  const [roomRows, setRoomRows] = useState<RoomRow[]>(() => [filaVacia()]);
   const [people, setPeople] = useState(1);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -111,6 +127,11 @@ export default function Wizard({
   const esTipo = modality === "pension" || modality === "hotel";
   const dobles = esTipo ? Math.floor(people / 2) : 0;
   const individuales = esTipo ? people % 2 : 0;
+
+  // Reparto a medida: la plata sale de las filas tecleadas, no del catálogo ni del reparto
+  // automático. Es el caso de un grupo que va parte en dobles y parte en triples.
+  const aMedida = modality === MODALIDAD_A_MEDIDA;
+  const roomTotals = useMemo(() => totalesHabitacion(roomRows), [roomRows]);
 
   // La tarifa que aplica es la del AÑO DE SALIDA, no la del año en que se cotiza:
   // Pilgrim sube precios cada año (ver @/lib/pricing/year).
@@ -206,6 +227,20 @@ export default function Wizard({
     if (baseFromRates == null) return;
     setTotalEur(baseFromRates.toFixed(2));
   }, [baseFromRates]);
+
+  // A medida manda el reparto tecleado: las dos cifras del grupo salen de las filas y los
+  // campos quedan de solo lectura, para que no puedan decir una cosa distinta al desglose
+  // que el PDF le va a mostrar al cliente.
+  //
+  // Las PERSONAS también se derivan del reparto. Si se dejaran sueltas, la base saldría de
+  // las habitaciones y el suplemento de temporada (que es por persona) del campo del grupo:
+  // dos cifras del mismo grupo que no cuadran entre sí.
+  useEffect(() => {
+    if (!aMedida) return;
+    setTotalEur(roomTotals.baseEur.toFixed(2));
+    setCostEur(roomTotals.costBaseEur.toFixed(2));
+    if (roomTotals.personas > 0) setPeople(roomTotals.personas);
+  }, [aMedida, roomTotals.baseEur, roomTotals.costBaseEur, roomTotals.personas]);
 
   // Editar una tarifa a mano corta el auto-fill: si no, el efecto la pisaría enseguida.
   function setRate(slug: string, value: string) {
@@ -310,6 +345,20 @@ export default function Wizard({
           }),
         );
       }
+    } else if (aMedida) {
+      // El reparto tecleado manda en TODO: etiqueta, desglose del resumen y tarjetas del PDF.
+      const filas = roomRows.filter((r) => r.habitaciones > 0);
+      if (filas.length === 0) {
+        setError("Agregá al menos una habitación al reparto.");
+        return;
+      }
+      if (roomTotals.baseEur <= 0) {
+        setError("Ponele tu precio por persona a las habitaciones: sin eso la cotización queda en cero.");
+        return;
+      }
+      fd.set("modality", etiquetaHabitaciones(filas));
+      fd.set("rooms_json", JSON.stringify(roomsJsonAMedida(filas)));
+      fd.set("price_blocks", JSON.stringify(priceBlocksDeFilas(filas)));
     } else {
       fd.set("modality", modality);
     }
@@ -488,14 +537,18 @@ export default function Wizard({
           )}
 
           <label className="block">
-            <span className="text-xs text-muted">Personas</span>
+            <span className="text-xs text-muted">
+              Personas
+              {aMedida && <span className="text-bosque ml-1">· del reparto</span>}
+            </span>
             <input
               type="number"
               min={1}
               max={30}
               value={people}
+              readOnly={aMedida}
               onChange={(e) => setPeople(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
-              className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+              className={`mt-1 w-full px-3 py-2 rounded-md border border-border ${aMedida ? "bg-taupe/40 text-muted" : "bg-white"}`}
             />
           </label>
           <label className="block md:col-span-2">
@@ -514,7 +567,9 @@ export default function Wizard({
                 ? people === 1
                   ? "1 persona → habitación individual."
                   : `Reparto automático: ${dobles} hab. ${dobles === 1 ? "doble" : "dobles"}${individuales > 0 ? " + 1 individual" : ""} para ${people} personas.`
-                : "Elegí Pensión u Hotel y la plataforma reparte las habitaciones sola (pares en dobles, el impar en individual). Para algo distinto (mezclas, triple, etc.) elegí \"Personalizada\" y describilo en las notas."}
+                : aMedida
+                  ? `Reparto tecleado abajo: ${roomTotals.habitaciones} hab. para ${roomTotals.personas} ${roomTotals.personas === 1 ? "persona" : "personas"}.`
+                  : "Elegí Pensión u Hotel y la plataforma reparte las habitaciones sola (pares en dobles, el impar en individual). Si el grupo va mezclado (dobles + triples, una cuádruple…), elegí \"Habitaciones a medida\" y poné el precio de cada habitación."}
             </span>
           </label>
           <label className="block">
@@ -555,6 +610,10 @@ export default function Wizard({
                   {individuales > 0 && `1 individual × ${(catalogBySlug[`${modality}_single` as ModalitySlug]?.price_cs ?? 0).toFixed(2)}€`}
                   {" "}· costo Pilgrim {(dobles * 2 * (catalogBySlug[`${modality}_doble` as ModalitySlug]?.price_pilgrim ?? 0) + individuales * (catalogBySlug[`${modality}_single` as ModalitySlug]?.price_pilgrim ?? 0)).toFixed(2)}€
                 </div>
+              ) : aMedida ? (
+                <div className="text-bosque">
+                  Reparto a medida: la base y el costo Pilgrim salen de las habitaciones de abajo.
+                </div>
               ) : routeName && modality && !yearHasRates ? (
                 <div className="text-amber-700 font-medium">
                   ⚠ No hay tarifas {tarifaYear} cargadas para esta ruta — ingresá los precios a mano.
@@ -571,6 +630,13 @@ export default function Wizard({
               )}
             </div>
           </div>
+          {/* Reparto a medida: una fila por tipo de habitación, con su precio de venta y su
+              costo Pilgrim. Reemplaza tanto al reparto automático como a las tarifas por
+              slot de abajo — acá cada habitación ya trae su propio precio. */}
+          {aMedida && (
+            <RoomsPanel rows={roomRows} onChange={setRoomRows} people={people} />
+          )}
+
           {/* Tarifas por persona = las tarjetas del PDF. La del tipo elegido arma la base
               del grupo; la del otro tipo es opcional y solo sale como comparación. Vacía =
               no se dibuja esa tarjeta. */}
@@ -608,28 +674,32 @@ export default function Wizard({
             <label className="block">
               <span className="text-xs text-muted">
                 Base ruta + alojamiento € (total grupo, sin suplemento)
-                {baseFromRates != null && <span className="text-bosque ml-1">· calculado</span>}
+                {(baseFromRates != null || aMedida) && <span className="text-bosque ml-1">· calculado</span>}
               </span>
               <input
                 type="number"
                 step="0.01"
                 value={totalEur}
-                readOnly={baseFromRates != null}
+                readOnly={baseFromRates != null || aMedida}
                 onChange={(e) => { setTotalEur(e.target.value); setAutoLink(false); }}
-                className={`mt-1 w-full px-3 py-2 rounded-md border border-border ${baseFromRates != null ? "bg-taupe/40 text-muted" : "bg-white"}`}
+                className={`mt-1 w-full px-3 py-2 rounded-md border border-border ${baseFromRates != null || aMedida ? "bg-taupe/40 text-muted" : "bg-white"}`}
               />
               {season.type !== "regular" && (
                 <span className="text-[10px] text-muted">+ {seasonSuppCs.toFixed(2)}€ suplemento {season.label.toLowerCase()} → total cliente {((Number(totalEur)||0) + seasonSuppCs).toFixed(2)}€</span>
               )}
             </label>
             <label className="block">
-              <span className="text-xs text-muted">Costo Pilgrim € (total grupo)</span>
+              <span className="text-xs text-muted">
+                Costo Pilgrim € (total grupo)
+                {aMedida && <span className="text-bosque ml-1">· calculado</span>}
+              </span>
               <input
                 type="number"
                 step="0.01"
                 value={costEur}
+                readOnly={aMedida}
                 onChange={(e) => { setCostEur(e.target.value); setAutoLink(false); }}
-                className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+                className={`mt-1 w-full px-3 py-2 rounded-md border border-border ${aMedida ? "bg-taupe/40 text-muted" : "bg-white"}`}
               />
             </label>
             <div className="self-end pb-2 text-xs">

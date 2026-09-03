@@ -3,6 +3,9 @@ import "server-only";
 import { mensajeError } from "@/lib/errors";
 import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 import type { ComercialClient } from "@/lib/quotes/pdf";
+import { validarOpcionalLibre, type OpcionalLibre } from "@/lib/quotes/opcionalLibre";
+
+export { MAX_DESC_OPCIONAL, type OpcionalLibre } from "@/lib/quotes/opcionalLibre";
 
 /**
  * Agrega o quita un servicio opcional de una cotización y recalcula los totales.
@@ -82,6 +85,93 @@ export async function cambiarCantidadOpcional(
     .eq("id", lineId)
     .eq("quote_id", quoteId)
     .eq("type", "optional");
+  if (error) return { error: mensajeError(error) };
+  await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Opcional personalizado (línea suelta).
+//
+// El catálogo cubre lo repetible —seguros, noches extra, traslados, tours—, pero en casi
+// toda cotización aparece algo que solo existe en ESE viaje: un traslado desde un pueblo
+// que nadie más pide, una cena de despedida, un cambio de hotel por una noche. Hasta ahora
+// eso se metía a mano en la base o se sumaba a la base de la ruta, y en los dos casos el
+// seguimiento perdía el rastro de cuánto de eso era costo de Pilgrim.
+//
+// Se guarda como una línea `type='optional'` con `reference_id` en NULL: así entra sola al
+// total del cliente y al costo Pilgrim (`recompute_quote_money`), sale en el resumen del
+// PDF, en el correo a Pilgrim y en la lista de servicios del contrato, sin tocar nada de
+// eso. El `reference_id` nulo es justo lo que la distingue de las del catálogo.
+// ---------------------------------------------------------------------------
+
+// El tope de caracteres, el tipo y la validación viven en `opcionalLibre.ts`, que el
+// formulario del expediente (cliente) también importa: acá no se puede, este módulo es
+// "server-only".
+
+export async function agregarOpcionalLibre(
+  supabase: ComercialClient,
+  quoteId: string,
+  datos: OpcionalLibre,
+): Promise<{ ok?: true; error?: string }> {
+  const v = validarOpcionalLibre(datos);
+  if ("error" in v) return v;
+  const { error } = await supabase.from("quote_lines").insert({
+    quote_id: quoteId,
+    type: "optional",
+    description: v.ok.descripcion,
+    quantity: v.ok.cantidad,
+    unit_price: v.ok.precioCs,
+    cost_unit: v.ok.precioPilgrim,
+    reference_id: null,
+  });
+  if (error) return { error: mensajeError(error) };
+  await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
+  return { ok: true };
+}
+
+/**
+ * Edita una línea suelta. Acotado a `reference_id is null` a propósito: por acá no se
+ * puede reescribir la descripción ni el precio de un opcional del catálogo, que tiene que
+ * seguir diciendo lo mismo en todas las cotizaciones.
+ */
+export async function editarOpcionalLibre(
+  supabase: ComercialClient,
+  quoteId: string,
+  lineId: string,
+  datos: OpcionalLibre,
+): Promise<{ ok?: true; error?: string }> {
+  const v = validarOpcionalLibre(datos);
+  if ("error" in v) return v;
+  const { error } = await supabase
+    .from("quote_lines")
+    .update({
+      description: v.ok.descripcion,
+      quantity: v.ok.cantidad,
+      unit_price: v.ok.precioCs,
+      cost_unit: v.ok.precioPilgrim,
+    })
+    .eq("id", lineId)
+    .eq("quote_id", quoteId)
+    .eq("type", "optional")
+    .is("reference_id", null);
+  if (error) return { error: mensajeError(error) };
+  await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
+  return { ok: true };
+}
+
+export async function eliminarOpcionalLibre(
+  supabase: ComercialClient,
+  quoteId: string,
+  lineId: string,
+): Promise<{ ok?: true; error?: string }> {
+  const { error } = await supabase
+    .from("quote_lines")
+    .delete()
+    .eq("id", lineId)
+    .eq("quote_id", quoteId)
+    .eq("type", "optional")
+    .is("reference_id", null);
   if (error) return { error: mensajeError(error) };
   await supabase.rpc("recompute_quote_total", { p_quote_id: quoteId });
   return { ok: true };

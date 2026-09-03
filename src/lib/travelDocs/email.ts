@@ -23,13 +23,43 @@ import {
  * después. Con el token, el enlace del correo vive lo que viva el expediente.
  *
  * El correo no lleva adjuntos: solo los botones. Ver el comentario del payload más abajo.
+ *
+ * Va a VARIOS destinatarios: un viaje de grupo lo compran entre varios y todos necesitan
+ * la documentación, y muchas veces hay que mandársela también a un familiar. Cada uno
+ * recibe su propio correo (una llamada al webhook por dirección), no una copia con todos
+ * en el "para": así cada envío queda registrado por separado en `email_log` —se puede ver
+ * cuál salió y cuál no— y nadie ve la dirección de los demás.
  */
+
+/** Direcciones válidas, sin repetidos y sin distinguir mayúsculas. Conserva el orden. */
+function normalizarDestinatarios(entradas: (string | null | undefined)[]): string[] {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const raw of entradas) {
+    // Se acepta pegar "a@x.com, b@y.com" de un tirón: es como llegan de WhatsApp.
+    for (const parte of String(raw ?? "").split(/[,;\s]+/)) {
+      const email = parte.trim();
+      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) continue;
+      const clave = email.toLowerCase();
+      if (vistos.has(clave)) continue;
+      vistos.add(clave);
+      out.push(email);
+    }
+  }
+  return out;
+}
 
 export async function enviarCorreoDocumentacionViaje(
   supabase: ComercialClient,
   quoteId: string,
-  mensaje: { subject: string; intro: string; pruebaEmail?: string },
-): Promise<{ ok?: true; email?: string; error?: string }> {
+  mensaje: {
+    subject: string;
+    intro: string;
+    /** A quiénes mandarla. Vacío = solo el correo del titular de la cotización. */
+    destinatarios?: string[];
+    pruebaEmail?: string;
+  },
+): Promise<{ ok?: true; email?: string; emails?: string[]; fallidos?: string[]; error?: string }> {
   const subject = mensaje.subject.trim();
   if (!subject) return { error: "El asunto no puede estar vacío." };
   const intro = mensaje.intro.trim();
@@ -43,11 +73,21 @@ export async function enviarCorreoDocumentacionViaje(
   if (qErr) return { error: mensajeError(qErr) };
   if (!quote) return { error: "No encontré la cotización." };
 
-  const destinatario = (mensaje.pruebaEmail || "").trim() || String(quote.client_email || "").trim();
-  if (!destinatario) {
-    return { error: "La cotización no tiene correo del cliente. Agrégalo y vuelve a intentar." };
-  }
   const esPrueba = !!mensaje.pruebaEmail?.trim();
+  // En prueba se manda a UNA dirección: la gracia es ver el correo antes de que salga al
+  // grupo, y mandarle una prueba a los cinco viajeros sería justo lo que se quiere evitar.
+  const destinatarios = esPrueba
+    ? normalizarDestinatarios([mensaje.pruebaEmail]).slice(0, 1)
+    : normalizarDestinatarios(
+        mensaje.destinatarios && mensaje.destinatarios.length > 0
+          ? mensaje.destinatarios
+          : [quote.client_email],
+      );
+  if (destinatarios.length === 0) {
+    return esPrueba
+      ? { error: "La dirección de prueba no es válida." }
+      : { error: "No hay ningún correo de destino válido. Agrégalo y vuelve a intentar." };
+  }
 
   // Sin Documento de Viaje no hay nada que enviar: se genera antes en vez de fallar.
   let { data: doc } = await supabase
@@ -115,9 +155,8 @@ export async function enviarCorreoDocumentacionViaje(
     });
   }
 
-  const token = nuevoTokenCorreo();
   const texts = await getTravelDocTexts(supabase);
-  const datos = {
+  const datosBase = {
     nombre: String(quote.client_name || "").trim() || "peregrino",
     code: quote.code as string,
     ruta: (quote.route_name as string | null) ?? null,
@@ -130,7 +169,6 @@ export async function enviarCorreoDocumentacionViaje(
     email: texts.contacto.email || "reservas@caminosacro.com",
     web: texts.contacto.web || "www.caminosacro.com",
     intro,
-    urlVersionWeb: urlVersionWeb(token),
   };
 
   // Sin adjuntos: el correo lleva solo los botones de descarga.
@@ -142,50 +180,75 @@ export async function enviarCorreoDocumentacionViaje(
   // tiene guardado sigue diciendo lo viejo. Los botones apuntan a /documentacion/<token>,
   // que sirve SIEMPRE la versión vigente y no caduca.
 
-  // Se arma UNA vez y se guarda ese mismo: recalcularlo para el registro abriría la
-  // puerta a que la versión web y el correo enviado dejen de coincidir.
-  const html = correoDocumentacionHtml(datos);
+  // Uno por destinatario, en serie. En serie y no en paralelo a propósito: el webhook de
+  // n8n espera a que Brevo responda y cinco llamadas a la vez lo hacen desbordar por
+  // timeout — un correo que en realidad salió, reportado como fallido, es el peor error
+  // posible porque invita a reenviarlo.
+  const enviados: string[] = [];
+  const fallidos: string[] = [];
+  let ultimoError: string | null = null;
 
-  const envio = await enviarCorreoWebhook({
-    code: quote.code,
-    nombre: datos.nombre,
-    email: destinatario,
-    telefono: quote.client_phone ?? null,
-    ruta: quote.route_name ?? null,
-    fecha_inicio: quote.start_date ?? null,
-    personas: Number(quote.people) || 1,
-    alojamiento: quote.modality ?? null,
-    total_eur: quote.total_eur != null ? Number(quote.total_eur) : null,
-    // Sin adjuntos, ni en `attachments` ni en el `pdf_url` de siempre: el nodo de n8n
-    // solo arma `brevoBody.attachment` si le llega alguno de los dos.
-    pdf_url: null,
-    subject,
-    body: correoDocumentacionTexto(datos),
-    html,
-    // Sin aviso interno: lo mandó alguien del equipo desde el CRM, así que ya lo sabe.
-    aviso: false,
-    aviso_subject: `${datos.nombre} - Documentación de viaje enviada - ${quote.code}`,
-    aviso_body: `Se envió la documentación de viaje al cliente desde el CRM.\n\nCotización: ${quote.code}\nCliente: ${datos.nombre}\nCorreo: ${destinatario}\nEnlace: ${urlExpediente}`,
-  });
+  for (const destinatario of destinatarios) {
+    // Token de versión web propio de cada correo: es lo que hace que /correo/<token>
+    // muestre EXACTAMENTE el HTML que recibió esa persona.
+    const token = nuevoTokenCorreo();
+    const datos = { ...datosBase, urlVersionWeb: urlVersionWeb(token) };
+    // Se arma UNA vez y se guarda ese mismo: recalcularlo para el registro abriría la
+    // puerta a que la versión web y el correo enviado dejen de coincidir.
+    const html = correoDocumentacionHtml(datos);
 
-  await registrarEnvio(supabase, {
-    quoteId,
-    code: quote.code,
-    tipo: "documentacion",
-    destinatario,
-    asunto: subject,
-    adjuntos: 0,
-    messageId: envio.messageId ?? null,
-    error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
-    prueba: esPrueba,
-    token,
-    html,
-  });
-  if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
+    const envio = await enviarCorreoWebhook({
+      code: quote.code,
+      nombre: datos.nombre,
+      email: destinatario,
+      telefono: quote.client_phone ?? null,
+      ruta: quote.route_name ?? null,
+      fecha_inicio: quote.start_date ?? null,
+      personas: Number(quote.people) || 1,
+      alojamiento: quote.modality ?? null,
+      total_eur: quote.total_eur != null ? Number(quote.total_eur) : null,
+      // Sin adjuntos, ni en `attachments` ni en el `pdf_url` de siempre: el nodo de n8n
+      // solo arma `brevoBody.attachment` si le llega alguno de los dos.
+      pdf_url: null,
+      subject,
+      body: correoDocumentacionTexto(datos),
+      html,
+      // Sin aviso interno: lo mandó alguien del equipo desde el CRM, así que ya lo sabe.
+      aviso: false,
+      aviso_subject: `${datos.nombre} - Documentación de viaje enviada - ${quote.code}`,
+      aviso_body: `Se envió la documentación de viaje al cliente desde el CRM.\n\nCotización: ${quote.code}\nCliente: ${datos.nombre}\nCorreo: ${destinatario}\nEnlace: ${urlExpediente}`,
+    });
+
+    await registrarEnvio(supabase, {
+      quoteId,
+      code: quote.code,
+      tipo: "documentacion",
+      destinatario,
+      asunto: subject,
+      adjuntos: 0,
+      messageId: envio.messageId ?? null,
+      error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
+      prueba: esPrueba,
+      token,
+      html,
+    });
+
+    if (envio.ok) enviados.push(destinatario);
+    else {
+      fallidos.push(destinatario);
+      ultimoError = envio.error ?? "No se pudo enviar el correo.";
+    }
+  }
+
+  if (enviados.length === 0) {
+    return { error: ultimoError ?? "No se pudo enviar el correo.", fallidos };
+  }
 
   // En modo prueba no se marca el expediente: el cliente real no ha recibido nada.
+  // Con envío parcial SÍ se marca: la documentación ya salió, y lo que falta es reintentar
+  // las direcciones concretas que fallaron, no volver a mandársela a todo el grupo.
   if (!esPrueba) {
     await supabase.from("travel_docs").update({ sent_at: new Date().toISOString() }).eq("quote_id", quoteId);
   }
-  return { ok: true, email: destinatario };
+  return { ok: true, email: enviados[0], emails: enviados, fallidos };
 }

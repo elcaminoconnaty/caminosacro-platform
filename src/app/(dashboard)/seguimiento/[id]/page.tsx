@@ -503,6 +503,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           envio={resumenEnvio("documentacion", estadoDocumentacion.sentAt)}
           baseUrl={appBaseUrl}
           asistenciaLista={asistenciaLista}
+          // Un viaje de grupo lo compran entre varios y todos necesitan la documentación:
+          // la tarjeta ofrece sumarlos al envío de un clic, sin volver a teclear correos.
+          travelerEmails={((travelers as TravelerRow[] | null) ?? [])
+            .filter((t) => !!t.email)
+            .map((t) => ({ nombre: t.full_name || "", email: String(t.email) }))}
         />
       )}
 

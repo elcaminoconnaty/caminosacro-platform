@@ -306,6 +306,20 @@ export type QuotePDFProps = {
     tarifa_single: number;
   } | null;
   /**
+   * Reparto de habitaciones tecleado a mano (dobles + triples + cuádruples, cada una con su
+   * precio). Es el caso del grupo que llega repartido y no cabe en el reparto automático.
+   * Si viene, el resumen de inversión pinta una línea por habitación y sustituye tanto a la
+   * línea única como al desglose mixto de `roomBreakdown`.
+   * `pricePerPerson` es el precio de venta SIN suplemento de temporada, que va en su
+   * propia línea del resumen.
+   */
+  customRooms?: Array<{
+    label: string;
+    habitaciones: number;
+    personas: number;
+    pricePerPerson: number;
+  }>;
+  /**
    * Extras contratados que personalizan el itinerario: noches extra en Santiago y tours.
    * Extienden el itinerario, el conteo de días/noches y el rango de fechas del PDF.
    */
@@ -477,7 +491,7 @@ const CAT_TITLE: Record<string, string> = {
 const CAT_ORDER = ["seguro", "noche_extra", "meal", "transfer", "tour", "gift"];
 
 // =============== COMPONENT ===============
-export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceNote, priceBlocks, selectedOptionals, bikeFleet, selectedBikes, baseEur, seasonSupplement, roomBreakdown, itineraryExtras }: QuotePDFProps) {
+export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceNote, priceBlocks, selectedOptionals, bikeFleet, selectedBikes, baseEur, seasonSupplement, roomBreakdown, customRooms, itineraryExtras }: QuotePDFProps) {
   const total = Number(quote.total_eur) || 0;
   const base = Number(baseEur) || total;
   const people = quote.people || 1;
@@ -525,6 +539,8 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
   // tipo de habitación la línea única de siempre dice exactamente lo mismo.
   const mixto = roomBreakdown && roomBreakdown.dobles > 0 && roomBreakdown.individuales > 0 ? roomBreakdown : null;
   const tipoAlojMixto = mixto?.tipo === "hotel" ? "hotel" : "pensión";
+  // Reparto a medida: una línea por habitación. Manda sobre el mixto y sobre la línea única.
+  const habsAMedida = (customRooms || []).filter((r) => r.personas > 0);
 
   const itin = buildItinerarioStages(stages, modInfo.tipoAlojamiento, origin, destination, quote.start_date, itineraryExtras);
 
@@ -607,27 +623,32 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
 
         {/* Price boxes — dinámicos: 1 o 2 según haya en catálogo. El elegido va en verde. */}
         {priceBlocks && priceBlocks.length > 0 && (
-          <View style={s.priceRow}>
+          <View style={[s.priceRow, priceBlocks.length > 2 ? { gap: 6 } : {}]}>
             {/* Bloque único: espaciadores flex a los lados centran la tarjeta al ~60%.
                 (Usar width:"%" sobre un hijo flex rompe el layout de react-pdf y corrompe
                 los recuadros de stats/info de esta página.) */}
             {priceBlocks.length === 1 && <View style={{ flex: 1 }} />}
             {priceBlocks.map((b, i) => {
               const isDark = b.isSelected;
+              // Con 3 o 4 tarjetas (reparto a medida: dobles + triples + cuádruples) el ancho
+              // por tarjeta baja de ~250 pt a ~120 pt: sin achicar la tipografía, "PENSIÓN
+              // CUÁDRUPLE" y la cifra se parten en dos renglones y la fila queda ilegible.
+              const apretado = priceBlocks.length > 2;
               const cardStyle = [
                 s.priceCard,
                 isDark ? s.priceCardDark : s.priceCardLight,
+                ...(apretado ? [{ paddingHorizontal: 5, paddingVertical: 11 }] : []),
                 ...(priceBlocks.length === 1 ? [{ flex: 3 }] : []),
               ];
               return (
                 <View key={i} style={cardStyle}>
-                  <Text style={[s.priceLabel, isDark ? s.priceLabelDark : s.priceLabelLight]}>{b.label}</Text>
-                  <Text style={[s.priceSubLabel, isDark ? s.priceSubLabelDark : s.priceSubLabelLight]}>{b.subLabel}</Text>
+                  <Text style={[s.priceLabel, isDark ? s.priceLabelDark : s.priceLabelLight, ...(apretado ? [{ fontSize: 7, letterSpacing: 0.4 }] : [])]}>{b.label}</Text>
+                  <Text style={[s.priceSubLabel, isDark ? s.priceSubLabelDark : s.priceSubLabelLight, ...(apretado ? [{ fontSize: 6.5, marginBottom: 6 }] : [])]}>{b.subLabel}</Text>
                   <View style={s.priceMain}>
-                    <Text style={[s.priceNum, isDark ? s.priceNumDark : s.priceNumLight]}>{fmtEur(b.pricePerPerson)}</Text>
-                    <Text style={[s.priceCurr, isDark ? s.priceCurrDark : s.priceCurrLight]}>€</Text>
+                    <Text style={[s.priceNum, isDark ? s.priceNumDark : s.priceNumLight, ...(apretado ? [{ fontSize: 23 }] : [])]}>{fmtEur(b.pricePerPerson)}</Text>
+                    <Text style={[s.priceCurr, isDark ? s.priceCurrDark : s.priceCurrLight, ...(apretado ? [{ fontSize: 12 }] : [])]}>€</Text>
                   </View>
-                  <Text style={[s.priceFooter, isDark ? s.priceFooterDark : s.priceFooterLight]}>precio por persona</Text>
+                  <Text style={[s.priceFooter, isDark ? s.priceFooterDark : s.priceFooterLight, ...(apretado ? [{ fontSize: 6.5 }] : [])]}>precio por persona</Text>
                 </View>
               );
             })}
@@ -815,7 +836,28 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
               <Text style={[s.resumenHead, s.resumenPpl]}>Cant.</Text>
               <Text style={[s.resumenHead, s.resumenTotal]}>Total</Text>
             </View>
-            {mixto ? (
+            {habsAMedida.length > 0 ? (
+              <>
+                {/* Reparto a medida: una línea por habitación, con su precio por persona.
+                    La primera lleva el nombre de la ruta; las demás, el de la habitación,
+                    para que la columna de concepto no repita la ruta cuatro veces. */}
+                {habsAMedida.map((h, i) => (
+                  <View key={i} style={s.resumenLine}>
+                    <View style={s.resumenLineConcept}>
+                      <Text style={s.resumenLineConceptName}>{i === 0 ? quote.route_name : h.label}</Text>
+                      <Text style={s.resumenLineConceptSub}>
+                        {h.habitaciones} hab. {h.label.toLowerCase()} ({h.personas} {h.personas === 1 ? "persona" : "personas"}) · {modInfo.regimen}
+                      </Text>
+                    </View>
+                    <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(h.pricePerPerson)} €</Text>
+                    <Text style={[s.resumenLineCell, s.resumenPpl]}>×{h.personas}</Text>
+                    <Text style={[s.resumenLineCell, s.resumenTotal, { fontFamily: SANS_BOLD }]}>
+                      {fmtEur(h.personas * h.pricePerPerson)} €
+                    </Text>
+                  </View>
+                ))}
+              </>
+            ) : mixto ? (
               <>
                 {/* Reparto mixto (cotizador web): una línea por tipo de habitación. */}
                 <View style={s.resumenLine}>

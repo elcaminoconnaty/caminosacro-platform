@@ -164,11 +164,13 @@ function Galeria({ hotelId, fotos }: { hotelId: string; fotos: HotelFoto[] }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // El input es múltiple: las tres fotos de un hotel se eligen juntas en el explorador.
+  // Van todas en el mismo FormData y la action las procesa en orden.
   function subir(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     const fd = new FormData();
-    fd.set("file", file);
+    for (const f of files) fd.append("file", f);
     e.target.value = "";
     setError(null);
     startTransition(async () => {
@@ -191,14 +193,18 @@ function Galeria({ hotelId, fotos }: { hotelId: string; fotos: HotelFoto[] }) {
         <span className="text-[11px] uppercase tracking-wider text-muted">Fotos ({fotos.length}/3)</span>
         {fotos.length < 3 && (
           <label className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition cursor-pointer">
-            <Camera size={13} /> {pending ? "Subiendo…" : "Agregar"}
-            <input type="file" accept="image/*" className="hidden" onChange={subir} disabled={pending} />
+            <Camera size={13} />
+            {pending ? "Subiendo…" : fotos.length === 0 ? "Agregar fotos" : `Agregar (${3 - fotos.length} libre${3 - fotos.length === 1 ? "" : "s"})`}
+            <input type="file" accept="image/*" multiple className="hidden" onChange={subir} disabled={pending} />
           </label>
         )}
       </div>
 
       {fotos.length === 0 ? (
-        <p className="text-xs text-muted">Sin fotos. El documento de viaje muestra hasta tres por noche.</p>
+        <p className="text-xs text-muted">
+          Sin fotos. El documento de viaje muestra hasta tres por noche: podés elegir las tres
+          de una vez.
+        </p>
       ) : (
         <div className="grid grid-cols-3 gap-2">
           {fotos.map((f, i) => (

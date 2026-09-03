@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { leerFilasHabitacion, personasDeFila, roomRowLabel } from "@/lib/quotes/rooms";
 
 /**
  * Correo a Pilgrim: el detalle completo de la reserva a SUS precios, los viajeros con
@@ -121,7 +122,14 @@ export async function armarCorreoPilgrim(
 
   const rooms = quote.rooms_json as { dobles?: number; individuales?: number } | null;
   let habitaciones = "";
-  if (rooms && (rooms.dobles || rooms.individuales)) {
+  // El reparto a medida (dobles + triples + cuádruples) es justo lo que Pilgrim tiene que
+  // reservar: si no va acá, el correo dice "7 personas" y ellos reparten como quieran.
+  const filas = leerFilasHabitacion(quote.rooms_json);
+  if (filas.length > 0) {
+    habitaciones = filas
+      .map((f) => `${f.habitaciones} ${roomRowLabel(f).toLowerCase()} (${personasDeFila(f)} pax)`)
+      .join(" + ");
+  } else if (rooms && (rooms.dobles || rooms.individuales)) {
     const partes: string[] = [];
     if (rooms.dobles) partes.push(`${rooms.dobles} doble${rooms.dobles === 1 ? "" : "s"}`);
     if (rooms.individuales) partes.push(`${rooms.individuales} individual${rooms.individuales === 1 ? "" : "es"}`);

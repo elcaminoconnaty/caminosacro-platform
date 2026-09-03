@@ -7,6 +7,7 @@ import { getTRMHoy } from "@/lib/trm";
 import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
 import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
 import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
+import { leerFilasHabitacion, personasDeFila, roomRowLabel } from "@/lib/quotes/rooms";
 import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice, type BikeRow } from "@/lib/bikes/catalog";
 
 /**
@@ -154,12 +155,38 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
   type Block = { label: string; subLabel: string; pricePerPerson: number; isSelected: boolean };
   const priceBlocks: Block[] = [];
   const peopleCount = peopleCountForSeason;
+
+  // Reparto a medida (dobles + triples + cuádruples, cada habitación con su precio): manda
+  // sobre todo lo demás. No hay "elegido vs comparativa" porque no se está comparando nada —
+  // cada tarjeta es lo que de verdad paga la gente de esa habitación. La destacada en verde
+  // es la que más gente lleva, que es la que el cliente busca primero.
+  const customRooms = leerFilasHabitacion(quote.rooms_json);
+  const customRoomsConPrecio = customRooms.filter((r) => r.precio_cs > 0 && personasDeFila(r) > 0);
+  const principalIdx = customRoomsConPrecio.reduce(
+    (mejor, r, i, arr) => (personasDeFila(r) > personasDeFila(arr[mejor]) ? i : mejor),
+    0,
+  );
+  const customRoomsPdf = customRoomsConPrecio.map((r) => ({
+    label: roomRowLabel(r),
+    habitaciones: r.habitaciones,
+    personas: personasDeFila(r),
+    pricePerPerson: r.precio_cs,
+  }));
   // Precio del bloque ELEGIDO = base / people. Si es legacy, base ya incluye suplemento embebido.
   // Si es nueva, base es puro y le sumamos el suplemento explícito guardado.
   const basePerPerson = (Number(quote.base_eur) || Number(quote.total_eur) || 0) / peopleCount;
   const actualPerPerson = basePerPerson + storedSuppPerPerson;
 
-  if (chosenSlug) {
+  if (customRoomsConPrecio.length > 0) {
+    customRoomsConPrecio.forEach((r, i) => {
+      priceBlocks.push({
+        label: roomRowLabel(r).toUpperCase(),
+        subLabel: "baño privado · por persona",
+        pricePerPerson: r.precio_cs + effectiveSuppPerPerson,
+        isSelected: i === principalIdx,
+      });
+    });
+  } else if (chosenSlug) {
     const isSingle = chosenSlug.endsWith("single");
     const roomLabel = isSingle ? "INDIVIDUAL" : "DOBLE";
     const pensionSlug = `pension_${isSingle ? "single" : "doble"}` as const;
@@ -276,11 +303,13 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     categoryById.set(o.id, o.category);
   }
   // Habitaciones del reparto: convierten "cantidad = habitaciones × noches" en noches.
-  const roomsCount = roomBreakdown
-    ? roomBreakdown.dobles + roomBreakdown.individuales
-    : chosenSlug
-      ? (chosenSlug.endsWith("single") ? peopleCount : Math.ceil(peopleCount / 2))
-      : 1;
+  const roomsCount = customRooms.length > 0
+    ? customRooms.reduce((a, r) => a + r.habitaciones, 0)
+    : roomBreakdown
+      ? roomBreakdown.dobles + roomBreakdown.individuales
+      : chosenSlug
+        ? (chosenSlug.endsWith("single") ? peopleCount : Math.ceil(peopleCount / 2))
+        : 1;
   const roomsSafe = Math.max(1, roomsCount);
   let extraNights = 0;
   let extraNightTipo: "pension" | "hotel" = "pension";
@@ -417,6 +446,7 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     bikeFleet,
     selectedBikes,
     roomBreakdown,
+    customRooms: customRoomsPdf,
     itineraryExtras,
     baseEur: Number(quote.base_eur) || Number(quote.total_eur) || 0,
     seasonSupplement: {

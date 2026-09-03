@@ -266,10 +266,13 @@ export async function rotateTravelDocToken(quoteId: string) {
   return { token };
 }
 
-/** Envía la documentación al cliente. */
+/**
+ * Envía la documentación. `destinatarios` puede traer varias direcciones (el grupo entero,
+ * un familiar); vacío = el correo del titular de la cotización.
+ */
 export async function enviarCorreoDocumentacion(
   quoteId: string,
-  mensaje: { subject: string; intro: string; pruebaEmail?: string },
+  mensaje: { subject: string; intro: string; destinatarios?: string[]; pruebaEmail?: string },
 ) {
   const supabase = await createCommercialClient();
   const r = await enviarCorreoDocumentacionViaje(supabase, quoteId, mensaje);

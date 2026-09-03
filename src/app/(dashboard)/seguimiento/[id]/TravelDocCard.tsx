@@ -78,12 +78,15 @@ export default function TravelDocCard({
   envio,
   baseUrl,
   asistenciaLista,
+  travelerEmails = [],
 }: {
   quoteId: string;
   quoteCode: string;
   clientName: string | null;
   clientEmail: string;
   routeName: string | null;
+  /** Correos de los viajeros del grupo, para poder sumarlos al envío de un clic. */
+  travelerEmails?: Array<{ nombre: string; email: string }>;
   hotels: HotelOpcion[];
   initialNights: NocheInicial[];
   estado: TravelDocEstado;
@@ -450,6 +453,7 @@ export default function TravelDocCard({
         clientName={clientName}
         clientEmail={clientEmail}
         routeName={routeName}
+        travelerEmails={travelerEmails}
         listo={!!estado.docPath && !revocado}
         onError={setError}
       />
@@ -546,10 +550,11 @@ function ArchivoSubible({
 }
 
 function CorreoDocumentacion({
-  quoteId, quoteCode, clientName, clientEmail, routeName, listo, onError,
+  quoteId, quoteCode, clientName, clientEmail, routeName, travelerEmails, listo, onError,
 }: {
   quoteId: string; quoteCode: string; clientName: string | null; clientEmail: string;
-  routeName: string | null; listo: boolean; onError: (e: string | null) => void;
+  routeName: string | null; travelerEmails: Array<{ nombre: string; email: string }>;
+  listo: boolean; onError: (e: string | null) => void;
 }) {
   const [subject, setSubject] = useState(
     `Tu documentación de viaje · ${routeName || "Camino de Santiago"} · ${quoteCode}`,
@@ -562,25 +567,62 @@ function CorreoDocumentacion({
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const [enviando, startEnvio] = useTransition();
 
+  // Destinatarios. Arranca con el titular; se le suman los viajeros del grupo de un clic y
+  // cualquier otra dirección a mano (un familiar, un segundo correo del mismo cliente).
+  // Cada uno recibe SU correo, no una copia con todos a la vista.
+  const [destinatarios, setDestinatarios] = useState<string[]>(() =>
+    clientEmail.trim() ? [clientEmail.trim()] : [],
+  );
+  const [nuevoCorreo, setNuevoCorreo] = useState("");
+
+  const yaEsta = (email: string) =>
+    destinatarios.some((d) => d.toLowerCase() === email.trim().toLowerCase());
+
+  function agregar(email: string) {
+    // Se acepta pegar varios de un tirón: es como llegan por WhatsApp.
+    const nuevos = email
+      .split(/[,;\s]+/)
+      .map((e) => e.trim())
+      .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && !yaEsta(e));
+    if (nuevos.length === 0) return;
+    setDestinatarios((prev) => [...prev, ...nuevos]);
+    setNuevoCorreo("");
+  }
+
+  const sugeridos = travelerEmails.filter((t) => t.email && !yaEsta(t.email));
+
   function enviar() {
-    if (!modoPrueba && !confirm(`Esto le manda la documentación a ${clientEmail}. ¿Seguir?`)) return;
+    if (!modoPrueba) {
+      const lista = destinatarios.join(", ");
+      const cuantos = destinatarios.length;
+      if (!confirm(`Esto le manda la documentación a ${cuantos} ${cuantos === 1 ? "dirección" : "direcciones"}:\n\n${lista}\n\n¿Seguir?`)) return;
+    }
     setResultado(null);
     onError(null);
     startEnvio(async () => {
       const r = await enviarCorreoDocumentacion(quoteId, {
         subject,
         intro,
+        destinatarios: modoPrueba ? undefined : destinatarios,
         pruebaEmail: modoPrueba ? prueba : undefined,
       });
-      setResultado(
-        r.ok
-          ? { ok: true, texto: `✓ Enviado a ${r.email}${modoPrueba ? " (prueba)" : ""}` }
-          : { ok: false, texto: r.error ?? "No se pudo enviar el correo." },
-      );
+      if (r.ok) {
+        const ok = r.emails ?? (r.email ? [r.email] : []);
+        const mal = r.fallidos ?? [];
+        setResultado({
+          ok: mal.length === 0,
+          texto:
+            mal.length === 0
+              ? `✓ Enviado a ${ok.join(", ")}${modoPrueba ? " (prueba)" : ""}`
+              : `⚠ Enviado a ${ok.join(", ")}. NO salió a: ${mal.join(", ")} — reintentá solo esas.`,
+        });
+      } else {
+        setResultado({ ok: false, texto: r.error ?? "No se pudo enviar el correo." });
+      }
     });
   }
 
-  const destino = modoPrueba ? prueba : clientEmail;
+  const destino = modoPrueba ? prueba : destinatarios.join(", ");
 
   return (
     <div className="px-5 py-4 border-t border-border space-y-3">
@@ -588,7 +630,8 @@ function CorreoDocumentacion({
         <div>
           <h3 className="text-sm font-medium text-bosque">Correo al cliente</h3>
           <p className="text-xs text-muted mt-0.5">
-            Sale desde reservas@caminosacro.com con los botones de descarga y el documento adjunto.
+            Sale desde reservas@caminosacro.com con los botones de descarga. Puede ir a varias
+            direcciones: cada una recibe su propio correo.
           </p>
         </div>
         <button
@@ -603,6 +646,79 @@ function CorreoDocumentacion({
           {enviando ? "Enviando…" : "Enviar documentación"}
         </button>
       </div>
+
+      {!modoPrueba && (
+        <div>
+          <span className="text-xs text-muted mb-1 block">
+            Destinatarios ({destinatarios.length})
+          </span>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {destinatarios.map((d) => (
+              <span
+                key={d}
+                className="inline-flex items-center gap-1.5 text-xs bg-crema border border-border rounded-full pl-2.5 pr-1 py-1"
+              >
+                <span className="font-mono">{d}</span>
+                <button
+                  type="button"
+                  onClick={() => setDestinatarios((prev) => prev.filter((x) => x !== d))}
+                  title="Quitar"
+                  className="text-muted hover:text-red-600 transition"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+            {destinatarios.length === 0 && (
+              <span className="text-xs text-amber-700">
+                Sin destinatarios: agregá al menos una dirección.
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={nuevoCorreo}
+              onChange={(e) => setNuevoCorreo(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter agrega la dirección; sin esto, dentro de una tarjeta con más
+                // controles, se pierde lo escrito al hacer clic en otro lado.
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  agregar(nuevoCorreo);
+                }
+              }}
+              placeholder="otro@correo.com"
+              className="flex-1 min-w-[14rem] bg-crema border border-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-bosque"
+            />
+            <button
+              type="button"
+              onClick={() => agregar(nuevoCorreo)}
+              disabled={!nuevoCorreo.trim()}
+              className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-40"
+            >
+              Añadir
+            </button>
+          </div>
+
+          {sugeridos.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted">Viajeros del grupo:</span>
+              {sugeridos.map((t) => (
+                <button
+                  key={t.email}
+                  type="button"
+                  onClick={() => agregar(t.email)}
+                  title={`Agregar ${t.email}`}
+                  className="text-xs px-2.5 py-1 rounded-full border border-border hover:bg-taupe/40 transition"
+                >
+                  + {t.nombre || t.email}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div>
         <label className="text-xs text-muted mb-0.5 block" htmlFor="doc-asunto">Asunto</label>
@@ -645,7 +761,8 @@ function CorreoDocumentacion({
       )}
 
       <p className="text-xs text-muted">
-        Destinatario: <span className="font-mono">{destino || "sin correo"}</span>
+        {modoPrueba ? "Destinatario de prueba: " : `${destinatarios.length === 1 ? "Destinatario" : "Destinatarios"}: `}
+        <span className="font-mono">{destino || "sin correo"}</span>
       </p>
       {resultado && <p className={`text-sm ${resultado.ok ? "text-bosque" : "text-red-600"}`}>{resultado.texto}</p>}
     </div>

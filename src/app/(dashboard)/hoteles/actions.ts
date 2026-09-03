@@ -102,30 +102,72 @@ export async function eliminarHotel(id: string) {
   return { ok: true };
 }
 
+/**
+ * Sube una o varias fotos de un tirón. Se aceptan varias porque de un hotel se eligen las
+ * tres juntas en el explorador de archivos: subirlas de a una obligaba a abrir el diálogo
+ * tres veces y esperar tres recargas de la página.
+ *
+ * Las fotos se procesan en orden y el registro se escribe UNA sola vez al final. Si una
+ * falla a mitad de camino, las que ya subieron se guardan igual y el mensaje dice cuál no
+ * pasó: perder las tres porque la tercera estaba en HEIC sería peor que quedarse con dos.
+ */
 export async function subirFotoHotel(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
-  const file = formData.get("file") as File | null;
-  if (!file || file.size === 0) return { error: "Sin archivo." };
-  if (!file.type.startsWith("image/")) return { error: "Solo imágenes (JPG o PNG)." };
-  if (file.size > MAX_BYTES) return { error: "La foto pesa más de 5 MB." };
+  const archivos = formData
+    .getAll("file")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  if (archivos.length === 0) return { error: "Sin archivos." };
 
   const { data: h } = await supabase.from("hotels").select("slug,photos").eq("id", id).maybeSingle();
   if (!h) return { error: "Hotel no encontrado." };
   const fotos = (h.photos as { path: string; position?: number }[] | null) || [];
-  if (fotos.length >= MAX_FOTOS) return { error: `El documento dibuja ${MAX_FOTOS} fotos por noche; borra una antes de subir otra.` };
+  const cupo = MAX_FOTOS - fotos.length;
+  if (cupo <= 0) {
+    return { error: `El documento dibuja ${MAX_FOTOS} fotos por noche; borra una antes de subir otra.` };
+  }
 
-  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-  const destino = rutaFotoHotel(h.slug as string, fotos.length, ext);
-  const buf = Buffer.from(await file.arrayBuffer());
-  const { error: upErr } = await supabase.storage
-    .from(BUCKET)
-    .upload(sinBucket(destino), buf, { contentType: file.type, upsert: true });
-  if (upErr) return { error: mensajeError(upErr) };
+  // Lo que no cabe no se sube en silencio: se dice al final, junto con lo que sí entró.
+  const sobran = archivos.length - cupo;
+  const aSubir = archivos.slice(0, cupo);
 
-  const nuevas = [...fotos, { path: destino, position: fotos.length }];
-  const { error } = await supabase.from("hotels").update({ photos: nuevas }).eq("id", id);
-  if (error) return { error: mensajeError(error) };
-  revalidatePath("/hoteles");
+  const nuevas = [...fotos];
+  const fallos: string[] = [];
+  for (const file of aSubir) {
+    const nombre = file.name || "la foto";
+    if (!file.type.startsWith("image/")) {
+      fallos.push(`${nombre}: no es una imagen`);
+      continue;
+    }
+    if (file.size > MAX_BYTES) {
+      fallos.push(`${nombre}: pesa más de 5 MB`);
+      continue;
+    }
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const destino = rutaFotoHotel(h.slug as string, nuevas.length, ext);
+    const buf = Buffer.from(await file.arrayBuffer());
+    const { error: upErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(sinBucket(destino), buf, { contentType: file.type, upsert: true });
+    if (upErr) {
+      fallos.push(`${nombre}: ${mensajeError(upErr)}`);
+      continue;
+    }
+    nuevas.push({ path: destino, position: nuevas.length });
+  }
+
+  if (nuevas.length > fotos.length) {
+    const { error } = await supabase.from("hotels").update({ photos: nuevas }).eq("id", id);
+    if (error) return { error: mensajeError(error) };
+    revalidatePath("/hoteles");
+  }
+
+  const avisos = [...fallos];
+  if (sobran > 0) {
+    avisos.push(
+      `${sobran} ${sobran === 1 ? "foto quedó" : "fotos quedaron"} fuera: solo caben ${MAX_FOTOS} por hotel.`,
+    );
+  }
+  if (avisos.length > 0) return { error: avisos.join(" · ") };
   return { ok: true };
 }
 

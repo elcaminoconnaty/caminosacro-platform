@@ -6,7 +6,14 @@ import { mensajeError } from "@/lib/errors";
 import { DEFAULT_STATUS, isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { rutaCotizacion, rutaDocumentoPilgrim, rutaRecibo, sinBucket } from "@/lib/storage/paths";
-import { alternarOpcional, cambiarCantidadOpcional } from "@/lib/quotes/optionals";
+import {
+  agregarOpcionalLibre,
+  alternarOpcional,
+  cambiarCantidadOpcional,
+  editarOpcionalLibre,
+  eliminarOpcionalLibre,
+} from "@/lib/quotes/optionals";
+import type { OpcionalLibre } from "@/lib/quotes/opcionalLibre";
 import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
 import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
 
@@ -48,6 +55,19 @@ export async function updateQuote(id: string, formData: FormData) {
   if (blocksRaw) {
     try { priceBlocks = JSON.parse(blocksRaw); } catch { priceBlocks = null; }
   }
+  // Reparto de habitaciones a medida. Se escribe SOLO si el formulario lo mandó: el editor
+  // omite el campo cuando la cotización no está en ese modo, y ahí `rooms_json` tiene que
+  // quedar como está (una cotización del cotizador web trae ahí su reparto automático, y
+  // pisarlo con null le borraría el desglose mixto del PDF).
+  const roomsRaw = formData.get("rooms_json");
+  let roomsJson: unknown;
+  if (roomsRaw != null) {
+    const t = String(roomsRaw).trim();
+    if (t === "") roomsJson = null;
+    else {
+      try { roomsJson = JSON.parse(t); } catch { roomsJson = null; }
+    }
+  }
   const patch = {
     client_name: str(formData.get("client_name")),
     client_phone: str(formData.get("client_phone")),
@@ -67,6 +87,7 @@ export async function updateQuote(id: string, formData: FormData) {
     valid_until: str(formData.get("valid_until")),
     notes: str(formData.get("notes")),
     price_blocks: priceBlocks,
+    ...(roomsRaw != null ? { rooms_json: roomsJson } : {}),
   };
   const { error } = await supabase.from("quotes").update(patch).eq("id", id);
   if (error) return { error: mensajeError(error) };
@@ -118,6 +139,38 @@ export async function deleteQuote(id: string) {
 export async function toggleQuoteOptional(quoteId: string, optionalId: string, on: boolean, peopleHint?: number | null) {
   const supabase = await createCommercialClient();
   const r = await alternarOpcional(supabase, quoteId, optionalId, on, peopleHint);
+  if (r.error) return { error: r.error };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+/**
+ * Servicio opcional a la medida de esta cotización: descripción, cantidad, mi precio y el
+ * de Pilgrim. Vive solo acá — no se agrega al catálogo — y suma al total y al costo como
+ * cualquier otro opcional. Ver la cabecera del bloque en @/lib/quotes/optionals.
+ */
+export async function addCustomOptional(quoteId: string, datos: OpcionalLibre) {
+  const supabase = await createCommercialClient();
+  const r = await agregarOpcionalLibre(supabase, quoteId, datos);
+  if (r.error) return { error: r.error };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+export async function updateCustomOptional(quoteId: string, lineId: string, datos: OpcionalLibre) {
+  const supabase = await createCommercialClient();
+  const r = await editarOpcionalLibre(supabase, quoteId, lineId, datos);
+  if (r.error) return { error: r.error };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+export async function deleteCustomOptional(quoteId: string, lineId: string) {
+  const supabase = await createCommercialClient();
+  const r = await eliminarOpcionalLibre(supabase, quoteId, lineId);
   if (r.error) return { error: r.error };
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
