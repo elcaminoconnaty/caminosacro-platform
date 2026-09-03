@@ -1103,7 +1103,25 @@ positivos.
 
 ## Revisión tras la crítica
 
-`Estado: pendiente` — el veredicto de la crítica es `revisar`. La ronda tiene los cinco huecos
-numerados al final de la sección anterior, en orden de daño.
+`Estado: en curso` — una sola ronda, cerrando los cinco huecos del veredicto. Plan, en este
+orden, escribiendo y commiteando por partes (el límite de gasto mata sin avisar):
+
+1. **Subir a «Hallazgos» los ocho hallazgos nuevos** de la crítica (los cuatro de código del
+   punto 4 y los cuatro de oficio del punto 5), con el formato del TABLERO, para que B8 los vea
+   sin leerse la crítica entera.
+2. **Aplicar los tres re-etiquetados**: borrado de expediente firmado MEDIO→GRAVE, fechas del PDF
+   MEDIO→GRAVE (reescrito), huérfanos de Storage GRAVE→MEDIO. Cada uno con una línea de por qué
+   cambia.
+3. **Corregir las cuatro imprecisiones del informe**: CS-2026-080 no descuadra, la fórmula lleva
+   `noches_extra`, la cabecera rota sale una vez (`clientBar`) y no en todas las páginas, y hoy
+   hay 5 contratos y no 8. Los números que caducan van fechados «al 2-sep-2026».
+4. **Los cinco arreglos pequeños**: guionado de los PDF, `flexShrink` en `clientBar`,
+   `Referrer-Policy` en las dos páginas públicas, `registrarEnvio` en el emisor del contrato
+   (comprobando antes que no lo esté tocando la ronda de B4, para no duplicarlo) y el índice
+   duplicado `travel_docs_token_idx`, que **es migración: se anota, no se toca**.
+5. **Sección «Para Nico»** con lo que no se toca y decide él: los dos expedientes en
+   `pago_completo` con un viajero sin firmar (urgente: CS-2026-004 sale el 22-sep), el
+   `sent_at`/`status` que se escribe antes del envío, el articulado en TypeScript frente a las
+   condiciones del documento de viaje en `settings`, y por qué CS-2026-080 se tocó el 2-sep 13:44.
 
 _(Solo si el veredicto fue `revisar`. Una ronda.)_
