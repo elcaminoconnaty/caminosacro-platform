@@ -506,8 +506,9 @@ puntos 1, 2 y 3 por el antecesor, y escritos ya el juicio del punto 4 y la parte
 B7.7. En esta sesión: **(a) hecho** —bajada la etiqueta del hallazgo de B7.6 en Hallazgos, que
 seguía diciendo `[MEDIO]`—; **(b) hecho** el punto 5, los tres estados vistos en pantalla, con dos
 hallazgos nuevos escritos (el vacío que miente cuando falla la consulta, y las doce formas para
-tres ideas). **Ahora mismo: (c) el punto 6, el «vistazo» de oficio.** Falta después **(d)** cerrar
-el punto 7. Método: el del antecesor —los componentes reales sobre la hoja de estilos compilada,
+tres ideas). **(c) hecho** el punto 6 —el «vistazo» de oficio: un MEDIO nuevo (falta el eje del tiempo) y el
+juicio comparado con el oficio—. **Ahora mismo: (d) el punto 7**, lo que el auditor dedujo del
+código y la pantalla desmiente, y cerrar con veredicto. Método: el del antecesor —los componentes reales sobre la hoja de estilos compilada,
 servida por el dev server, medidos con `getComputedStyle` en Chrome—; sigo **sin poder
 autenticarme**, así que las pantallas **con datos reales** siguen siendo hueco declarado.
 
@@ -781,6 +782,100 @@ Nico y Naty.**
 el `<AvisoDeCarga>` del hallazgo anterior— y sustituir. Es exactamente el mismo trabajo que B7.1
 elogia con los colores de marca, que ahí sí se hizo bien: un sitio, un dato. Aquí hay doce sitios
 para tres ideas.
+
+---
+
+### [NUEVO · MEDIO] Al CRM le falta el eje del tiempo: enseña lo que hay, nunca lo que urge — `seguimiento/page.tsx:35`
+
+Este es el punto 6 del plan: el «vistazo» de oficio. La pregunta no es si las pantallas están
+bien hechas —lo están—, es **si sirven para abrir el portátil a las ocho de la mañana y saber qué
+hacer**. Y ahí es donde esto todavía no se siente un CRM de agencia.
+
+En Lemax, Travefy o YouLi lo primero que abre un agente no es una ficha: es una **cola de trabajo**.
+Tres preguntas, todas las mañanas:
+
+| la pregunta de la mañana | dónde se contesta hoy |
+|---|---|
+| ¿qué cotización se está enfriando? | **en ningún sitio** |
+| ¿qué viaje sale pronto y no está listo? | a medias en `/calendario`, y sin decir qué le falta |
+| ¿qué saldo hay que cobrar antes de que salgan? | abriendo los expedientes de uno en uno |
+
+**Y lo grave es que el dato ya está y se tira por el camino.** La consulta de `/seguimiento`
+(`page.tsx:35`) trae **`valid_until`** —«válida hasta», la fecha que el PDF le promete al cliente
+(`lib/quotes/pdf.ts:429`)— y `QuotesTable` **ni siquiera la recibe**: el tipo `QuoteRow`
+(`QuotesTable.tsx:11-26`) no la incluye. Se lee de la base de datos, se transporta hasta el
+componente y se descarta. **La plataforma le pone fecha de caducidad a su propia oferta y luego no
+mira el reloj ni una sola vez.** Una cotización de 1.800 € que venció hace seis días se ve
+exactamente igual que la que se mandó ayer.
+
+Lo mismo con **`email_sent_at`**, que existe desde la migración `0011` y que ni se pide en esa
+consulta. Con esas dos columnas —una ya viajando, la otra a una palabra del `select`— se puede
+contestar «enviada hace nueve días y sin respuesta», que es, según CRITERIOS (punto 3 de lo que un
+CRM trae de serie), **lo que más plata deja sobre la mesa cuando falta**.
+
+**La tabla está ordenada por `code` descendente** (`page.tsx:37`), o sea por antigüedad de
+creación. Se puede ordenar por siete columnas —código, cliente, ruta, salida, total, saldo,
+estado— y **ninguna de las siete es «qué toca mover»**. Es un libro de cuentas ordenado por número
+de asiento; una cola de trabajo se ordena por urgencia. Con 45 cotizaciones aún se puede leer
+entera; a 150 esta pantalla deja de servir para trabajar y solo sirve para consultar.
+
+**El expediente tiene el mismo hueco en la cabecera.** `seguimiento/[id]/page.tsx:375-408`: código,
+chip de origen, cliente · ruta, chip de estado y cinco cifras de dinero. **No aparece la fecha de
+salida.** El dato que manda sobre todo lo demás —«sale en nueve días»— hay que ir a buscarlo dentro
+del editor. B7.4 pide con razón una franja «Qué falta»; le añado que esa franja necesita un
+**reloj**: sin «salida el 22 de septiembre · faltan 9 días», la lista de pendientes no tiene con
+qué compararse y no se distingue lo que corre de lo que espera.
+
+**Y `/calendario`, que es lo más cerca que hay de una agenda, enseña lo que existe, no lo que
+falta.** «Próximas salidas» (`CalendarView.tsx:151-170`) da día, cliente, ruta, pax y el chip de
+estado. No dice si el contrato está firmado, ni el saldo, ni si se mandó la documentación. Estando
+ya montada la lista y ya cargados los datos, es el sitio más barato del proyecto para poner el
+semáforo.
+
+**Lo que sí está y hay que reconocerlo:** existe **un** perseguidor automático, el cron de
+recordatorios de contrato (`api/cron/recordatorios-contrato/route.ts` + migración `0012`, con
+`last_reminder_at` y renovación del token). Es exactamente el instinto correcto —no dejar caer a
+nadie— y está bien resuelto. Lo que dice el hallazgo es que **se quedó en el contrato**: la
+cotización que nadie contesta y el saldo que vence no tienen quien los persiga, ni automático ni a
+la vista.
+
+**Propuesta** (no la aplico: es pantalla nueva). Una franja **«Hoy»** arriba de `/seguimiento`, tres
+contadores que al pulsarlos filtren la tabla que ya existe:
+
+- **Vencen esta semana** — `valid_until` entre hoy y +7. *El dato ya llega a la página.*
+- **Salen en menos de 15 días con saldo** — `start_date` y `saldo`, ya calculados ahí mismo.
+- **Enviadas hace más de 7 días sin respuesta** — añadir `email_sent_at` al `select`.
+
+Son tres cuentas sobre datos que ya están en memoria en esa página, y convierten un listado en una
+cola de trabajo. Es, con diferencia, lo que más cambiaría el día a día de todo B7.
+
+---
+
+### El vistazo, comparado con el oficio: qué es esto y qué le falta para sentirse un CRM de agencia
+
+Resumen de criterio, sin etiqueta de hallazgo, porque es el juicio que pedía el punto 6.
+
+**Lo que esta plataforma hace mejor que el software del oficio.** No es cortesía: el expediente es
+mejor que el de Travefy o YouLi para este negocio concreto. Sigue el recorrido real de la venta y
+está **comentado en el código explicando por qué** ese orden. Los estados vacíos están redactados
+por alguien que sabe qué pasa después («Crea el primero y ve cargándolos a medida que Pilgrim
+confirme alojamientos»). El cotizador autocarga tarifa, días, etapas y las tarjetas del PDF desde
+la ruta y la fecha. Los documentos —cotización, contrato, documentación de viaje— salen de los
+mismos datos, que es el punto 5 de CRITERIOS y el que más agencias pequeñas resuelven a mano. Y la
+disciplina de marca (B7.1) es de producto serio.
+
+**Lo que le falta para sentirse un CRM y no un expediente digital**, en orden de lo que más duele:
+
+1. **Una cola de trabajo.** El hallazgo de arriba. Contesta «cómo va esta venta» de maravilla, pero
+   nunca contesta **«cuál abro»**. Un CRM de agencia se abre por la agenda, no por el buscador.
+2. **Un reloj en el expediente.** Fecha de salida y días que faltan en la cabecera, junto a la
+   franja «Qué falta» que ya propone B7.4.
+3. **Que el semáforo esté donde ya se mira.** `/calendario` ya lista las salidas: falta la marca de
+   contrato sin firmar, saldo pendiente y documentación sin enviar.
+
+Y lo que **no** le hace falta, para que quede dicho: embudos de veinte etapas, permisos por rol,
+tableros arrastrables ni un panel de «productividad». Son dos personas. Lo que necesitan es que la
+pantalla les diga a quién llamar hoy.
 
 ---
 
