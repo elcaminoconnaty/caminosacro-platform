@@ -20,10 +20,16 @@
   **Corregido tras la crítica:** son **23 usos dentro del alcance** del bloque —15 en el CRM y 8 en las
   páginas públicas que lee el cliente—, no 36; los otros 19 están en `contenido/**`, fuera de alcance.
 - **B7.2 Los tres estados que siempre faltan.** Vacío, cargando y error, pantalla por pantalla. Lista las que se quedan mudas.
-  `Estado: hecho` — la mayoría de pantallas tiene los tres estados, y `/seguimiento` los tiene **muy** bien
-  (distingue «sin cotizaciones» de «ninguna coincide con los filtros»). La que se queda muda es **`/finanzas`**,
-  y es la peor de la lista: descarta el error de sus dos consultas y, si fallan, pinta **0 € cobrado, 0 €
-  pagado, 0 € de margen** como si fuera la verdad.
+  `Estado: hecho` — la peor de la lista es **`/finanzas`**, la única que se queda del todo muda:
+  descarta el error de sus dos consultas y, si fallan, pinta **0 € cobrado, 0 € pagado, 0 € de margen**
+  como si fuera la verdad.
+  **Corregido tras la crítica:** el cierre decía «solo una pantalla se queda muda» y eso ya no es
+  cierto, por dos cosas que se ven en pantalla y no leyendo el `if (error)`. Una: en todo el CRM no
+  hay `loading.tsx`, `error.tsx` ni `not-found.tsx`, así que la espera, la excepción y el 404 no
+  tienen estado ninguno. Dos: las pantallas que **sí** recogen el error pintaban igualmente los KPI
+  en 0,00 € y un vacío que miente debajo del aviso —incluida la distinción vacío/filtro de
+  `/seguimiento` que este bloque elogia, que tiene dos casos y necesita tres—. Los dos son hallazgos
+  propios; el segundo está arreglado en `/seguimiento` y `/calendario`.
 - **B7.3 Desde el celular.** El expediente, las tablas anchas y el wizard en 390 px. Es donde Nico atiende cuando no está en el escritorio.
   `Estado: hecho` — **en el celular no hay navegación.** La barra lateral es `hidden md:flex`, o sea que
   desaparece por debajo de 768 px, y **no hay nada que la sustituya**: ni menú, ni cajón, ni pestañas. El
@@ -165,7 +171,11 @@ Cuatro señales, en este orden:
 
 Con eso, y **usando el saldo en vez de la etiqueta** para decidir qué se muestra —que es lo
 que ya propone el GRAVE de B2—, el expediente contesta la pregunta sin bajar. No hace falta
-reordenar ni una tarjeta.: la barra lateral desaparece y no la sustituye nada — `components/shell/Sidebar.tsx:32` · `(dashboard)/layout.tsx`
+reordenar ni una tarjeta.
+
+---
+
+### [MEDIO] En el celular no hay navegación: la barra lateral desaparece y no la sustituye nada — `components/shell/Sidebar.tsx:32` · `(dashboard)/layout.tsx`
 
 El shell del panel tiene **dos** componentes y nada más:
 
@@ -483,8 +493,12 @@ arregla su contraste.
 - **Los errores se anuncian**: la pantalla de firma usa `role="alert"` con `aria-live="assertive"`
   (`SignForm.tsx`), que es justo donde más falta hace porque el que la usa es un cliente y no
   puede preguntarle a nadie.
-- **Los objetivos tocables de las acciones destructivas están bien**: el botón de borrar de la
-  tabla usa `p-1.5` con `title="Borrar"` y confirma con el código y el nombre del cliente.
+- **Las acciones destructivas confirman antes de borrar**: el botón de borrar de la tabla de
+  cotizaciones pide confirmación con el código y el nombre del cliente (`QuotesTable.tsx:133`).
+  **Corregido tras la crítica:** esta línea certificaba de paso su tamaño citando un `p-1.5` que
+  era de **otro** botón, el de borrar hoteles. El de cotizaciones medía 15 × 15 px —el objetivo más
+  pequeño del CRM, y el único que borra sin vuelta atrás—; ya está arreglado a 27 × 27, ver
+  «Arreglos aplicados». Lo que se sostiene de la frase es la confirmación, no la medida.
 - **La jerarquía de encabezados es correcta** en las pantallas revisadas: un `h1` por página
   con el nombre de la sección y `h2` en las tarjetas.
 - **El HTML del correo no lleva imágenes** (B4.4), así que quien tenga las imágenes
