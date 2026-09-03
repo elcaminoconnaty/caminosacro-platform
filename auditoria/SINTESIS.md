@@ -215,3 +215,74 @@ error que rompa nada; es una venta que se enfría sola. Por eso encabeza la part
 lo que más rinde.
 
 ---
+
+## 3. Lo que más rendiría
+
+No por gravedad: **por lo que devuelve frente a lo que cuesta**. Las horas son las que estimó
+cada bloque comparando con trabajo ya hecho en la plataforma; donde el bloque no estimó, se dice.
+
+| # | Qué | Cuesta | Qué gana | Bloque |
+|---|---|---|---|---|
+| 1 | **Borrar las dos filas de precio vacías de 2027** (casco y seguro de bici) | **1 minuto**, reversible | Cierra hoy la fuga de los opcionales a 0 € (§2.7). Lo más barato de toda la auditoría | B5 |
+| 2 | **Activar el rechazo de contraseñas filtradas** en Supabase | **1 clic** | La cuenta que abre pasaportes y contratos deja de admitir una contraseña ya publicada | B6 |
+| 3 | **Los tres archivos de estado del panel** (cargando / error / no encontrado) | **30 min** | Cubre **las 15 pantallas de golpe**. Hoy el «no encontrado» del panel sale en inglés y sin salida | B7 |
+| 4 | **Los cuatro apuntes del correo en n8n** (lista blanca del servidor del adjunto, orden de las dos ramas, secreto a variable, aviso de fallo) | **1,5 h**, a mano en n8n | Acota el daño si el secreto se filtra; y evita que un adjunto rechazado apague **a la vez** la copia al viajero y el aviso a Nico | B4 |
+| 5 | **La franja «Hoy» en Seguimiento**: vencen esta semana · salen en 15 días con saldo · enviadas hace 7 días sin respuesta | **media jornada**; sin migración, sin consulta nueva, sin campo nuevo | Convierte el listado en **cola de trabajo**. Es la mitad barata de §2.8 y **la pidieron dos bloques por caminos distintos** | B2 + B7 |
+| 6 | **La copia semanal de la base fuera de Supabase**, por n8n | pocas horas de montaje (no estimado) | La única red que hay debajo de §2.2 y §2.3. **Lo de más valor de toda la auditoría** | B6 |
+| 7 | **Guardar el lead de la web antes de intentar el correo** | **3 h** | Hoy el correo *es* el único registro: si el envío falla, el lead desaparece. Y aparece por primera vez la cifra de **cuánta demanda de 2027 se está perdiendo**, que hoy es inaveriguable. **Lo encontraron B4 y B5 por separado** | B4 + B5 |
+| 8 | **El aviso de saldo** (la plantilla ya está escrita) | **30 min** de arreglar la variable rota **+ 3 h** | Deja de depender de que Nico se acuerde. **La variable rota va primero**: hoy ese correo saldría diciendo «Saldo pendiente: .» | B4 |
+| 9 | **Que la pantalla del expediente use el editor bueno** | no estimado | Cierra §2.4 entero —precio pisado, habitaciones viejas y la carrera de dos pestañas— con reuso, no con código nuevo | B1 + B2 |
+| 10 | **Seguimiento de la cotización sin respuesta** (correo automático) | **3 h** | La otra mitad de §2.8. El robot de la firma ya es la plantilla exacta de cómo se hace | B4 |
+| 11 | **Confirmación de pago recibido** | **2 h** | Corta la llamada de «¿les llegó?», que con clientes transfiriendo desde otro país está garantizada | B4 |
+| 12 | **Marcar el contrato «enviado» solo cuando el correo haya salido de verdad** | **1 h** | Hoy se marca antes de enviar y no se revierte: un contrato que nunca salió entra igual en la escalera de recordatorios. Pasó de teórico a una hora al cablearse el registro de correos | B4 |
+| 13 | **Un buzón para los rebotes de Brevo** | **4 h** | Hoy «enviada» significa «Brevo lo aceptó», no «llegó». Un correo mal tecleado desde un WhatsApp deja un ✓ verde y un cliente que cree que no le contestaron | B4 |
+| 14 | **Guardas al borrar** (negarse si hay firma o pagos) | no estimado | Evita necesitar la copia de seguridad (§2.3) | B3 + B6 |
+
+**Y tres cosas que no son programación, son catálogo.** Rinden porque hoy se están pagando en
+cotizaciones a mano y en ofertas que no cuadran:
+
+- **Cargar las etapas de las tres rutas publicadas que no tienen ninguna** (`Portugués Bici
+  Oporto`, `Portugués desde Vigo`, `Primitivo Bici Oviedo`) y **completar las trece rutas
+  descuadradas** que producen el error de §2.1. Hoy un cliente que pide una de esas tres recibe
+  una cotización **sin itinerario**, que es justo lo que se compara entre agencias.
+- **Pedirle a Pilgrim las tarifas de las cuatro rutas que se venden sin ninguna**: `Francés desde
+  Saint Jean Pied de Port`, `Portugués desde Porto`, `Costero desde Porto` y `Norte desde
+  Vilalba`. Son **32 precios** (4 modalidades × 4 rutas × 2 años) y hay **12.180 € ya cotizados**
+  sobre ellas (3-sep-2026). En tres de esas cotizaciones el «costo Pilgrim» grabado es el precio
+  de venta × 0,85: **no es un costo, es la regla de margen aplicada al revés**, así que su
+  utilidad sale «15,0 %» pase lo que pase con la factura real.
+- **Cargar las tarifas de 2027.** Al 3-sep-2026 solo **2 de las 11 rutas web** tienen algo de
+  2027 (Sarria completa; Tui, 2 de 4 modalidades). El 1 de enero **todas las demás caen a la
+  vez**.
+
+### Lo que ya se arregló durante la auditoría — no hay que hacer nada
+
+Buena parte de lo pequeño se corrigió sobre la marcha. Está desplegado o commiteado, y **no se
+mezcla con lo pendiente de arriba**:
+
+- **Los correos del contrato ya dejan rastro.** Era el único de los cuatro correos sin registro y
+  el que más veces se manda: **once correos reales se habían perdido** sin dejar fila. Lo
+  encontraron **B3 y B4 por separado**; se arregló una vez. Ahora los siete emisores y los nueve
+  flujos registran.
+- **Los PDF ya no parten las palabras** («per-sonalizada», «2 individ-uales» salían en
+  documentos reales) y el teléfono y el correo del cliente **ya no se salen de la hoja** del
+  Documento de Viaje con un nombre de ruta largo (medido: antes se desbordaba a partir de 74
+  caracteres).
+- **Las tres páginas públicas por enlace** ya no filtran su dirección al navegar fuera ni las
+  indexan los buscadores.
+- **Dos formularios que se quedaban mudos** si algo reventaba ahora dicen qué pasó; `/cotizar`
+  dejó de prometer una descarga que no existía; y el asistente ya distingue «el catálogo está
+  vacío» de «el catálogo falló» —que era peligroso, porque invitaba a teclear un precio a mano
+  dando por hecho que no había tarifa—.
+- **Seguimiento y Calendario dejaron de enseñar ceros y «sin cotizaciones»** cuando la consulta
+  falla: antes el aviso de error convivía con un vacío que mentía.
+- **La tarjeta de correo respeta el interruptor «activa»** de la plantilla (antes apagarla la
+  seguía enviando desde el CRM), **el desempate entre dos hoteles de la misma localidad ya es
+  estable** (decidía Postgres, y hoy hay dos hoteles en las 6 localidades), el botón de borrar
+  pasó de 15×15 a 27×27 píxeles, volvió el contorno de foco a dos campos, los avisos de error se
+  anuncian a los lectores de pantalla y se unificaron sus cinco versiones distintas.
+- **La guía del proyecto dejó de afirmar que Supabase hace copias diarias**, y el mensaje de
+  estado inválido dejó de decir que «Sin enviar» no es un estado válido, siendo el estado inicial
+  de toda cotización.
+
+---
