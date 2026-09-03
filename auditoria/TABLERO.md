@@ -90,11 +90,15 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 | B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `hecho` | `hecho` |
 | B6 | Datos y plataforma | `B6-datos-plataforma.md` | `hecho` | `hecho` | `hecho` |
 | B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `hecho` | `hecho` |
-| B8 | Síntesis | `SINTESIS.md` | `en curso` | `—` | `—` |
+| B8 | Síntesis | `SINTESIS.md` | `hecho` | `—` | `—` |
 
 Valores: `pendiente` · `en curso` · `hecho`. En Revisión, además: `—` (no hizo falta).
 
-> **Estado a 3-sep-2026:** **los siete bloques están cerrados enteros** —auditoría, crítica y
+> **AUDITORÍA TERMINADA (3-sep-2026).** Los ocho bloques están cerrados. Lo que sigue no es
+> auditoría: es lo que Nico decida hacer con `SINTESIS.md`, que se lee sola y está ordenada por
+> impacto contra esfuerzo. Si alguien retoma esto, empieza por ahí.
+
+> **Estado anterior a 3-sep-2026:** **los siete bloques están cerrados enteros** —auditoría, crítica y
 > revisión—. Queda **B8, la síntesis**, y con ella se acaba la auditoría. Los números de cada
 > bloque están remedidos y fechados al 3-sep; B8 copia de ahí, no recalcula.
 
