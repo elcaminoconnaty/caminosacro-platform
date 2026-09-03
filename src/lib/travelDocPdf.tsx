@@ -178,8 +178,15 @@ const s = StyleSheet.create({
   indexDesc: { fontFamily: SANS, fontSize: 8, color: C.sec, lineHeight: 1.45 },
 
   // ===== CABECERA DE DATOS =====
+  // Las dos columnas llevan ANCHO EXPLÍCITO, no `flex`. Sin él, el nombre de la ruta se pinta en
+  // una sola línea tan larga como haga falta y empuja el bloque del cliente fuera de la hoja:
+  // medido con `pdftotext -bbox`, con un nombre de ruta de 74 caracteres el texto llegaba a
+  // 591,6 pt sobre un A4 de 595,3, y el teléfono y el correo quedaban cortados por el borde.
+  // `flexShrink` NO basta —se probó—: la columna izquierda no se comprime hasta su ancho de
+  // contenido mínimo y el desborde sigue. Con anchos fijos, cada texto envuelve dentro de lo suyo.
   clientBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 },
-  clientCol: { alignItems: "flex-end" },
+  clientColLeft: { width: "56%", paddingRight: 12 },
+  clientCol: { width: "44%", alignItems: "flex-end" },
   clientLine: { fontFamily: SANS, fontSize: 7.5, color: C.sec },
   eyebrow: { fontFamily: SANS, fontSize: 7.5, color: C.oroH, letterSpacing: 2, marginBottom: 4 },
   h1: { fontFamily: SERIF, fontSize: 22, color: C.verde, lineHeight: 1.2, marginBottom: 14 },
@@ -474,7 +481,7 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
         <PageFooter referencia={quote.code} />
 
         <View style={s.clientBar}>
-          <View>
+          <View style={s.clientColLeft}>
             <Text style={s.eyebrow}>{subtituloRuta(quote.route_name)}</Text>
           </View>
           <View style={s.clientCol}>
