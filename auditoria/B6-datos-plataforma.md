@@ -663,7 +663,8 @@ para cuando se toque el tema.
 Tres cosas de este bloque **no las puede aplicar un agente**: son respaldo, permisos y datos
 personales en producción —la regla 9 del TABLERO—. Van aquí las tres, cada una con lo mismo:
 qué resuelve, qué cuesta y qué pasa si no se hace. Ninguna necesita que se escriba código para
-decidirse; las tres necesitan un sí o un no.
+decidirse; las tres necesitan un sí o un no. Al final van **dos apuntes de un minuto** que
+tampoco toca un agente porque son configuración de producción.
 
 _(La «Verificación urgente para Nico» de más arriba ya tiene respondido su punto 1: el crítico
 confirmó por MCP que la organización está en plan `free` con coste 0 USD/mes, y `GUIA.md` ya
@@ -705,6 +706,27 @@ para que no sorprendan:
   únicos activos irreemplazables: una descarga manual por temporada ya es infinitamente mejor
   que nada.
 
+**Cómo se prueba que sirve.** Lo que se decide, en una línea: **una copia por semana**, a un
+**destino privado que no sea Supabase** (el Drive de la agencia vale), **ocho semanas de
+retención**, y los **dos buckets a mano una vez por temporada**. Y después lo que casi nadie
+hace, que es lo único que convierte el archivo en un respaldo: comprobarlo. **Una copia que
+nunca se ha restaurado no es una copia, es un archivo del que nos fiamos.** La prueba se hace
+una vez al montarlo y otra al empezar cada temporada, y es media hora:
+
+1. **Que pese lo que debe.** Bajar el archivo de la última copia y mirar el tamaño: el orden de
+   magnitud de esta base es 2,5 MB. Un archivo de 0 bytes o de 3 kB es un fallo de credenciales
+   o de conexión que el workflow dio por bueno — es la forma más común de tener una copia falsa.
+2. **Que tenga datos y no solo el esqueleto.** Abrirlo y buscar dentro un código que se sepa de
+   memoria, un `CS-2026-0XX`, y su precio. Si aparece, la copia trae contenido; un dump de solo
+   esquema también pesa y también parece correcto.
+3. **Restaurarla de verdad, y nunca sobre producción.** En un proyecto gratuito de Supabase
+   creado para esto, o en un Postgres local. Y contar tres cosas contra lo que hay hoy: **27
+   tablas, 45 cotizaciones y 8 contratos**. Hasta que eso no se hace una vez, no se sabe si la
+   copia sirve; se supone.
+4. **Que el workflow avise cuando falla, no cuando funciona.** Un Schedule de n8n que lleva tres
+   semanas cayendo en silencio es **peor** que no tener copia, porque uno cree que la tiene y
+   deja de tener cuidado. Un correo solo en caso de error es suficiente.
+
 **Qué pasa si no se hace.** Sigue siendo cierto lo que dice hoy `GUIA.md`: si mañana la base no
 está, no hay de dónde volver. No es un riesgo abstracto —45 cotizaciones, 8 contratos firmados
 con su firma manuscrita y su `signer_ip`, y los pagos— y no es proporcional al error: un clic
@@ -726,6 +748,15 @@ rechaza toda escritura, comprobado a mano contra PostgREST—. Lo que arregla el
 margen: que dejar de estar protegido no dependa de **una sola línea** escrita por descuido un
 día de depuración (`disable row level security`, o una policy `TO public` para que el cotizador
 lea tarifas sin pasar por el servidor).
+
+**Qué es «defensa en profundidad», en llano.** Es no dejar que la seguridad dependa de una sola
+puerta. Sobre cada tabla hay **dos cerraduras distintas**: el **permiso** (`grant`) dice quién
+tiene derecho a tocarla, y la **policy** de RLS dice qué filas puede ver o escribir el que ya
+tiene ese derecho. Hoy la primera está abierta para `anon` y solo cierra la segunda. Con las dos
+puestas, para que se filtre algo tendrían que fallar **dos** cosas a la vez en vez de una — y la
+que hoy aguanta sola todo el peso, la policy, es justamente la que se toca a mano cuando se
+depura un domingo. Quitarle a `anon` un permiso que no usa nadie no le añade una función de
+seguridad al sistema: le quita la dependencia de que nadie se equivoque **ni una sola vez**.
 
 **Qué cuesta.** Una migración de cinco líneas y ningún cambio de código:
 
@@ -829,6 +860,24 @@ nadie, sin caducidad y sin copia — y conviene decidir de paso la regla que hoy
 pasaporte se borra a los 30 días de terminado el viaje**. Aunque al principio se ejecute a mano
 una vez por temporada, tener la regla escrita ya cambia el resultado; automatizarla puede
 esperar.
+
+---
+
+### Y dos apuntes de un minuto, que tampoco los toca un agente
+
+No son decisiones de las gordas, pero necesitan la clave de producción y se pierden si no quedan
+escritos aquí:
+
+- **`/correo/[token]` es la única puerta pública que no se puede apagar.** De las tres puertas
+  por token, el contrato **caduca** y la documentación se puede **revocar**; la versión web del
+  correo, no. Un correo con la oferta y los datos del cliente queda accesible **para siempre** a
+  quien tenga el enlace, y ese enlace se reenvía. Hoy es MENOR porque `email_log` tiene 9 filas
+  y 5 son de prueba, pero crece solo. Arreglarlo es una columna `revoked_at` y un `if`: cambio
+  de migración, así que **se anota, no se toca**.
+- **`auth_leaked_password_protection` está desactivado: es un clic.** Supabase puede rechazar
+  contraseñas que ya aparecen en filtraciones conocidas, y está apagado. Dashboard →
+  Authentication → Policies. Sin código, sin migración y sin riesgo, en una cuenta de dos
+  personas cuyas credenciales abren pasaportes y contratos firmados.
 
 ---
 
