@@ -645,6 +645,64 @@ por nombre y arreglar a mano la de la tilde; (b) que `prefillTravelNights` use
 hizo `pdf.ts` en `adc6466`: el prellenado se quedó atrás—; (c) hecho (a), la protección de
 borrado pasa a ser verdad y el MENOR de `errors.ts` deja de ser el único aviso.
 
+### [MEDIO] Cuatro rutas se venden con el catálogo vacío —12.180 € cotizados— y el «costo Pilgrim» grabado es el precio × 0,85 — `cotizar/Wizard.tsx:204-210` y `:699`
+
+Ésta es la puerta por la que entran casi todas las cotizaciones. Con el **precio** se porta
+bien: `catalogBySlug` usa `ratesForYear` **exacto** (`:153`), no autocarga nada si el año no
+está y pinta el aviso ámbar «⚠ No hay tarifas 2027 cargadas para esta ruta — ingresá los
+precios a mano» (`:619`). El problema es el campo de al lado: **`costEur` arranca en `"0"`**
+(`:99`) y solo se autocarga `if (!autoLink || !ratesOk)` (`:205`). Es decir: **cuando el año
+no tiene tarifa, el costo no se calcula, se teclea**, y nada lo valida —`onSubmit` acepta
+`cost_base_eur = 0` sin decir nada (`:316`), mientras el precio de venta sí tiene su guarda
+(`:356`)—.
+
+**Remedido contra producción al 3-sep-2026** (las cuatro rutas siguen sin **una sola** fila en
+`comercial.pricing`, en ningún año):
+
+| cotización | ruta | filas de precio | venta | «costo Pilgrim» grabado | costo ÷ venta |
+|---|---|---|---|---|---|
+| CS-2026-008 | Francés desde Saint Jean Pied de Port | **0** | 4.570 € | 3.888 € | **0,8508** |
+| CS-2026-033 | Portugués desde Porto | **0** | 3.840 € | 3.264 € | **0,8500** |
+| CS-2026-081 | Costero desde Porto | **0** | 2.900 € | 2.466 € | **0,8503** |
+| CS-2026-084 | Norte desde Vilalba | **0** | 870 € | 731 € | 0,8402 |
+| | | | **12.180 €** | | |
+
+**12.180 € cotizados sobre rutas que no tienen una sola tarifa**, y en **tres de las cuatro**
+el costo es el precio × 0,85 con cuatro decimales de exactitud. Eso no es un costo: es **la
+regla de markup aplicada al revés**. La plataforma calcula el precio dividiendo el costo entre
+0,85; aquí se hizo lo contrario, y el resultado es que la utilidad de esos expedientes sale
+**15,0 % por definición, pase lo que pase con la factura de Pilgrim**. (El patrón asoma también
+fuera de las cuatro: `CS-2026-080`, 8.350 € en `Costero desde Baiona` —ruta que **sí** tiene
+tarifas—, está grabada en 0,8508.)
+
+No es un pecado de quien cotiza sino del formulario: cuando el catálogo no tiene la ruta, el
+CRM pide **dos** números y trata al segundo como si fuera dato del proveedor, sin tener de
+dónde sacarlo. La casilla se llama «Costo Pilgrim € (total grupo)» y la de al lado enseña
+«Utilidad proyectada» calculada con ella (`:305`): la pantalla afirma un margen que acaba de
+inventar, y ese margen es el que suma el tablero.
+
+Un caso aparte por la misma puerta: **CS-2026-015** (`Costero desde Baiona`, salida
+2027-04-08) tiene grabado `882 / 750` —**exactamente la fila `pension_single` de 2026** de esa
+ruta, que no tiene 2027—. El aviso ámbar hizo su trabajo y los números tecleados fueron los del
+año viejo. El aviso dice «ingresá los precios a mano» pero **no dice de qué año son los que
+tiene a la vista, ni deja constancia de cuál se usó**.
+
+**Propuesta (no se toca: es dinero).** Tres cosas, de menor a mayor:
+1. Que el Wizard **no acepte `cost_base_eur = 0`** con precio de venta mayor que cero: la
+   misma guarda que ya tiene el precio, con el mismo tono.
+2. Que el aviso ámbar diga **qué año está viendo** y ofrezca «copiar las tarifas de 2026» como
+   acción explícita. Copiado a propósito y anotado es otra cosa que copiado sin rastro.
+3. Que la cotización guarde **el año de tarifa usado** —la propuesta (a) del bloque, que aquí
+   gana su segundo motivo: sirve para el respaldo automático y para lo tecleado—.
+
+### [MEDIO] El lead de «este año todavía no tiene tarifa» no deja ni una fila — **es de B4, no se duplica aquí**
+
+`app/api/wp/lead/route.ts` responde el caso `sin_tarifas_ano` mandando un correo y **sin
+persistir nada**: no se puede seguir, ni contar, ni recuperar. Hoy, la pregunta «cuánta demanda
+de 2027 estamos perdiendo» es literalmente inaveriguable. **El hallazgo y su propuesta viven en
+`B4-correo.md`**, que es el bloque dueño del endpoint; se anota aquí solo porque el disparador
+es de catálogo —el año sin tarifa— y para que B8 no lo cuente dos veces.
+
 ---
 
 ## Arreglos aplicados
