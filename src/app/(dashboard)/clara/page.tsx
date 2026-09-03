@@ -79,7 +79,7 @@ export default async function ClaraPage() {
       </header>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
           {mensajeError(error, "No se pudieron leer las conversaciones.")}
         </div>
       )}

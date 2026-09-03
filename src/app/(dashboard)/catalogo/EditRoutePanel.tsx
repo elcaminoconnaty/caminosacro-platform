@@ -258,7 +258,7 @@ export default function EditRoutePanel({
             </div>
           </div>
 
-          {error && <div className="px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>}
+          {error && <div role="alert" className="px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>}
 
           <div className="flex items-center justify-between gap-2 flex-wrap">
             {confirmDelete ? (
@@ -285,7 +285,7 @@ export default function EditRoutePanel({
       )}
 
       {!loaded && routeId && pending && <p className="text-sm text-muted">Cargando ruta…</p>}
-      {error && !loaded && <div className="px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>}
+      {error && !loaded && <div role="alert" className="px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>}
     </div>
   );
 }

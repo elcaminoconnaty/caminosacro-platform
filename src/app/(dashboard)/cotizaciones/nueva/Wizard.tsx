@@ -772,7 +772,7 @@ export default function Wizard({
         </div>
       </section>
 
-      {error && <div className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">{error}</div>}
+      {error && <div role="alert" className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">{error}</div>}
 
       <div className="flex justify-end gap-3">
         <button

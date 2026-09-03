@@ -208,7 +208,7 @@ export default async function CatalogoPage({
       <CatalogToolbar families={families} routes={routesList} year={year} />
 
       {error && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
+        <div role="alert" className="rounded-md border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
           {error.message.includes("does not exist") || error.message.includes("schema") ? (
             <>El schema <code className="font-mono">comercial</code> no está expuesto. Agregalo en Supabase Dashboard → API → Exposed schemas.</>
           ) : (

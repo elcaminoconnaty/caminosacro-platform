@@ -168,7 +168,7 @@ export default function BikesTable({
       )}
 
       {error && (
-        <div className="mb-3 px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>
+        <div role="alert" className="mb-3 px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>
       )}
 
       <div className="bg-bg-card border border-border rounded-xl overflow-hidden overflow-x-auto">

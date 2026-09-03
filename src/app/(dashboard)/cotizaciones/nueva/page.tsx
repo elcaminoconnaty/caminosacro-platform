@@ -47,7 +47,7 @@ export default async function NuevaCotizacionPage() {
           selector de Camino sin opciones, o cada combinación diciendo "no hay tarifas
           cargadas — ingresá los precios a mano" sobre un catálogo que sí existe. */}
       {(routesErr || pricingErr) && (
-        <div className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
           No se pudo leer el catálogo{routesErr && pricingErr ? "" : routesErr ? " de rutas" : " de precios"}.
           Lo que veas abajo está incompleto: <b>no teclees precios a mano dando por hecho que la tarifa no existe</b>.
           Recargá la página antes de crear nada.

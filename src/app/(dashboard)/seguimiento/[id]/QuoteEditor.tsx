@@ -564,7 +564,7 @@ export default function QuoteEditor({
           </label>
         </div>
 
-        {error && <div className="md:col-span-3 text-sm text-red-700">{error}</div>}
+        {error && <div role="alert" className="md:col-span-3 text-sm text-red-700">{error}</div>}
 
         <div className="md:col-span-3 flex justify-end">
           <button

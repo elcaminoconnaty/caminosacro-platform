@@ -192,7 +192,7 @@ export default function CreateRoutePanel({ families, onClose, year }: { families
         </div>
       </div>
 
-      {error && <div className="px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>}
+      {error && <div role="alert" className="px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>}
 
       <div className="flex items-center justify-end gap-2">
         <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition">Cancelar</button>

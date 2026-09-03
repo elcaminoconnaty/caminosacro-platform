@@ -115,7 +115,7 @@ export default function BikesCard({
         </div>
       </div>
 
-      {error && <div className="px-5 py-2 text-sm text-red-700 bg-red-50 border-b border-red-200">{error}</div>}
+      {error && <div role="alert" className="px-5 py-2 text-sm text-red-700 bg-red-50 border-b border-red-200">{error}</div>}
 
       {/* La fianza es la sorpresa más cara del Camino en bici si nadie la nombró a tiempo:
           va siempre visible, esté marcada o no una bici. */}

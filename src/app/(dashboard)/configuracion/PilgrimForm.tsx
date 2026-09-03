@@ -70,7 +70,7 @@ export default function PilgrimForm({
           >
             {pending ? "Guardando…" : "Guardar"}
           </button>
-          {msg && <span className={`text-sm ${msg.ok ? "text-bosque" : "text-red-600"}`}>{msg.texto}</span>}
+          {msg && <span aria-live="polite" className={`text-sm ${msg.ok ? "text-bosque" : "text-red-600"}`}>{msg.texto}</span>}
         </div>
       </div>
     </section>

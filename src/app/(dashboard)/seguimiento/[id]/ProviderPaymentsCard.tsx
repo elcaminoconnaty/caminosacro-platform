@@ -169,7 +169,7 @@ function PaymentForm({
         <span className="text-xs text-muted">Notas</span>
         <textarea name="notes" rows={2} defaultValue={payment?.notes ?? ""} className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white" />
       </label>
-      {error && <p className="col-span-2 text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="col-span-2 text-sm text-red-700">{error}</p>}
       <div className="col-span-2 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-taupe/40">
           Cancelar
