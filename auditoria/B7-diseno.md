@@ -481,6 +481,14 @@ tabular hacia ellos el foco desaparecía sin dejar rastro. Quitado el `focus:out
 —dos tokens de clase menos— con lo que vuelve el anillo de foco del navegador. Es el arreglo más
 reversible posible y no toca ni la maqueta ni el color. `npx tsc --noEmit` limpio.
 
+### El botón de borrar una cotización pasa de 15×15 a 27×27 sin mover la fila — `seguimiento/QuotesTable.tsx:263`
+
+Medido en el navegador, era **15 × 15 px**: el objetivo más pequeño del CRM y el único que borra
+sin vuelta atrás. Añadido `p-1.5 -m-1.5`, que agranda el área tocable a **27 × 27** —por encima
+del mínimo de 24 × 24 de WCAG 2.2— y compensa el padding con margen negativo, así que la fila de
+la tabla mide exactamente lo mismo que antes. Un solo cambio de clases, sin tocar la lógica de
+borrado ni la confirmación. `npx tsc --noEmit` limpio. Detalle en la crítica.
+
 ---
 
 ## Crítica del experto
@@ -507,8 +515,8 @@ B7.7. En esta sesión: **(a) hecho** —bajada la etiqueta del hallazgo de B7.6 
 seguía diciendo `[MEDIO]`—; **(b) hecho** el punto 5, los tres estados vistos en pantalla, con dos
 hallazgos nuevos escritos (el vacío que miente cuando falla la consulta, y las doce formas para
 tres ideas). **(c) hecho** el punto 6 —el «vistazo» de oficio: un MEDIO nuevo (falta el eje del tiempo) y el
-juicio comparado con el oficio—. **Ahora mismo: (d) el punto 7**, lo que el auditor dedujo del
-código y la pantalla desmiente, y cerrar con veredicto. Método: el del antecesor —los componentes reales sobre la hoja de estilos compilada,
+juicio comparado con el oficio—. **(d) hecho** el punto 7. Plan
+terminado; queda solo el veredicto. Método: el del antecesor —los componentes reales sobre la hoja de estilos compilada,
 servida por el dev server, medidos con `getComputedStyle` en Chrome—; sigo **sin poder
 autenticarme**, así que las pantallas **con datos reales** siguen siendo hueco declarado.
 
@@ -942,6 +950,58 @@ Así que el hallazgo real, más pequeño y más exacto, es: **dos notas de 10 px
 contraste, pegadas a los dos campos de dinero del editor**. Se arregla solo con el token de
 `--color-dorado-texto` del hallazgo de B7.1; no hace falta ningún icono nuevo. La parte de los
 chips de estado que dependen solo del color sí se sostiene tal como está escrita.
+
+---
+
+### [CORREGIDO · NUEVO MENOR] El auditor certificó los objetivos tocables mirando el botón equivocado — `QuotesTable.tsx:263`
+
+Punto 7 del plan: lo que se dedujo del código y la pantalla desmiente. Este es el caso más claro.
+
+B7.7 cierra con esto en «lo que sí está bien»: «**los objetivos tocables de las acciones
+destructivas están bien**: el botón de borrar de la tabla usa `p-1.5` con `title="Borrar"` y
+confirma con el código y el nombre del cliente». Dos tercios son ciertos —el `title` está y la
+confirmación es ejemplar: `«¿Borrar la cotización CS-2026-004 · María Gómez por completo? Esta
+acción no se puede deshacer.»` (`QuotesTable.tsx:133`)—. Pero **ese `p-1.5` es de otro botón**: el
+de borrar **hoteles** (`HotelsManager.tsx:140`). El de borrar cotizaciones no tiene padding
+ninguno: `className="text-muted hover:text-red-600 disabled:opacity-40 transition"` con un
+`<Trash2 size={15} />` dentro.
+
+Medido en el navegador con `getBoundingClientRect`, sobre la hoja de estilos compilada:
+
+| control | medido | mínimo AA (WCAG 2.2, 2.5.8: 24×24) |
+|---|---|---|
+| **borrar cotización** (`QuotesTable.tsx:263`) | **15 × 15** | ✗ |
+| chips de filtro por estado (`CalendarView.tsx:96`) | **57 × 21** | ✗ por la altura |
+| **select de estado de la venta** (`QuotesTable.tsx:253`) | **77 × 23** | ✗ por 1 px |
+| chevrones de mes (`CalendarView.tsx:78`) | 30 × 30 | ✓ (lejos de los 44 de AAA) |
+| botón «Hoy» | 48 × 30 | ✓ |
+| enlace al expediente (el más usado del CRM) | 94 × 17 | el área es solo el texto |
+
+O sea: **el objetivo más pequeño de todo el CRM es el único irreversible**, y está a 15 px del
+desplegable que cambia el estado de la venta, en la misma fila. La confirmación lo salva de
+borrar por error —por eso esto es MENOR y no más—, pero la fila mala se aprende cuando ya salió
+el diálogo. Y en el celular, donde la tabla se recorre con scroll horizontal, 15 px es media yema.
+
+**Arreglado** (lo pequeño y reversible): `p-1.5 -m-1.5` en ese botón. El padding lleva el área
+tocable a **27 × 27** —por encima del mínimo de 24— y el margen negativo lo compensa, así que la
+fila mide exactamente lo mismo que antes. Ni un píxel de maqueta cambiado. `npx tsc --noEmit`
+limpio.
+
+**Propuesta**, no aplicada: los chips de filtro (`py-0.5` → `py-1`) y el `select` de estado
+(`py-1` → `py-1.5`) suben del mínimo con un token de clase cada uno, pero mueven la altura de la
+fila y de la barra de filtros, así que van con quien decida la maqueta. Y el `select` de estado
+merece pensarse aparte: es el control que B2 señala como fuente del estado que miente, y hoy es un
+desplegable de 11 px sin confirmación que cambia la venta.
+
+**Dos comprobaciones más del punto 7, que salen a favor del auditor:**
+
+- **«Un solo archivo con hexadecimales» (B7.1) se sostiene.** Fuera de `contenido/**` hay hex en
+  `globals.css` (el sitio correcto), en los cinco generadores de PDF —`@react-pdf/renderer` no
+  entiende clases, no hay alternativa— y en `OrgSignatureForm.tsx:31`, que es un
+  `ctx.strokeStyle` de `<canvas>`: tampoco puede leer un token. No hay ni un color suelto en JSX
+  del CRM. La afirmación es correcta.
+- **La confirmación de borrado y el `title` están donde dice.** Verificado en el código y con el
+  texto exacto arriba.
 
 ---
 

@@ -258,11 +258,13 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
                     </select>
                   </td>
                   <td className="px-4 py-2.5 text-right">
+                    {/* p-1.5 con -m-1.5 agranda el área tocable de 15x15 a 27x27 sin mover la
+                        fila: 15x15 no llega ni al mínimo de 24x24 y esto borra de verdad. */}
                     <button
                       onClick={() => onDelete(q)}
                       disabled={pending}
                       title="Borrar cotización"
-                      className="text-muted hover:text-red-600 disabled:opacity-40 transition"
+                      className="p-1.5 -m-1.5 text-muted hover:text-red-600 disabled:opacity-40 transition"
                     >
                       <Trash2 size={15} />
                     </button>
