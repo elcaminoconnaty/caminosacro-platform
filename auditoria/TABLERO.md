@@ -87,7 +87,7 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 | B2 | Expediente y estados | `B2-expediente.md` | `hecho` | `hecho` | `hecho` |
 | B3 | Contratos y documentos | `B3-contratos-documentos.md` | `hecho` | `hecho` | `en curso` |
 | B4 | Correo | `B4-correo.md` | `hecho` | `hecho` | `hecho` |
-| B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `hecho` | `en curso` |
+| B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `hecho` | `hecho` |
 | B6 | Datos y plataforma | `B6-datos-plataforma.md` | `hecho` | `hecho` | `hecho` |
 | B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `hecho` | `en curso` |
 | B8 | Síntesis | `SINTESIS.md` | `pendiente` | `—` | `—` |
