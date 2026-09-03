@@ -566,9 +566,9 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 `Estado: en curso` — tercer agente crítico (los dos primeros murieron por el límite de gasto).
 
-**Por dónde voy:** puntos **1, 2 y 3 cerrados** (escritos abajo). Ataco el **punto 4** — lo que el
-auditor no miró: viajeros sin contrato, tokens de `travel_docs`, `email_log` tras el borrado y el
-hueco entre `quote_travelers` y `contracts`. Después el 5 (oficio) y el veredicto.
+**Por dónde voy:** puntos **1, 2, 3 y 4 cerrados** (escritos abajo). Ataco el **punto 5** — el
+listón del oficio: qué trae de serie un CRM de agencia en contratos y documentos que aquí falte y
+le cueste caro a una agencia de dos personas. Después, el veredicto.
 
 Plan de verificación, en este orden; cada punto se escribe aquí en cuanto se cierra:
 
@@ -807,7 +807,140 @@ desborde del papel aunque el nombre de la ruta se recorte bien.
 nada: el corte de palabra por guion está activo en los cinco generadores. La propuesta de una línea
 sigue en pie y es de las pocas de este bloque que se pueden aplicar sin decidir nada con Nico.
 
-_(sigue: lo que el auditor no miró, y el listón del oficio)_
+### 4. Lo que el auditor no miró: cuatro huecos, y dos cosas que están mejor de lo que parecen
+
+Miré las cuatro cosas del plan. **Dos están bien resueltas** y hay que decirlo, porque el
+siguiente que pase no tiene por qué volver a gastarse el presupuesto en ellas:
+
+- **El hueco entre `quote_travelers` y `contracts` está tapado, y bien.** La FK es
+  `contracts_traveler_id_fkey … ON DELETE CASCADE`, o sea que borrar un viajero se llevaría por
+  delante su contrato firmado. `saveTravelers` (`contractActions.ts:91-108`) lo sabe: lee los
+  `traveler_id` que ya tienen contrato, los mete en un `Set` de protegidos y **se niega a
+  borrarlos**, devolviendo un aviso que la tarjeta enseña. Está comentado en el código con el
+  motivo exacto. Es de lo mejor pensado del bloque.
+- **Los tokens de `travel_docs` no tienen ningún agujero.** 32 bytes de `randomBytes` (256 bits,
+  `render.ts:22`), `travel_docs_token_key` **único** en la base (colisión descartada, no por
+  probabilidad sino por constraint), `revoked_at` que la página pública comprueba
+  (`documentacion/[token]/page.tsx:49`) y `rotateTravelDocToken` que emite uno nuevo y deja el
+  viejo muerto. Que **no caduquen es deliberado y correcto**: el peregrino abre esa página
+  durante el Camino y meses después. Único ruido: `travel_docs_token_idx` es un índice btree
+  sobre `token` **duplicado** del `travel_docs_token_key` que ya existe — sobra, cuesta
+  escrituras y no aporta nada.
+
+Y **el cron de recordatorios existe y está bien hecho**, cosa que la auditoría no menciona en
+ningún sitio: `api/cron/recordatorios-contrato/route.ts` reenvía el enlace cada 4 días hasta 5
+veces, con tono creciente, **renovando el vencimiento del token en cada envío** (que era la
+trampa evidente: insistir hasta el día 20 con un enlace que muere el 21) y disparando un aviso
+interno en el último. Eso cubre el punto 3 de `CRITERIOS.md` mejor que la mayoría de lo que he
+visto en este bloque.
+
+Ahora los cuatro huecos.
+
+#### 4.1 · El contrato es el único correo que no deja rastro
+
+`lib/contracts/email.ts:11` llama directo a `enviarCorreoWebhook` y **nunca a `registrarEnvio`**.
+Los otros tres emisores sí lo hacen: `lib/quotes/clientEmail.ts:146`,
+`lib/quotes/sendPilgrimEmail.ts:115`, `lib/travelDocs/email.ts:222`. O sea que de los cuatro
+tipos de correo, el único que **no** se anota en `comercial.email_log` es justo el que tiene valor
+legal y el que más veces se manda (el envío inicial más hasta cinco recordatorios automáticos:
+seis correos por viajero, todos invisibles). Verificado en producción: las 12 filas de `email_log`
+son `tipo` `cliente` y `documentacion`; **cero de contrato**, con cinco contratos enviados.
+
+Tres consecuencias, todas reales:
+
+- **El panel de correos del expediente miente por omisión.** `seguimiento/[id]/page.tsx:190` lee
+  `email_log` para pintar el «enviado / sin enviar» de cada tarjeta; los contratos nunca aparecen
+  ahí. Si Johana dice «no me llegó nada», no hay a qué dirección se mandó, ni cuándo, ni el
+  `message_id` de Brevo, ni versión web. Solo `sent_at`. Eso es exactamente lo contrario del
+  punto 7 de `CRITERIOS.md`.
+- **El «✓ enviado» no comprueba nada.** `sendContractLink` (`contractActions.ts:477-493`) escribe
+  `status: "enviado"` y `sent_at` **antes** de intentar el correo, y no los revierte si el webhook
+  falla. La tarjeta sí avisa en el momento («El correo no salió, envíale este link…»,
+  `ContractCard.tsx:652`), pero es un toast: mañana la base dice «enviado el 31 de agosto» y nadie
+  puede distinguir un envío bueno de uno que reventó. Los otros tres correos sí guardan
+  `estado: 'error'` con el mensaje.
+- **Los recordatorios automáticos fallan en silencio.** El cron, ante un fallo, hace
+  `console.error` y no marca el recordatorio para reintentar mañana (`route.ts:196`) — decisión
+  correcta —, pero como tampoco escribe en `email_log`, un webhook caído cinco días seguidos no
+  deja ni una línea que alguien vaya a mirar.
+
+**[MEDIO] Propuesta:** llamar a `registrarEnvio` desde `enviarCorreoContrato` con
+`tipo: 'contrato'`, igual que los otros tres, y mover `sent_at`/`status` a después de que el envío
+confirme. Es el arreglo más barato de todo el bloque y desbloquea de paso la versión web
+(`/correo/[token]`) para el contrato.
+
+#### 4.2 · Un viaje pagado entero puede salir sin la firma de la mitad del grupo, y no se ve desde el listado
+
+Los tres expedientes vivos con contrato están **los tres en `pago_completo`**, y en **dos de ellos
+falta una firma**:
+
+| expediente | sale | viajero | contrato | firmado |
+|---|---|---|---|---|
+| CS-2026-004 | 22-sep-2026 | Isabel Beatriz Londoño Cataño | firmado | 31-ago |
+| CS-2026-004 | 22-sep-2026 | **Johana Marcela Giraldo** | **enviado** | **—** |
+| CS-2026-019 | 13-oct-2026 | **Carlos Mario Serna Carmona** | **enviado** | **—** |
+| CS-2026-019 | 13-oct-2026 | Marcela Villada Vargas | firmado | 2-sep |
+| CS-2026-034 | 24-sep-2026 | Amalia Matallana | firmado | 28-jul |
+
+El estado de venta llegó a **pago completo** sin que nadie firmara nada, y ningún estado, aviso ni
+guarda lo comenta. Dentro del expediente la tarjeta sí lo dice bien (`ContractCard.tsx:234`:
+«1 de 2 firmado(s) · N viajero(s) sin contrato») — eso está bien resuelto y hay que reconocerlo.
+El problema es que **hay que entrar expediente por expediente para verlo**:
+`seguimiento/page.tsx` **no consulta `contracts` en absoluto**, así que la lista de Seguimiento,
+que es la pantalla donde se vive, no distingue un viaje firmado de uno que no.
+
+Y el cron de recordatorios, que es la red, **ignora la fecha de salida**: su consulta filtra por
+`status='enviado'` y `reminder_count < 5`, nada más (`route.ts:77-80`). La escalera se agota a los
+~20 días del envío y después hay **silencio permanente**. En CS-2026-019 eso son 23 días de
+silencio entre el último recordatorio (~20-sep) y la salida (13-oct), con el viaje pagado y sin
+firmar. Si el contrato se manda tres meses antes, el silencio es de más de dos meses.
+
+**[MEDIO] Propuesta** (dos cosas pequeñas, ninguna toca dinero):
+1. Una columna o un punto en la lista de Seguimiento con «firmas: N/M», que es un `select` más en
+   `seguimiento/page.tsx`.
+2. Que el cron reabra la escalera cuando la salida se acerque —un recordatorio a T-15 y otro a
+   T-5 aunque `reminder_count` esté al tope—, o al menos que mande el aviso interno. Hoy el
+   límite de 5 es absoluto y no sabe si el viajero se va mañana.
+
+#### 4.3 · Se puede reescribir el nombre y el documento de alguien que ya firmó
+
+`saveTravelers` protege de **borrado** al viajero con contrato, pero el `update` de las filas que
+sí se conservan (`contractActions.ts:126-128`) es incondicional: cambia `full_name`, `email`,
+`phone` y `document_number` sin mirar el estado del contrato. El PDF firmado y su
+`variables_json` son inmutables —la prueba legal aguanta, eso lo verificó B3.2—, pero a partir de
+ese momento **el CRM enseña un nombre y un documento distintos de los del contrato que esa persona
+firmó**, sin marca ni aviso. Un dedazo corrigiendo el apellido de la viajera 2 desalinea en
+silencio el expediente respecto del documento con validez legal.
+
+**[MENOR] Propuesta:** aplicar al `update` la misma lógica que ya existe para el borrado — si el
+viajero está en `protegidos` y su contrato está `firmado`, o se rechaza el cambio de
+`full_name`/`document_number`, o se avisa igual que con `bloqueados`. El `Set` ya está calculado
+tres líneas más arriba.
+
+#### 4.4 · `email_log` sobrevive al borrado, y su URL pública también
+
+`email_log_quote_id_fkey` es `ON DELETE SET NULL` (los otros nueve hijos de `quotes` son
+`CASCADE`). La decisión es deliberada y defendible —así el historial de correos no se evapora—,
+pero al soltar el `quote_id` sobreviven **`code`, `destinatario`, `asunto`, `token` y `html`
+completo**, y `/correo/[token]` (`route.ts:78`) sigue sirviendo ese HTML **para siempre**, sin
+sesión, sin caducidad y sin comprobar que la cotización exista. El correo de cotización lleva
+nombre, ruta, fechas y precios; el de documentación, el enlace a la documentación de viaje.
+
+**Hoy no hay ni un caso**: las 12 filas de `email_log` son todas de septiembre —la tabla es de
+esta semana— y ninguna tiene `quote_id` nulo. Pero en esta plataforma se han borrado **38
+expedientes**, así que el primero que se borre a partir de ahora deja su rastro. Es exactamente la
+misma promesa de supresión del contrato firmado que ya se le reprocha a Storage, en otra tabla.
+No es exposición a terceros (el token es de 256 bits y solo lo tiene el destinatario), y por eso
+no sube de etiqueta.
+
+**[MENOR] Propuesta:** que `deleteQuote` anule `token` y `html` de las filas de `email_log` de esa
+cotización antes de borrarla, dejando la fila (quién, qué, cuándo) que es lo que justifica el
+`SET NULL`. Dos líneas, y encaja en el mismo sitio donde haya que meter el borrado de las rutas
+hijas de Storage.
+
+---
+
+_(sigue: el listón del oficio)_
 
 _(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
 seguido de los huecos concretos.)_
