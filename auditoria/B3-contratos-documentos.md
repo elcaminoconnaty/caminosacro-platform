@@ -1351,4 +1351,16 @@ orden, escribiendo y commiteando por partes (el límite de gasto mata sin avisar
    `sent_at`/`status` que se escribe antes del envío, el articulado en TypeScript frente a las
    condiciones del documento de viaje en `settings`, y por qué CS-2026-080 se tocó el 2-sep 13:44.
 
+**Por dónde voy (3-sep-2026, agente 3 de la ronda):**
+- Punto 1 — **cerrado**: los ocho hallazgos ya están en «Hallazgos», bajo el encabezado
+  «Hallazgos que aporta la crítica».
+- Punto 2 — **dos de tres**: el borrado de expediente y las fechas del PDF ya están en GRAVE con su
+  nota de por qué (commit `a2729f6`). Falta bajar los **huérfanos de Storage de GRAVE a MEDIO**.
+- Punto 3 — **dos de cuatro**: CS-2026-080 y la fórmula con `noches_extra` quedaron corregidos
+  dentro del GRAVE reescrito. Faltan la **cabecera de `clientBar`** y los **5 contratos, no 8**.
+- Punto 4 — `registrarEnvio` **ya está hecho y commiteado en `20ad15e`** (no repetirlo); el índice
+  duplicado se anota y no se toca (hallazgo escrito). Faltan guionado, `flexShrink` y
+  `Referrer-Policy`.
+- Punto 5 — **pendiente**: la sección «Para Nico».
+
 _(Solo si el veredicto fue `revisar`. Una ronda.)_
