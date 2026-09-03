@@ -557,9 +557,9 @@ escribir nada). Plan numerado, escribo cada conclusión en cuanto la tengo:
 5. Contra `CRITERIOS.md` punto 8: qué trae de serie un CRM de agencia en catálogo, tarifas y
    proveedores que aquí falte.
 
-Voy por: (4) **las cuatro puertas** —falta verificar asistente y agente— y (5) **el oficio**,
-que no tiene conclusión escrita. Hechos y escritos: (1) números, (2) cobertura ejecutada,
-(3) etiquetas, (4) parcial: `/cotizar` y WP verificados, el GRAVE del opcional a 0 € escrito.
+Voy por: (5) **el oficio** (`CRITERIOS.md` punto 8), lo último que falta. Hechos y escritos:
+(1) números, (2) cobertura ejecutada, (3) etiquetas, (4) **las cuatro puertas, cerrado** con
+dos MEDIO nuevos (el lead sin fila y el costo tecleado al 85 %).
 
 ---
 
@@ -933,6 +933,143 @@ del más barato al más completo:
 
 Mientras no se toque, el parche de datos es de un minuto: borrar esas dos filas 2027 vacías
 de `optional_prices` devuelve a esos dos opcionales al respaldo en ámbar de los otros catorce.
+
+---
+
+## Punto 4 — las cuatro puertas, una por una
+
+El encargo pedía cerrar esto por puerta y no en general, así que lo ejecuté por las cuatro.
+El resultado es más tranquilizador de lo que el bloque hace pensar en **tres** de ellas, y
+peor de lo que nadie había mirado en **la cuarta**. Ninguna de las cuatro produce hoy el
+desastre que se temía —cobrar 2027 con tarifa 2026 en silencio—; lo que producen es otra cosa.
+
+| puerta | `source` | cotizaciones | qué hace hoy con una salida 2027 sin tarifa de ese año |
+|---|---|---|---|
+| `/cotizar` | `web` | **0** | cae al año anterior + `price_note`. **Nadie ha usado esta puerta jamás.** |
+| WordPress | `wordpress` | 5 | `tarifarRuta` exacto → **409 `sin_tarifas_ano`**, no crea nada. La web manda el lead a `/api/wp/lead`. |
+| BayMax / Telegram | `baymax` | 1 | mismo `tarifarRuta` → 409 **con `detalle` en castellano**: «La ruta no tiene tarifa pensión cargada para 2027». |
+| Wizard del CRM | `interna` | **39** | avisa en ámbar y **deja teclear las dos cifras a mano, precio y costo, sin ninguna comprobación**. |
+
+Las dos puertas de máquina —WP y BayMax— comparten `tarifarRuta` y **son las únicas dos que
+no se pueden equivocar de año**: exigen coincidencia exacta y, si falta, no escriben nada.
+La de BayMax es la mejor resuelta de la plataforma en este punto, porque además devuelve el
+`detalle` legible y llega a Nico por Telegram tal cual; `webQuote` se come ese `detalle`
+(`webQuote.ts:78` devuelve solo `error`) y el visitante recibe un código de máquina, pero eso
+lo resuelve WordPress y no cuesta plata.
+
+Lo que sí importa está en las otras dos, y son hallazgos nuevos.
+
+### [MEDIO] El lead de «este año todavía no tiene tarifa» sale por correo y **no deja ni una fila**: no se puede seguir, ni contar, ni recuperar — `app/api/wp/lead/route.ts`
+
+Cuando la web devuelve 409, quien atiende a esa persona es `/api/wp/lead`. Está bien pensado
+—existe porque el `wp_mail()` de WordPress nunca llegó a Microsoft 365, y su comentario lo dice
+con todas las letras: «sin esto, estos leads se pierden en silencio»—. Manda dos correos por
+el webhook de n8n: el acuse al visitante y el aviso a `reservas@`.
+
+**Y ahí se acaba.** Barrí el archivo entero: **no tiene una sola llamada a `.insert()`**, ni a
+ninguna tabla; `lib/email/webhook.ts` tampoco escribe nada. Un lead de 2027 no queda en
+`clients`, no queda en `quotes`, no queda en ningún sitio de la plataforma. Consecuencias:
+
+1. **No aparece en `/seguimiento`.** La pantalla donde se ve «qué falta hacer» no sabe que esa
+   persona existe. El punto 3 de `CRITERIOS.md` —«no dejar caer a nadie… es lo que más plata
+   deja sobre la mesa cuando falta»— se rompe justo en el grupo de clientes que más cuesta
+   conseguir: los que ya llenaron el formulario entero.
+2. **Nadie sabe cuántos son.** No puedo decir en esta auditoría cuántos leads de 2027 se han
+   perdido, y no por falta de ganas: **es inmedible por construcción**. Lo único que queda es
+   un correo en una bandeja y una ejecución de n8n que caduca.
+3. **Si el correo falla, no queda nada de nada.** El único rastro del fallo es
+   `console.error("[wp-lead] no salió el correo:", error)` (`route.ts:168`) — un log de
+   Railway que nadie mira, sin reintento y sin fila a la que volver.
+4. **Es la puerta con más exposición a 2027**, y lo dice el propio comentario del endpoint:
+   «hoy, casi todo 2027». Con 9 de las 11 rutas web sin tarifa 2027, hoy **este es el camino
+   normal** de un visitante que pide el año que viene, no la excepción.
+
+Que el 409 no cree una cotización es **correcto** —no se puede calcular lo que no tiene
+tarifa—. Lo que no es correcto es que tampoco cree un **lead**. Son dos decisiones distintas
+que aquí se tomaron como una sola.
+
+**Propuesta (no lo toco: crea datos de venta):** que `/api/wp/lead` inserte el cliente y una
+fila mínima —cotización en `sin_enviar` con `total_eur = 0` y el motivo (`sin_tarifas_ano` /
+`a_medida`) en una columna o en `notes`—, o una tabla `leads` propia si no se quiere ensuciar
+`quotes`. Con eso el lead entra al embudo, se ve en `/seguimiento`, se puede convertir en
+cotización cuando se carguen las tarifas del año, y de paso da la cifra que hoy no existe:
+cuánta demanda de 2027 se está atendiendo a mano.
+
+### [MEDIO] Cuatro rutas se venden con el catálogo **vacío**, y el «costo Pilgrim» que queda grabado es el precio de venta × 0,85 — `Wizard.tsx:204-210` y `:699`
+
+Ésta es la puerta de las 39 cotizaciones, y es la que nadie había mirado por dentro. El Wizard
+se porta bien con el **precio**: `catalogBySlug` usa `ratesForYear` exacto (`Wizard.tsx:153`),
+no autocarga nada si el año no está y pinta el aviso «⚠ No hay tarifas 2027 cargadas para esta
+ruta — ingresá los precios a mano» (`:619`). Hasta ahí, correcto.
+
+El problema es el campo de al lado. **`costEur` arranca en `"0"`** (`:99`) y solo se
+autocarga desde el catálogo `if (!autoLink || !ratesOk) return` (`:205`) — es decir, **cuando
+el año no tiene tarifa, el costo no se calcula, se teclea**, y no hay ninguna validación que
+lo mire: `onSubmit` acepta `cost_base_eur = 0` sin decir nada (`:316`), mientras que el precio
+de venta sí tiene su guarda («Ponele tu precio por persona a las habitaciones…», `:356`).
+
+Lo que pasa de verdad, medido en las cotizaciones reales:
+
+| cotización | ruta | filas de precio en el catálogo | venta | «costo Pilgrim» grabado | costo ÷ venta |
+|---|---|---|---|---|---|
+| CS-2026-008 | Francés desde Saint Jean | **0, en ningún año** | 4.570 € | 3.888 € | **0,8508** |
+| CS-2026-033 | Portugués desde Porto | **0, en ningún año** | 3.840 € | 3.264 € | **0,8500** |
+| CS-2026-081 | Costero desde Porto | **0, en ningún año** | 2.900 € | 2.466 € | **0,8503** |
+| CS-2026-084 | Norte desde Vilalba | **0, en ningún año** | 870 € | 706 € | 0,8115 |
+
+**12.180 € cotizados sobre rutas que no tienen una sola fila de tarifa**, y en tres de las
+cuatro el costo es el precio multiplicado por 0,85 con cuatro decimales de exactitud. Eso no
+es un costo: es **la regla de markup aplicada al revés**. La plataforma calcula el precio
+dividiendo el costo entre 0,85; aquí se hizo lo contrario, y el resultado es que la utilidad
+de esos expedientes es **15,0 % por definición, pase lo que pase con la factura de Pilgrim**.
+
+Por qué importa y por qué no es un pecado de Nico sino del formulario: cuando el catálogo no
+tiene la ruta, el CRM le pide **dos** números y trata al segundo como si fuera un dato del
+proveedor, cuando en realidad no tiene de dónde sacarlo. La casilla se llama «Costo Pilgrim €
+(total grupo)» y la de al lado enseña «Utilidad proyectada» calculada con ella (`:305`), así
+que la pantalla afirma un margen que ella misma acaba de inventar. Es el mismo daño que el
+MEDIO de la tarifa vieja —el tablero suma utilidades ficticias— por una segunda puerta, y esta
+sí está **abierta hoy**: CS-2026-084 se creó el **2 de septiembre de 2026**, mientras se
+escribía esta auditoría.
+
+Un caso aparte, en la misma puerta: **CS-2026-015** (Costero desde Baiona, salida 2027-04-08)
+tiene grabado `882 / 750`, que es **exactamente la fila `pension_single` de 2026** de esa ruta,
+que no tiene 2027. O sea que el aviso ámbar hizo su trabajo, Nico tecleó a mano… y tecleó los
+números del año viejo. El aviso dice «ingresá los precios a mano» pero **no dice de qué año
+son los que tiene a la vista, ni deja constancia de cuál usó**: sin `price_note`, sin columna
+de año de tarifa, sin nada. Es la misma pérdida silenciosa que el bloque atribuyó a `/cotizar`
+—la puerta que nadie usa—, ocurriendo por la puerta que se usa el 87 % de las veces.
+
+**Propuesta (no se toca: es dinero).** Tres cosas, de menor a mayor:
+1. Que el Wizard **no acepte `cost_base_eur = 0`** con un precio de venta mayor que cero: la
+   misma guarda que ya tiene el precio, con el mismo tono.
+2. Que el aviso ámbar diga **qué año está viendo** y ofrezca «copiar las tarifas de 2026»
+   como acción explícita, que es lo que Nico hace a mano igual. Copiado a propósito y anotado
+   es otra cosa que copiado sin dejar rastro.
+3. Que la cotización guarde **el año de tarifa usado** — la propuesta (a) que ya hacía el
+   bloque, que aquí gana su segundo motivo: sirve tanto para el fallback automático como para
+   lo tecleado.
+
+### Sobre el GRAVE del punto 4: no hay un quinto hallazgo, y lo digo a propósito
+
+El encargo daba por hecho que en el punto 4 había un GRAVE. Recorridas las cuatro puertas, **no
+lo hay**: las dos automáticas se niegan a cotizar el año que falta, la tercera no la usa nadie
+y la cuarta avisa antes de dejar teclear. El GRAVE de este bloque es el del **opcional a 0 €**,
+y salió de tirar de este mismo hilo —el año que falta— pero por la rama de los opcionales, que
+es donde no hay ni aviso ni negativa. Los dos hallazgos de arriba son MEDIO honestos y no los
+subo: no hay pérdida demostrada, hay margen inventado y leads sin rastro. Inflar la etiqueta
+para cumplir con la hipótesis del encargo sería exactamente lo que el TABLERO prohíbe.
+
+### Dos números del bloque que ya se movieron otra vez (2-sep, tarde)
+
+- Las cotizaciones con salida en 2027 son **13, no 12**: entró **CS-2026-084** hoy mismo.
+  Sigue habiendo **2** con `price_note` (ahora 11 sin rastro, no 10).
+- **`Norte desde Vilalba` ya no tiene cero cotizaciones.** Es la ruta que señalé arriba como
+  «activa, sin etapas, sin `days`, sin `nights`, sin `km`, sin una sola tarifa» — y hoy tiene
+  una cotización enviada de 870 €. La ruta vacía dejó de ser una curiosidad del catálogo el
+  mismo día en que la anoté.
+
+---
 
 Lo que la auditoría pedía que revisen:
 
