@@ -645,11 +645,14 @@ export default function ContractCard({
                             const s = await saveContract(c.id, c.variables_json, plan);
                             if (s.error) return s;
                             const r = await sendContractLink(c.id, { email: true, pruebaEmail });
-                            if (r.error) return r;
+                            // Con `url` el enlace de firma SÍ quedó creado: entonces el error
+                            // es solo del correo y hay que enseñar el motivo Y el link, no
+                            // tragarse el link mostrando el error a secas.
+                            if (r.error && !r.url) return r;
                             setInfo(
                               r.emailEnviado
                                 ? `Contrato enviado a ${pruebaEmail || t.email} para firma.`
-                                : `El correo no salió (revisa el webhook n8n); envíale este link: ${r.url}`,
+                                : `El correo no salió (${r.error ?? "revisa el webhook n8n"}); envíale este link: ${r.url}`,
                             );
                           })
                         }

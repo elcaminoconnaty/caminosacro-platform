@@ -128,7 +128,7 @@ export async function POST(request: Request) {
         pdfUrl = firmada?.signedUrl ?? null;
       }
 
-      const ok = await enviarCorreoContrato({
+      const envio = await enviarCorreoContrato({
         code,
         nombre: vars.viajero_nombre,
         email: vars.viajero_email,
@@ -190,11 +190,14 @@ export async function POST(request: Request) {
               ``,
               `Si ya hablaste con él por otro canal, puedes anular el enlace desde Seguimiento.`,
             ].join("\n"),
-      });
+      }, { supabase, quoteId: c.quote_id });
 
-      if (!ok) {
+      if (!envio.ok) {
         // No se marca el recordatorio: en la corrida de mañana se vuelve a intentar.
-        errores.push({ code, motivo: "el servicio de correo no aceptó el envío" });
+        // El motivo va también en la respuesta del cron, no solo en `email_log`: quien
+        // mira la ejecución de n8n necesita saber si fue el secreto, un 400 de Brevo o
+        // un timeout sin tener que entrar a la base.
+        errores.push({ code, motivo: envio.error ?? "el servicio de correo no aceptó el envío" });
         continue;
       }
 

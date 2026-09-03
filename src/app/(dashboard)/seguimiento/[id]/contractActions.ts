@@ -496,6 +496,7 @@ export async function sendContractLink(
   const url = `${baseUrl(h)}/contrato/${token}`;
 
   let emailEnviado = false;
+  let errorEmail: string | undefined;
   if (opts.email) {
     const vars = c.variables_json as ContractVariables;
     const destino = opts.pruebaEmail || vars.viajero_email;
@@ -512,7 +513,7 @@ export async function sendContractLink(
       pdfUrl = signed?.signedUrl ?? null;
     }
     const prefijo = esPrueba ? "[PRUEBA] " : "";
-    emailEnviado = await enviarCorreoContrato({
+    const envio = await enviarCorreoContrato({
       code: vars.codigo_cotizacion,
       nombre: vars.viajero_nombre,
       email: destino,
@@ -557,11 +558,16 @@ export async function sendContractLink(
         ``,
         `Cuando el cliente firme, te llegará el aviso de "Contrato firmado".`,
       ].join("\n"),
-    });
+    }, { supabase, quoteId: c.quote_id as string, prueba: esPrueba });
+    emailEnviado = envio.ok;
+    errorEmail = envio.ok ? undefined : (envio.error ?? "No se pudo enviar el correo.");
   }
 
   revalidatePath(`/seguimiento/${c.quote_id}`);
-  return { ok: true, url, emailEnviado };
+  // El motivo sube con `ok: true` a propósito, igual que el caso de "no tiene correo": el
+  // enlace SÍ quedó creado y sirve, lo que falló es el correo. Enviar en lote lo usa para
+  // decir por qué falló cada uno en vez de repetir "el servicio no aceptó el envío".
+  return { ok: true, url, emailEnviado, error: errorEmail };
 }
 
 /** Envía para firma todos los contratos que aún no estén firmados. */

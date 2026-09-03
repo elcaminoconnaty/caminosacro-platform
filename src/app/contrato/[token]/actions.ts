@@ -215,7 +215,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     .from("comercial-contracts")
     .createSignedUrl(sinBucket(signedPdfPath), SIGNED_COPY_TTL);
   if (vars.viajero_email) {
-    emailEnviado = await enviarCorreoContrato({
+    const envio = await enviarCorreoContrato({
       code,
       nombre: signerName,
       email: vars.viajero_email,
@@ -258,7 +258,12 @@ export async function firmarContrato(token: string, formData: FormData): Promise
         `Contrato firmado y pasaporte disponibles en Seguimiento:`,
         `https://caminosacro-platform-production.up.railway.app/seguimiento`,
       ].join("\n"),
-    });
+    }, { supabase, quoteId: c.quote_id });
+    emailEnviado = envio.ok;
+    // Si la copia no salió, la firma ya está registrada y el viajero ve la pantalla de
+    // éxito: el motivo queda en `email_log` (tipo `contrato`) para que se pueda reenviar
+    // sabiendo qué pasó, en vez de perderse en los logs del servidor.
+    if (!envio.ok) console.error("[firmar] la copia al firmante no salió:", envio.error);
   }
 
   // Nota: sin revalidatePath aquí — invalidaría el router del navegador del
