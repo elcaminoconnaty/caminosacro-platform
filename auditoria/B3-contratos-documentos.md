@@ -1065,6 +1065,9 @@ renderizaron de verdad. Pero cinco cosas no pueden quedarse como están.
      quitarla del hallazgo — y preguntarle a Nico por qué esa cotización se tocó el 2-sep 13:44,
      después de escrita la auditoría.
    - **La fórmula es `fin = salida + etapas + 1 + noches_extra`**, no la del informe.
+   - **Ya no son «los 8 contratos de producción»** de B3.5: hoy la tabla tiene **5 contratos en
+     3 expedientes, 3 firmados** (los de prueba se borraron entremedias). Quien revise que no se
+     asuste al no encontrar los ocho.
    - **«La cabecera rota se repite en todas sus páginas» es falsa**: el bloque que se rompe es
      `clientBar` (`travelDocPdf.tsx:476`), que sale **una vez**. Y falta lo peor: por encima de
      ~74 caracteres el teléfono y el correo del cliente **se salen del papel**. Umbral exacto:
