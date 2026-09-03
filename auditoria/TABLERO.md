@@ -89,7 +89,7 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 | B4 | Correo | `B4-correo.md` | `hecho` | `hecho` | `hecho` |
 | B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `hecho` | `hecho` |
 | B6 | Datos y plataforma | `B6-datos-plataforma.md` | `hecho` | `hecho` | `hecho` |
-| B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `hecho` | `en curso` |
+| B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `hecho` | `hecho` |
 | B8 | Síntesis | `SINTESIS.md` | `pendiente` | `—` | `—` |
 
 Valores: `pendiente` · `en curso` · `hecho`. En Revisión, además: `—` (no hizo falta).
