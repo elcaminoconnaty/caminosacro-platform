@@ -218,7 +218,7 @@ export default function ContractCard({
         <p className="text-xs text-muted mt-0.5">
           No pude precargar los datos de esta cotización. Completa la ruta, el cliente y el valor, y vuelve a entrar.
         </p>
-        {error && <div role="alert" className="text-sm text-red-700 mt-2">{error}</div>}
+        {error && <div role="alert" className="text-sm text-red-800 mt-2">{error}</div>}
       </section>
     );
   }
@@ -702,7 +702,7 @@ export default function ContractCard({
       </div>
 
       {info && <div className="px-5 py-2 text-sm text-bosque bg-taupe/30 border-t border-border break-all">{info}</div>}
-      {error && <div role="alert" className="px-5 py-2 text-sm text-red-700 bg-red-50 border-t border-red-200">{error}</div>}
+      {error && <div role="alert" className="px-5 py-2 text-sm text-red-800 bg-red-50 border-t border-red-200">{error}</div>}
     </section>
   );
 }

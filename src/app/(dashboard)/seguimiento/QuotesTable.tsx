@@ -202,7 +202,7 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
       </div>
 
       {error && (
-        <div role="alert" className="rounded-md border border-red-200 bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 text-red-800 px-4 py-2 text-sm">{error}</div>
       )}
 
       {/* Tabla */}

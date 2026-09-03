@@ -111,7 +111,7 @@ export default function DocumentsCard({
       )}
 
       {error && (
-        <div role="alert" className="px-5 py-2 text-sm text-red-700 bg-red-50 border-t border-red-200">{error}</div>
+        <div role="alert" className="px-5 py-2 text-sm text-red-800 bg-red-50 border-t border-red-200">{error}</div>
       )}
     </section>
   );

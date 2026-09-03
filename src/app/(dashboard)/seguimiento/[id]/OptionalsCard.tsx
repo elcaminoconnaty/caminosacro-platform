@@ -139,7 +139,7 @@ export default function OptionalsCard({
         </div>
       </div>
 
-      {error && <div role="alert" className="px-5 py-2 text-sm text-red-700 bg-red-50 border-b border-red-200">{error}</div>}
+      {error && <div role="alert" className="px-5 py-2 text-sm text-red-800 bg-red-50 border-b border-red-200">{error}</div>}
 
       <div className="divide-y divide-border">
         {CAT_ORDER.map((cat) => {
@@ -292,7 +292,7 @@ function CustomOptionals({ quoteId, lines }: { quoteId: string; lines: OptionalL
         </ul>
       )}
 
-      {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-red-800">{error}</p>}
 
       {form !== null && (
         <CustomOptionalForm
@@ -418,7 +418,7 @@ function CustomOptionalForm({
         En el PDF del cliente solo sale tu precio.
       </p>
 
-      {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
 
       <div className="flex justify-end gap-2">
         <button

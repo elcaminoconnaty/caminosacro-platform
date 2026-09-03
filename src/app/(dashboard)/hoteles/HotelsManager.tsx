@@ -155,7 +155,7 @@ function HotelCard({ hotel, onEdit }: { hotel: Hotel; onEdit: () => void }) {
           {hotel.notes}
         </p>
       )}
-      {error && <div role="alert" className="px-5 py-2 text-xs text-red-700 bg-red-50 border-t border-red-200">{error}</div>}
+      {error && <div role="alert" className="px-5 py-2 text-sm text-red-800 bg-red-50 border-t border-red-200">{error}</div>}
     </section>
   );
 }
@@ -244,7 +244,7 @@ function Galeria({ hotelId, fotos }: { hotelId: string; fotos: HotelFoto[] }) {
           ))}
         </div>
       )}
-      {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-red-800">{error}</p>}
     </div>
   );
 }
@@ -319,7 +319,7 @@ function HotelDialog({ hotel, onClose }: { hotel: Hotel | null; onClose: () => v
           </label>
         </div>
 
-        {error && <div role="alert" className="px-5 py-2 text-sm text-red-700 bg-red-50 border-t border-red-200">{error}</div>}
+        {error && <div role="alert" className="px-5 py-2 text-sm text-red-800 bg-red-50 border-t border-red-200">{error}</div>}
 
         <div className="px-5 py-3 border-t border-border flex justify-end gap-2">
           <button type="button" onClick={onClose} className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition">

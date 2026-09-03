@@ -15,7 +15,7 @@ export default async function HotelesPage() {
     .order("name");
 
   if (error) {
-    return <p role="alert" className="text-sm text-red-700">{mensajeError(error)}</p>;
+    return <p role="alert" className="text-sm text-red-800">{mensajeError(error)}</p>;
   }
 
   type Fila = Omit<Hotel, "photos"> & { photos: { path: string; position?: number }[] | null };

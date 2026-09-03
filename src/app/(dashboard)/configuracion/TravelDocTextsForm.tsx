@@ -134,7 +134,7 @@ export default function TravelDocTextsForm({ current }: { current: TravelDocText
       />
 
       {msg && (
-        <div aria-live="polite" className={`px-5 py-2 text-sm border-t ${msg.ok ? "text-bosque bg-crema border-border" : "text-red-700 bg-red-50 border-red-200"}`}>
+        <div aria-live="polite" className={`px-5 py-2 text-sm border-t ${msg.ok ? "text-bosque bg-crema border-border" : "text-red-800 bg-red-50 border-red-200"}`}>
           {msg.texto}
         </div>
       )}
