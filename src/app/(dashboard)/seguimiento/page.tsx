@@ -2,6 +2,7 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { eur } from "@/lib/format";
 import Link from "next/link";
+import AvisoCarga from "@/components/AvisoCarga";
 import QuotesTable, { type QuoteRow } from "./QuotesTable";
 
 type Quote = {
@@ -39,6 +40,36 @@ export default async function SeguimientoPage() {
     supabase.from("client_payments").select("quote_id,amount_eur,amount,currency"),
     supabase.from("provider_payments").select("quote_id,amount_eur"),
   ]);
+
+  // Si la consulta de cotizaciones falla no se pinta nada más: ni los cinco KPI en 0,00 € ni
+  // "Sin cotizaciones aún". Con `rows = []` esa pantalla le decía a Nico, con todas las letras,
+  // que no tenía cotizaciones ni dinero cobrado, y el aviso de al lado era invisible (B7).
+  if (error) {
+    const esSchema =
+      error.message.includes("does not exist") || error.message.includes("schema");
+    return (
+      <div className="space-y-6">
+        <Cabecera />
+        <AvisoCarga
+          titulo="No se pudieron cargar las cotizaciones."
+          detalle={
+            esSchema ? (
+              <>
+                El schema <code className="font-mono">comercial</code> no está expuesto. Agregalo en
+                Supabase Dashboard → API → Exposed schemas.
+              </>
+            ) : (
+              <>
+                {mensajeError(error, "La consulta al servidor no respondió.")} Recargá la página; si
+                sigue igual, los números de abajo no se muestran a propósito para no enseñarte cifras
+                falsas.
+              </>
+            )
+          }
+        />
+      </div>
+    );
+  }
 
   const quotes = (qData ?? []) as Quote[];
   const cps = (clientPays ?? []) as ClientPayment[];
@@ -85,28 +116,7 @@ export default async function SeguimientoPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-3xl text-bosque">Seguimiento</h1>
-          <p className="text-muted text-sm mt-1">Cotizaciones, pagos del cliente y pagos a Pilgrim. Click en el código para editar.</p>
-        </div>
-        <Link
-          href="/cotizaciones/nueva"
-          className="px-4 py-2 rounded-md bg-bosque text-white text-sm font-medium hover:bg-bosque-medio transition"
-        >
-          Nueva cotización
-        </Link>
-      </header>
-
-      {error && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
-          {error.message.includes("does not exist") || error.message.includes("schema") ? (
-            <>El schema <code className="font-mono">comercial</code> no está expuesto. Agregalo en Supabase Dashboard → API → Exposed schemas.</>
-          ) : (
-            <>{mensajeError(error, "No se pudo cargar el seguimiento.")}</>
-          )}
-        </div>
-      )}
+      <Cabecera />
 
       <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Card label="Total cotizado" value={eur(totVenta)} />
@@ -118,6 +128,23 @@ export default async function SeguimientoPage() {
 
       <QuotesTable rows={rows} />
     </div>
+  );
+}
+
+function Cabecera() {
+  return (
+    <header className="flex items-end justify-between flex-wrap gap-3">
+      <div>
+        <h1 className="font-display text-3xl text-bosque">Seguimiento</h1>
+        <p className="text-muted text-sm mt-1">Cotizaciones, pagos del cliente y pagos a Pilgrim. Click en el código para editar.</p>
+      </div>
+      <Link
+        href="/cotizaciones/nueva"
+        className="px-4 py-2 rounded-md bg-bosque text-white text-sm font-medium hover:bg-bosque-medio transition"
+      >
+        Nueva cotización
+      </Link>
+    </header>
   );
 }
 

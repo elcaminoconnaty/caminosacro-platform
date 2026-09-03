@@ -1,5 +1,6 @@
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
+import AvisoCarga from "@/components/AvisoCarga";
 import CalendarView, { type TripEvent } from "./CalendarView";
 
 export default async function CalendarioPage() {
@@ -21,13 +22,22 @@ export default async function CalendarioPage() {
         <p className="text-muted text-sm mt-1">Próximos viajeros por fecha de salida. Click en un viaje para abrir su cotización.</p>
       </header>
 
-      {error && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
-          {mensajeError(error, "No se pudo cargar el calendario.")}
-        </div>
+      {/* Si la consulta falla no se pinta el calendario: con `events = []`, CalendarView escribe
+          "No hay salidas próximas con los filtros actuales" y acusa a unos filtros que nadie puso,
+          así que el usuario se va a toquetear los filtros en vez de recargar (B7). */}
+      {error ? (
+        <AvisoCarga
+          titulo="No se pudo cargar el calendario."
+          detalle={
+            <>
+              {mensajeError(error, "La consulta al servidor no respondió.")} No es cosa de los
+              filtros: no se está mostrando ninguna salida porque no se pudieron leer.
+            </>
+          }
+        />
+      ) : (
+        <CalendarView events={events} />
       )}
-
-      <CalendarView events={events} />
     </div>
   );
 }
