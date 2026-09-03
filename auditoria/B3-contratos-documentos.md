@@ -564,8 +564,13 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: en curso` — segundo agente crítico (el primero murió por el límite de gasto). Plan de
-verificación, en este orden; cada punto se escribe aquí en cuanto se cierra:
+`Estado: en curso` — tercer agente crítico (los dos primeros murieron por el límite de gasto).
+
+**Por dónde voy:** puntos **1, 2 y 3 cerrados** (escritos abajo). Ataco el **punto 4** — lo que el
+auditor no miró: viajeros sin contrato, tokens de `travel_docs`, `email_log` tras el borrado y el
+hueco entre `quote_travelers` y `contracts`. Después el 5 (oficio) y el veredicto.
+
+Plan de verificación, en este orden; cada punto se escribe aquí en cuanto se cierra:
 
 1. **GRAVE de Storage** — rehacer el recuento de huérfanos contra `storage.objects` cruzando las
    **cinco** columnas de ruta (`contracts.passport_path/signed_pdf_path/pdf_path`,
