@@ -150,7 +150,16 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .eq("season", "regular"),
     supabase.from("client_payments").select("*").eq("quote_id", id).order("paid_at", { ascending: false }),
     supabase.from("provider_payments").select("*").eq("quote_id", id).order("paid_at", { ascending: false }),
-    supabase.from("email_templates").select("subject,body_md").eq("slug", "cotizacion_enviada").maybeSingle(),
+    // `active` se filtra igual que en el camino automático (lib/quotes/quoteEmail.ts): sin
+    // este filtro, apagar la plantilla la seguía mostrando acá y la apagaba allá, o sea que
+    // el interruptor hacía dos cosas opuestas. Si no hay plantilla activa, la tarjeta cae al
+    // cuerpo mínimo pero ahora lo avisa en pantalla en vez de hacerlo callada.
+    supabase
+      .from("email_templates")
+      .select("subject,body_md")
+      .eq("slug", "cotizacion_enviada")
+      .eq("active", true)
+      .maybeSingle(),
     // Precios por año (migración 0019); se resuelve abajo con el año de salida.
     supabase
       .from("optional_services")
@@ -454,6 +463,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       <EmailPreviewCard
         quoteId={id}
         to={quote.client_email || ""}
+        sinPlantilla={!emailTpl}
         envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
         subject={renderTemplate(
           emailTpl?.subject || "Cotización {{code}} - Camino Sacro",

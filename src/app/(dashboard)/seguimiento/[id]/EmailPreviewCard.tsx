@@ -10,12 +10,15 @@ export default function EmailPreviewCard({
   subject: subjectInicial,
   body: bodyInicial,
   envio,
+  sinPlantilla = false,
 }: {
   quoteId: string;
   to: string;
   subject: string;
   body: string;
   envio: EnvioResumen;
+  /** No hay plantilla `cotizacion_enviada` activa: lo de abajo es el respaldo mínimo. */
+  sinPlantilla?: boolean;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [subject, setSubject] = useState(subjectInicial);
@@ -87,6 +90,13 @@ export default function EmailPreviewCard({
         </div>
       </div>
       <div className="px-5 py-4 space-y-3 text-sm">
+        {sinPlantilla && (
+          <div className="rounded-md border border-dorado bg-crema px-3 py-2 text-xs">
+            No hay plantilla <span className="font-mono">cotizacion_enviada</span> activa: esto es
+            el texto mínimo de respaldo, no el mensaje de la agencia. Reactívala en{" "}
+            <span className="font-mono">comercial.email_templates</span> antes de enviar.
+          </div>
+        )}
         <div>
           <div className="text-xs text-muted mb-0.5">Para</div>
           <div className="font-mono text-xs">
