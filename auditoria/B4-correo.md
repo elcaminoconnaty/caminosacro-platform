@@ -988,3 +988,17 @@ Plan:
    qué se pierde hoy por no tenerlo. **No se implementan.**
 
 Verificación: `npx tsc --noEmit` antes de cada commit con código, `npm run build` al final.
+
+### Por dónde voy
+
+Bitácora de la ronda, para que quien la retome no repita trabajo. Se actualiza con cada commit.
+
+- [ ] Hueco 1 — `registrarEnvio` en el embudo del contrato (`lib/contracts/email.ts` + sus 3 llamadores).
+- [ ] Hueco 6 — `.eq("active", true)` en `seguimiento/[id]/page.tsx:153`.
+- [ ] Hueco 8 — `scripts/n8n_correo_html.md` y la lista de verificaciones de Nico.
+- [ ] Propuestas para Nico (huecos 2, 3, 4, 5 y 7).
+- [ ] `npm run build` final y cierre del bloque.
+
+Comprobado antes de escribir: la ronda de B3 corre en paralelo y **todavía no ha tocado**
+`lib/contracts/email.ts` ni sus llamadores (`git log` a la altura de `60c411a`; el árbol de
+trabajo solo tiene el trabajo ajeno del Estudio de Contenido).
