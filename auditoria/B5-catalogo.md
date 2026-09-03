@@ -557,7 +557,9 @@ escribir nada). Plan numerado, escribo cada conclusión en cuanto la tengo:
 5. Contra `CRITERIOS.md` punto 8: qué trae de serie un CRM de agencia en catálogo, tarifas y
    proveedores que aquí falte.
 
-Voy por: cerrando. Hechos: (1) números, (2) cobertura ejecutada, (3) etiquetas, (4) GRAVE, (5) oficio.
+Voy por: (4) **las cuatro puertas** —falta verificar asistente y agente— y (5) **el oficio**,
+que no tiene conclusión escrita. Hechos y escritos: (1) números, (2) cobertura ejecutada,
+(3) etiquetas, (4) parcial: `/cotizar` y WP verificados, el GRAVE del opcional a 0 € escrito.
 
 ---
 
