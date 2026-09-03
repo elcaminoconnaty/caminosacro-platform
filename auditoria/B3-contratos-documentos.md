@@ -34,10 +34,16 @@
   dos cotizaciones que ya no existen. `deleteQuote` solo borra 2 de los 8 tipos de archivo del expediente,
   y el contrato que esas personas firmaron les promete el derecho de supresión.
 - **B3.5 Coherencia entre los tres documentos.** Cotización, contrato y documentación de viaje salen de los mismos datos: comprueba que dicen lo mismo (precio, fechas, personas, condiciones) en un expediente real.
-  `Estado: hecho` — los 8 contratos de producción cuadran hoy con su cotización en precio, fechas y
+  `Estado: hecho` — los 8 contratos que había el día de la auditoría cuadran con su cotización en precio, fechas y
   personas. Pero **el PDF de la cotización calcula el fin del viaje por su cuenta** y ya discrepa del dato
-  guardado en dos expedientes vivos (CS-2026-080 por un día, CS-2026-081 por dos), y `variables_json` es
-  una foto fija que solo se refresca si alguien se acuerda de pulsar un botón.
+  guardado, y `variables_json` es una foto fija que solo se refresca si alguien se acuerda de pulsar
+  un botón.
+  **Corregido en la ronda de revisión:** de los dos descuadres que decía el informe **solo hay uno**
+  —CS-2026-081 por dos días; CS-2026-080 cuadra, su `start_date` es 2026-10-17—, y el bueno es
+  mucho peor de lo que decía (ver el GRAVE reescrito, con las trece rutas del catálogo).
+  **Y ya no son ocho contratos:** al **3-sep-2026** la tabla tiene **5 contratos en 3 expedientes,
+  3 firmados** (los de prueba se borraron entremedias). Quien revise, que no se asuste al no
+  encontrar los ocho.
 - **B3.6 Qué pasa al borrar.** Borrar una cotización con contratos firmados, documentación enviada y archivos de Pilgrim. ¿Cascadas correctas? ¿Se puede borrar algo que no debería borrarse?
   `Estado: hecho` — **las cascadas están bien diseñadas** (incluidos los dos `SET NULL` deliberados), pero
   `deleteQuote` **no tiene una sola guarda**: borra igual una cotización con contrato firmado, dinero
@@ -375,22 +381,42 @@ nombre dice que el problema de los huérfanos está atendido cuando no lo está:
 exactamente el script que alguien buscaría al leer el hallazgo de arriba. **Propuesta:**
 renombrarlo a lo que hace, o convertirlo en el arqueo de verdad que hace falta.
 
-### [MEDIO] La cabecera del documento de viaje se vuelve ilegible con un nombre de ruta largo — `src/lib/travelDocPdf.tsx` (cabecera fija de página)
+### [MEDIO] La barra de cliente del documento de viaje echa el teléfono y el correo fuera del papel con un nombre de ruta largo — `src/lib/travelDocPdf.tsx:476` (`clientBar`)
 
-La cabecera que se repite en todas las páginas del Documento de Viaje pone a la izquierda el
-nombre de la ruta en versalitas y a la derecha el bloque del cliente (nombre, teléfono,
-correo). Los dos son texto libre y **no hay recorte ni ancho máximo**: cuando el nombre de la
-ruta pasa de unos **60 caracteres**, el de la izquierda se mete por debajo del de la derecha
-y los dos quedan impresos uno encima del otro.
+> **Corregido en la ronda de revisión (crítica, punto 3). La etiqueta se queda en MEDIO, pero el
+> informe describía mal el defecto, en las dos direcciones:**
+> - **No es «la cabecera que se repite en todas las páginas».** La cabecera `fixed` es `PageHeader`
+>   (`pdfChrome.tsx:76`) y solo lleva «Camino Sacro» y el número de página: esa está bien. Lo que se
+>   rompe es el `clientBar` de `travelDocPdf.tsx:476`, que sale **una sola vez**, en la página del
+>   itinerario. La frase del informe era falsa, y era el argumento con el que se sostenía la etiqueta.
+> - **El solape no es el peor de los dos fallos.** Antes de pisarse, el bloque del cliente **se va
+>   por fuera del margen derecho**, y a partir de ~74 caracteres **se sale del papel**: el teléfono y
+>   el correo quedan cortados por el borde de la hoja. Eso sí se lleva un dato por delante.
+> - **El umbral exacto está entre 56 y 58 caracteres**, no «unos 60»: el margen real hasta el
+>   catálogo de hoy es de **cinco** caracteres, no de nueve.
 
-Renderizado de verdad, no leído (`@react-pdf`, misma versión del proyecto):
+El `clientBar` del Documento de Viaje pone a la izquierda el nombre de la ruta en versalitas y a la
+derecha el bloque del cliente (nombre, teléfono, correo). Los dos son texto libre y **no hay
+recorte ni ancho máximo**. Es un `flexDirection:"row"` con `justifyContent:"space-between"` y
+ningún hijo con `flexShrink`: en Yoga, la columna derecha **se desplaza fuera de la caja en vez de
+comprimirse**. Primero desborda el margen, después se sale de la hoja, y solo al final se pisa con
+el texto de la izquierda.
 
-| nombre de ruta | caracteres | resultado |
+Renderizado de verdad y **medido con `pdftotext -bbox`**, no estimado a ojo (`@react-pdf`, misma
+versión del proyecto; nombre de cliente de 35 caracteres —el más largo que existe hoy— y correo de 32):
+
+| caracteres del nombre de ruta | ¿se pisan? | ¿se sale del margen derecho? |
 |---|---|---|
-| `Francés desde Sarria` | 20 | limpio |
-| `Camino Portugués - Viana do Castelo (personalizada)` — **el más largo del catálogo real** | 51 | limpio |
-| `Camino Portugues Viana do Castelo personalizada grupo colegio ABC` | 65 | **se pisan**: «…GRUPO COLE**Cliente: Ad**riana del Socorro…» |
-| el de la prueba hostil | 89 | ilegible por completo |
+| 51 (`Camino Portugués - Viana do Castelo (personalizada)`, el más largo real) | no, sobran 35 pt | no |
+| 55 | no, sobran 9 pt | no |
+| **56** | al filo (1,5 pt) | **sí, +0,2 pt** |
+| **58** | **sí, +7,5 pt** | sí, +4 pt |
+| 65 | sí | sí, +8 pt |
+| 74 | sí | **+29 pt: el bloque del cliente se sale del papel** (A4 mide 595,3 pt y el texto llega a 592) |
+| 78 | — | **+35 pt: el correo queda cortado por el borde de la hoja** (llega a 598,2) |
+
+O sea que el defecto no es «una ruta de más de 60»: es **«ruta + cliente que juntos pasan de ~92
+caracteres»**, y **ninguno de los dos campos tiene tope**.
 
 **Honestidad sobre el caso:** con los datos de hoy no pasa. La ruta más larga en `routes`
 tiene 51 caracteres y el nombre de cliente más largo 35, y esa combinación sale bien. Lo que
@@ -402,12 +428,14 @@ catálogo enseña hacia dónde va la cosa: el nombre más largo que existe ya ll
 el umbral.
 
 Y el documento donde revienta es el peor de los cinco: el Documento de Viaje es **el que el
-peregrino lleva en el celular durante el Camino**, y la cabecera rota se repite en todas sus
-páginas.
+peregrino lleva en el celular durante el Camino**, y el dato que se pierde por el borde del papel
+es justo el teléfono y el correo de contacto.
 
-**Propuesta:** un `maxLines={1}` con `textOverflow: "ellipsis"` en el bloque de la izquierda,
-o darle un ancho fijo a las dos columnas de la cabecera para que ninguna pueda invadir la
-otra. Y, aguas arriba, el tope de longitud en `route_name` que B1 ya propuso.
+**Arreglado:** `flexShrink: 1` + `maxWidth` en la columna derecha del `clientBar`, que es lo que
+impide el desborde del papel — ver «Arreglos aplicados».  ·  **Propuesta (lo que queda):** un
+`maxLines={1}` con `textOverflow: "ellipsis"` en el bloque de la izquierda para que el nombre de
+ruta se recorte con elipsis en vez de invadir, y, aguas arriba, el tope de longitud en `route_name`
+que B1 ya propuso.
 
 ### [MENOR] Ningún PDF desactiva el guionado, y ya se parten palabras con datos reales — los cinco generadores
 
