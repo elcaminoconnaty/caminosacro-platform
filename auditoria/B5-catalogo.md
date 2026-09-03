@@ -576,11 +576,41 @@ conviene hacer las dos, en este orden:
    que la guarda de `optionals.ts:37` pase a `if (!precio || !precio.price_cs)` con el mismo
    mensaje accionable que usan las bicis. Y en `/catalogo`, no crear filas de precio vacías.
 
+### [MEDIO] Con dos pensiones en la misma localidad, cuál sale impresa en el Documento de Viaje lo decidía Postgres — `seguimiento/[id]/travelDocActions.ts:56-59`
+
+`prefillTravelNights` leía los hoteles activos **sin `.order()`** y `hotelParaLugar` devuelve
+**el primero** del array que empareje con la localidad de la etapa. Sin orden explícito, ese
+«primero» es el que le apetezca a Postgres: un `UPDATE` en cualquier ficha —cambiar un
+teléfono— podía reordenar el resultado y **cambiar qué hotel se propone**, sin que nadie
+tocara una línea de código ni el catálogo de esa localidad.
+
+**Medido contra producción al 3-sep-2026:** son **12 hoteles activos en 6 localidades, dos en
+cada una**, y en **5 de las 6** las dos fichas empatan por coincidencia exacta de localidad
+(Arzúa, Portomarín, Santiago, Sarria y Palas de Rei —esta última porque `Palas de rei` y
+`Palas de Rei` normalizan igual—). La sexta, O Pedrouzo, se desempata por el emparejado
+parcial. O sea: el desempate decide **en casi todas** las noches que hoy se prellenan.
+
+**Arreglado:** `.order("name")` en la consulta (`f37e234`). El desempate pasa a ser
+alfabético: estable, explicable y el mismo hoy que mañana. Los dos comentarios del archivo
+quedaron al día.
+
+**Propuesta (lo de fondo, no aplicado):** el arreglo hace el empate *estable*, no *correcto*.
+Lo que corresponde es que, habiendo dos fichas para la misma localidad, el prellenado **no
+elija**: marcar esa noche como «hay 2 opciones» y dejar que se escoja al revisar, que es
+donde la persona sí sabe cuál va. Y de paso unificar los dos pares de localidades escritas
+distinto (`O pedrouzo` / `O Pedrouzo (O Pino)`, `Palas de rei` / `Palas de Rei`), que hoy son
+la misma localidad partida en dos.
+
 ---
 
 ## Arreglos aplicados
 
 _(Solo lo pequeño y reversible. Un commit por arreglo.)_
+
+- **`f37e234` — los hoteles del prellenado se leen ordenados por nombre.** Una línea
+  (`.order("name")` en `travelDocActions.ts:59`) más los comentarios del archivo. No toca
+  dinero ni estados de venta: solo hace que el desempate entre dos fichas de la misma
+  localidad sea siempre el mismo. `npx tsc --noEmit` limpio.
 
 ---
 
@@ -1270,7 +1300,11 @@ hoteles, que ya tiene dos cálculos independientes que dan lo mismo.
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — cierro los siete huecos del crítico **en su orden**, subiendo cada
+`Estado: en curso` — **por dónde voy (3-sep-2026):** huecos **1 y 2 cerrados** (el GRAVE del
+opcional a 0 €, verificado contra producción, y el desempate de hoteles, arreglado en
+`f37e234` y ya escrito arriba con su hallazgo). Sigo por el **3**. Todos los números del
+bloque se están **remidiendo contra producción y fechando al 3-sep-2026**, porque caducan en
+días. Cierro los siete huecos del crítico **en su orden**, subiendo cada
 hallazgo nuevo a la sección **Hallazgos** con el formato del TABLERO para que B8 no tenga que
 leer la crítica. Plan, y lo voy commiteando por partes:
 
