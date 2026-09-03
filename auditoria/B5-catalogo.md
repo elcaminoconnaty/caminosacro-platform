@@ -542,8 +542,9 @@ _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
 ## Crítica del experto
 
-`Estado: en curso` — crítico independiente (segundo intento; el primero murió antes de
-escribir nada). Plan numerado, escribo cada conclusión en cuanto la tengo:
+`Estado: hecho` — crítico independiente (tercer intento; los dos primeros murieron por el
+límite de gasto, el primero antes de escribir nada). Los cinco puntos del plan están cerrados
+y cada uno tiene su conclusión escrita:
 
 1. Rehacer contra producción los **cuatro números** del bloque: 2 de 11 rutas con tarifa 2027;
    cero tarifas a costo o por debajo en 74 filas; 26 % de cobertura de hoteles con 6/6 en
@@ -557,9 +558,9 @@ escribir nada). Plan numerado, escribo cada conclusión en cuanto la tengo:
 5. Contra `CRITERIOS.md` punto 8: qué trae de serie un CRM de agencia en catálogo, tarifas y
    proveedores que aquí falte.
 
-Voy por: (5) **el oficio** (`CRITERIOS.md` punto 8), lo último que falta. Hechos y escritos:
-(1) números, (2) cobertura ejecutada, (3) etiquetas, (4) **las cuatro puertas, cerrado** con
-dos MEDIO nuevos (el lead sin fila y el costo tecleado al 85 %).
+Cerrado el 2-sep-2026: (1) números rehechos contra producción, (2) cobertura recalculada
+ejecutando `hotelParaLugar`, (3) las dos etiquetas juzgadas, (4) las cuatro puertas recorridas
+una por una, (5) el oficio medido contra el esquema. Veredicto al final.
 
 ---
 
@@ -1164,17 +1165,62 @@ costos que esa pantalla suma— y las tres formas en que pueden estar mal.
 
 ---
 
-Lo que la auditoría pedía que revisen:
+Lo que la auditoría pedía que revisen — **las tres respondidas**:
 
-- El **MEDIO de la fianza ausente del contrato**: si merece esa etiqueta dado que aún no hay
-  ningún contrato de bici firmado.
-- Los números de **cobertura de hoteles** (26 %, 6/6 en Sarria): los calculé ejecutando
-  `hotelParaLugar` contra los datos reales, pero conviene una segunda pasada.
-- Si el **MENOR de `errors.ts`** (el mensaje del 23503) se sale del alcance de B5 y pertenece
-  más a B6.
+- El **MEDIO de la fianza ausente del contrato**: respondido, **baja a MENOR** (cero líneas de
+  bici cotizadas en la historia; ningún cliente ha leído nunca ese cuadro). Bloqueante antes de
+  la primera venta de bici.
+- Los números de **cobertura de hoteles**: respondido, **25,8 % (71 de 275) y 6/6 en Sarria**,
+  recalculado ejecutando `hotelParaLugar` con `npx tsx`. El auditor tenía razón, y el número no
+  se movió al pasar de 6 a 11 hoteles.
+- El **MENOR de `errors.ts`**: respondido, **se queda en B5** (se dispara borrando una ruta y el
+  arreglo bueno es `deleteRoute`), con la mitad del diccionario prestada a B6.
 
-_(La escribe el agente crítico. Debe cerrar con `VEREDICTO: aprobado` o `VEREDICTO: revisar`
-seguido de los huecos concretos.)_
+---
+
+## VEREDICTO: revisar
+
+El bloque **está bien hecho y sus números son de verdad**: cuatro de los cinco los rehice
+contra producción y cuadran exactos, y el método —medir, no estimar— se sostiene. Lo que lo
+manda a revisión no es que esté mal, es que la crítica le añadió **un GRAVE, cinco MEDIO y un
+MENOR** que no tenía, y varios cambian lo que hay que hacer el lunes. No hay nada aquí que
+invalide la auditoría; hay cosas que hacen falta antes de darla por cerrada.
+
+Los huecos concretos para la ronda de revisión, en orden de lo que cuesta dejarlos:
+
+1. **El GRAVE del opcional a 0 €** (`year.ts:78-88` · `optionals.ts:34-37`). Decidir con Nico
+   entre el parche de datos (borrar las dos filas 2027 vacías de `optional_prices`, un minuto,
+   reversible) y el arreglo de código (filtrar filas sin precio en `ratesForYearWithFallback`).
+   **Es lo único de este bloque que puede regalar dinero con un solo clic.**
+2. **El desempate de hoteles sin `.order()`** (`travelDocActions.ts:56-59`). Una línea, no toca
+   dinero, y hoy decide cuál de dos pensiones sale impresa en el Documento de Viaje en **5 de
+   las 6 localidades**. Es el arreglo con mejor relación entre lo que cuesta y lo que evita.
+   Lo dejé sin aplicar por no meter mano en código de otro bloque.
+3. **`route_id` en NULL en 33 de 45 cotizaciones**, y `prefillTravelNights` resolviendo la ruta
+   por nombre. Hay que decidir el relleno de la columna (dato) y las dos líneas de
+   `travelDocActions.ts:41` (código). Incluye arreglar a mano la cotización con
+   `«Portugues desde Tui»` sin tilde, que **hoy no puede prellenar su documentación**.
+4. **Las cuatro rutas que se venden con el catálogo vacío** (12.180 € cotizados) y el costo
+   tecleado al 85 % del precio. Decisión de negocio: o se cargan las tarifas de esas rutas, o
+   el Wizard deja de aceptar `cost_base_eur = 0` y de llamar «Costo Pilgrim» a un número que
+   no lo es.
+5. **El lead de `sin_tarifas_ano` que no deja fila.** Decidir si entra a `quotes` como
+   `sin_enviar` o a una tabla propia. Mientras no se decida, **no se puede saber cuántos son**,
+   y ése es el argumento: hoy la respuesta a «cuánta demanda de 2027 estamos perdiendo» es
+   literalmente inaveriguable.
+6. **Los tres números del bloque que ya caducaron** y hay que dejar al día en el texto:
+   **12 → 13** cotizaciones con salida 2027, **4 → 5** rutas activas sin etapas (falta
+   `Norte desde Vilalba`, que además ya tiene una cotización de 870 €), y **6 → 12** hoteles.
+   El catálogo se está moviendo todos los días; conviene fechar cada cifra al anotarla.
+7. **Dos cosas de dato puro para Nico**, que no son código: cargar las etapas de las rutas
+   publicadas sin itinerario, y decidir qué se hace con `Norte desde Vilalba` —activa, sin
+   días, sin noches, sin km, sin etapas, sin una sola tarifa, y ya vendida—.
+
+Lo que **no** hace falta revisar: los márgenes (74 filas barridas, ninguna bajo costo), el
+módulo de bicis (el mejor cerrado del catálogo, aunque esté a medio nacer), el modelo de
+opcionales por año en su diseño —el fallo es la guarda, no el modelo— y la cobertura de
+hoteles, que ya tiene dos cálculos independientes que dan lo mismo.
+
 
 ---
 
