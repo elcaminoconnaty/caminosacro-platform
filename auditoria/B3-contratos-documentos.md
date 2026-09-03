@@ -268,7 +268,15 @@ distintos a los de la cotización» comparando los cuatro campos que mueven plat
 de refrescar al lado. No hace falta sincronizar solo —un contrato ya enviado no debe cambiar
 sin que alguien lo decida—, hace falta que se **vea**.
 
-### [GRAVE] Borrar una cotización deja atrás el pasaporte y el contrato firmado — `seguimiento/[id]/actions.ts:100-116`
+### [MEDIO] Borrar una cotización deja atrás el pasaporte y el contrato firmado — `seguimiento/[id]/actions.ts:100-116`
+
+> **Re-etiquetado en la ronda de revisión: era GRAVE, baja a MEDIO.** Motivo (crítica, punto 1): el
+> mecanismo es real y el recuento exacto al archivo, pero no cumple ninguna de las cuatro puertas
+> de GRAVE del TABLERO — los buckets son **privados** (verificado en `storage.buckets`), no hay
+> filtración, no hay dinero de por medio y el cliente no ve caerse nada. Lo que hay es **una
+> promesa de supresión que el software no puede cumplir** y un almacén que nadie puede enumerar
+> desde el producto: serio, y de otra familia que perder la prueba de una firma. El GRAVE de esta
+> pareja de hallazgos es el de arriba, el del borrado sin guardas.
 
 `deleteQuote` borra de Storage exactamente **dos** archivos:
 
@@ -298,12 +306,17 @@ referencia en la base, invisibles desde el producto:
   `2026/CS-2026-044/Pasaporte-CS-2026-044-…jpg` y
   `2026/CS-2026-048/Pasaporte-CS-2026-048-…jpg`. Comprobado: no hay ninguna fila en `quotes`
   con esos códigos. Alguien borró esos dos expedientes y las fotos del documento de identidad
-  de esas personas siguen ahí.
+  siguen ahí. *(Matiz de la crítica: los dos archivos pesan **exactamente 75.368 bytes cada uno**
+  y se subieron el mismo 24-jul-2026 con 45 minutos de diferencia (17:40 y 18:26) —la misma imagen
+  subida dos veces, en la tarde de la ronda de pruebas de contratos por viajero—. Indicio fuerte de
+  que 044 y 048 fueron **expedientes de prueba con código real**, no dos peregrinos. La frase
+  original del informe, «las fotos del documento de identidad de esas personas», daba por hecho lo
+  segundo y exageraba lo que la evidencia aguanta.)*
 - En `comercial-contracts` hay **4 PDF de contrato** en la misma situación, todos de
   cotizaciones borradas.
 - En `comercial-quotes`, 3 PDF huérfanos (esos sí, solo dinero de almacenamiento).
 
-**Por qué es GRAVE y no una tarea de limpieza.** El contrato que esas personas firmaron dice,
+**Por qué no es solo una tarea de limpieza.** El contrato que esas personas firmaron dice,
 en su cláusula de tratamiento de datos (`contracts/template.ts:262`), que *«EL VIAJERO podrá
 ejercer sus derechos de conocer, actualizar, rectificar y **suprimir** sus datos, y revocar
 la autorización, escribiendo a reservas@caminosacro.com»*. Hoy la plataforma **no puede
@@ -315,7 +328,16 @@ el software incumple en silencio.
 
 Matiz honesto: los buckets son **privados** (verificado en `storage.buckets`), así que no hay
 nada expuesto a internet. El problema no es una filtración; es que el dato sobrevive al
-registro que lo justificaba y nadie sabe que está ahí.
+registro que lo justificaba y nadie sabe que está ahí. Eso es exactamente lo que lo deja en MEDIO
+y no en GRAVE.
+
+**Al arquear, cuidado con dos falsos positivos** (crítica, punto 1): los 32 objetos de
+`comercial-hotel-fotos` **no son huérfanos** —se referencian desde el jsonb `hotels.photos`, no
+desde una columna de ruta—, y el único objeto suelto de `comercial-docs` y el de
+`comercial-catalogs` son los genéricos (`Asistencia-en-Viaje`, catálogo de bicis), que no van
+atados a ningún expediente. Un arqueo que no contemple el jsonb dará 32 falsos positivos y alguien
+borrará las fotos del catálogo. Los huérfanos reales son **4 + 2 + 3**, y el cruce hay que hacerlo
+contra las **trece** columnas de ruta de `comercial`, no contra cinco.
 
 **Propuesta (no se toca: es borrado de datos y hay que decidirlo con Nico):** que
 `deleteQuote` lea, antes de borrar, las rutas de las tablas hijas —son cinco `select` a
