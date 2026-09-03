@@ -1232,8 +1232,14 @@ seguido de los huecos concretos.)_
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — una sola ronda, cerrando los seis huecos del veredicto. Plan, en este orden,
-commiteando por partes (si muero a mitad, lo commiteado dice por dónde iba):
+`Estado: hecho` — los seis huecos del veredicto están cerrados menos el sexto, que no lo puede
+cerrar un agente y queda escrito como **hueco abierto** al final del bloque. Se aplicaron tres
+arreglos de código (los estados de error de `/seguimiento` y `/calendario`, los 35 `role="alert"`
+y la unificación de los avisos rojos), subieron los cuatro hallazgos nuevos, se corrigieron las
+tres frases que no resistían la pantalla más el encabezado roto, y la franja «Hoy» quedó escrita
+en «Propuestas para Nico» sin implementar. `npx tsc --noEmit` y `npm run build`, limpios.
+
+Plan que se siguió (por valor, no por el orden en que se escribió):
 
 1. **Este plan**, commiteado solo.
 2. **Los cuatro hallazgos nuevos del crítico suben a «Hallazgos»** con el formato del TABLERO,
@@ -1258,10 +1264,10 @@ Lo que **no** se toca: el shell del móvil, el token del dorado (36 → 23 es co
 el reemplazo de color es propuesta), los tres archivos del framework y la franja «Hoy». Son
 pantallas nuevas o cambios de maqueta, y la regla 9 dice proponer, no rediseñar.
 
-**Por dónde voy (segunda tanda de la ronda).** Cerrado el hueco 1 (el «36 usos» del titular del
-dorado) por el agente anterior. Retomo por lo que más pesa, no por el orden del plan: primero los
-tres arreglos de código del paso 5, luego los hallazgos nuevos (paso 2), el re-etiquetado (paso 4),
-las correcciones de texto que queden (paso 3) y por último las propuestas (pasos 6 y 7).
+**Cómo quedó repartido.** El primer agente dejó el plan, cerró el hueco 1 (el «36 usos» del
+titular del dorado) y el re-etiquetado de B7.6. El segundo hizo el resto en este orden, del que
+más pesa al que menos: los tres arreglos de código del paso 5, los hallazgos nuevos (paso 2), las
+correcciones de texto (paso 3) y las propuestas (pasos 6 y 7).
 
 ---
 
