@@ -41,7 +41,8 @@
   que `/finanzas` (134) mide el dinero del negocio.**
 - **B7.6 Clics por tarea.** Cuenta los de las tres tareas de todos los días: cotizar, cobrar, mandar documentación. Di dónde sobran.
   `Estado: hecho` — contados los tres flujos. **Los clics que sobran no son de diseño: son los hallazgos de
-  esta auditoría vistos desde el lado de quien trabaja.** Cotizar pide 2 clics de más porque el asistente no
+  esta auditoría vistos desde el lado de quien trabaja** (por eso el crítico le quitó la etiqueta de hallazgo:
+  es lectura transversal, no suma al recuento). Cotizar pide 2 clics de más porque el asistente no
   genera el PDF; cobrar pide 2 de más porque cobrar no mueve el estado; y mandar la documentación pide
   primero **cambiar el estado a mano para que la tarjeta aparezca**.
 - **B7.7 Accesibilidad de lo básico.** Foco visible, etiquetas en los campos, objetivos tocables, y que no se dependa solo del color para decir algo.
@@ -240,7 +241,12 @@ No rompe nada y por eso es MENOR. **Propuesta:** cuatro tokens más —`--color-
 `--color-error-bg`, `--color-aviso`, `--color-aviso-bg`— elegidos con el contraste ya
 calculado, y sustituir. Es el mismo trabajo que ya se hizo bien con la marca.
 
-### [MEDIO] Los clics que sobran son los hallazgos de esta auditoría, vistos desde el trabajo diario
+### [LECTURA TRANSVERSAL — no es un hallazgo propio] Los clics que sobran son los hallazgos de esta auditoría, vistos desde el trabajo diario
+
+> **Etiqueta corregida por el crítico (era `[MEDIO]`).** Los cinco pasos de más que se cuentan aquí
+> ya están levantados como hallazgo en B1, B2 y en el MEDIO de B7.4; dejarlo con etiqueta de hallazgo
+> hacía que B8 contara cuatro cosas dos veces. Se queda como lectura transversal —que es de lo más
+> útil del bloque para priorizar—, no suma al recuento. Detalle en «Crítica del experto».
 
 Contados los tres flujos de todos los días. Lo interesante no es el total, es **por qué**
 existe cada paso de más: los tres coinciden con hallazgos ya levantados en B1, B2 y B3.
