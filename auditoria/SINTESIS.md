@@ -1,13 +1,15 @@
 # Síntesis — hoja de ruta
 
-`Estado: en curso`
+`Estado: hecho`
 
-> **Por dónde voy (3-sep-2026):** partes 1 y 2 escritas. Faltan 3, 4, 5 y la lista final.
->
-> Reglas de esta síntesis: los números **se copian con su fecha**, no se recalculan —en esta
-> plataforma caducan en días—; lo que dos bloques vieron por caminos distintos **se cuenta una
-> vez**, diciendo que llegaron dos; lo ya arreglado va aparte de lo pendiente; y lo que no se
-> pudo comprobar se dice.
+Cierre de la auditoría de la Plataforma Comercial. **Se puede leer sola**: no hace falta abrir
+ninguno de los siete informes para decidir qué se hace.
+
+Reglas con las que está escrita: los números **se copian con su fecha**, no se recalculan —en
+esta plataforma caducan en días, y varios cambiaron durante la propia auditoría—; lo que dos
+bloques vieron por caminos distintos **se cuenta una vez**, diciendo que llegaron dos, porque eso
+es justo lo que le da peso; lo ya arreglado va aparte de lo pendiente; y lo que no se pudo
+comprobar se dice.
 
 **Qué se auditó y cómo.** Siete bloques, cada uno con su auditoría, su crítica independiente y
 su ronda de revisión. Todo verificado contra el código y contra la base de producción (solo
@@ -433,3 +435,75 @@ la documentación se puede revocar; esa no—. Hoy es menor porque la tabla tien
 (3-sep-2026), pero crece sola.
 
 ---
+
+## Lo que tienes que decidir o hacer tú
+
+Recogido de las secciones «Para Nico» de los siete bloques. **No se repite aquí lo que ya está
+en la parte 2** —llamar a los dos viajeros sin firmar, avisar a la clienta de CS-2026-081, montar
+la copia de seguridad, poner guardas al borrar, borrar las dos filas de precio vacías de 2027, y
+decidir si cobrar mueve el estado—.
+
+1. **¿Alguien movió la fecha de salida de CS-2026-080 el 2 de septiembre a las 13:44?** Hoy esa
+   cotización (Costero desde Baiona, 13 personas, 8.350 €) cuadra: sale el 17-oct y termina el
+   24-oct, y eso es lo que dice su PDF. Pero la auditoría la leyó saliendo el 18-oct. **Si la
+   fecha se movió, hay un PDF con las fechas viejas en manos de un grupo de 13 personas** y hay
+   que reenviarlo. Si fue un error de lectura, no hay nada que hacer.
+
+2. **Mira cuatro o cinco de los 25 archivos `CS-TEST-*` del cubo de pasaportes** (Dashboard →
+   Storage, diez minutos) y decide. Son 500-700 kB cada uno, o sea fotos de cámara o de celular,
+   no imágenes de relleno; son del 28-jul, la ronda de pruebas de contratos por viajero. Si son
+   de relleno, se borran sin más. Si son tuyos o de Naty, se borran. **Si hay el pasaporte de un
+   tercero, se borra ya**: es un dato personal en producción sin ninguna finalidad que lo
+   justifique. Aparte están **los 2 huérfanos reales** —`CS-2026-048` y `CS-2026-044`, pasaportes
+   de clientes cuyas cotizaciones se borraron—. Y de paso, escribe la regla que hoy no existe:
+   **el pasaporte se borra a los 30 días de terminado el viaje**, aunque al principio se ejecute
+   a mano una vez por temporada.
+
+3. **Activa el rechazo de contraseñas filtradas** en Supabase (Authentication → Policies). Un
+   clic, sin código y sin riesgo, en una cuenta cuyas credenciales abren pasaportes y contratos
+   firmados.
+
+4. **Decide el cierre de permisos de la base** (la «Decisión 2» de B6). Hoy hay dos cerraduras
+   posibles y solo una está echada: si algún día una regla se relaja por error, la otra puerta
+   está abierta. No rompe nada, pero es producción y necesita tu sí.
+
+5. **Pídele a Pilgrim dos cosas.** (a) Las **32 tarifas** de las cuatro rutas que se venden sin
+   ninguna —4 modalidades × 4 rutas × 2026 y 2027—. (b) **La factura o la tarifa real de
+   CS-2026-008, CS-2026-033 y CS-2026-081**, donde el «costo Pilgrim» grabado es el precio de
+   venta × 0,85 y por tanto su margen sale «15,0 %» pase lo que pase.
+
+6. **Decide cómo se guardan las tarifas.** Hoy la base promete «vigencias» (desde / hasta) y el
+   código mira el año natural; esas dos columnas están vacías en las 51 filas. O se pasa a
+   tarifar por vigencia, o se asume el año y **se borran esas columnas** para que no engañen. Lo
+   que no puede quedarse es lo de ahora.
+
+7. **Decide si el articulado del contrato se mueve a Configuración**, como ya están las
+   condiciones del Documento de Viaje. Es lo que evita que un día digan cosas distintas sobre la
+   misma política de cancelación. Es la letra de un contrato: no se toca sin ti.
+
+8. **Decide qué se hace con `Norte desde Vilalba`**: está activa y vendida por 870 €, y no tiene
+   días, ni noches, ni kilómetros, ni una sola tarifa. O se completa la ficha, o sale de
+   circulación.
+
+9. **Comprueba tres cosas del correo** que desde aquí no se pueden ver: que el dominio tenga
+   puestas sus tres firmas de autenticación (DKIM, SPF y DMARC), que la dirección pública
+   configurada en Railway sea la de la marca y no la de Railway, y la reputación de la cuenta en
+   Brevo. Hoy **Statistics → Transactional de Brevo es el único sitio donde se ve si un correo
+   rebotó**.
+
+10. **Abre el panel desde tu teléfono y mira cuatro cosas.** Es el único hueco que la auditoría no
+    pudo cerrar: **nadie ha visto el CRM con datos**, porque ningún agente puede iniciar sesión.
+    Todo lo visual está verificado por reconstrucción. Con cuatro capturas se cierra: (a) un
+    expediente con sus once tarjetas —cuánto hay que bajar para llegar al cobro—; (b) los números
+    en dorado **a la luz del día, fuera de casa**; (c) Seguimiento con todas sus filas y la tabla
+    desplazándose de lado; y (d) un error de carga provocado —quita la red y recarga— para ver que
+    el aviso nuevo se lee y que no aparece ningún 0,00 €.
+
+11. **Una pregunta pequeña:** ¿quieres que el asistente del CRM genere el PDF al crear la
+    cotización, como hacen los otros tres caminos? Hoy es el único que no lo hace, y puede ser
+    deliberado —tú revisas antes de mandar nada—. Si lo es, se deja como está y deja de figurar
+    como pendiente.
+
+---
+
+`Estado: hecho`
