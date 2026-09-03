@@ -591,6 +591,21 @@ mira B4.6.
 
 _(Solo lo pequeño y reversible. Un commit por arreglo.)_
 
+- **`20ad15e` — el embudo del contrato deja fila en `email_log`.** `enviarCorreoContrato`
+  devuelve el resultado completo (`ok`, `error`, `messageId`) en vez de un booleano y registra
+  con `tipo: "contrato"`, con `registro` obligatorio. Ajustados sus cuatro llamadores. Son los
+  tres flujos que más pesan del bloque —enviar para firma, la copia al firmante y los
+  recordatorios— y hasta aquí eran los once correos reales sin rastro.
+- **`2a240be` — los tres emisores restantes registran también.** `/cotizar` y el cotizador de
+  WordPress con `tipo: "cliente"`, el lead sin precio con `tipo: "lead"`. Con esto los cinco
+  tipos declarados en `EnvioRegistrado` se escriben de verdad y no queda ningún flujo de correo
+  sin fila.
+- **`f18a0ed` — la tarjeta de correo del CRM respeta `active`.** La consulta filtraba distinto
+  que el camino automático, así que apagar la plantilla la seguía enviando desde el CRM y la
+  apagaba en silencio en la web. Y si no hay plantilla activa, ahora se dice en pantalla.
+- **`a003179` — `scripts/n8n_correo_html.md` deja de dar un falso positivo.** Su prueba de
+  regresión mandaba concluir que un parche correcto estaba mal pegado.
+
 - **`quoteEmail.ts:41-48` — la ruta del correo se resuelve por id y, si no hay, por nombre.**
   `route_id` es `null` en 33 de las 45 cotizaciones y sin este respaldo `{{dias_camino}}` y
   `{{duracion}}` salían vacías, dejando el hueco en la frase. Mismo patrón que `pdf.ts`,
@@ -986,7 +1001,7 @@ Huecos concretos que tendría que cubrir la ronda de revisión:
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — encargo acotado: se implementan **tres** de los ocho huecos (1, 6 y 8) y
+`Estado: hecho` — encargo acotado: se implementan **tres** de los ocho huecos (1, 6 y 8) y
 los otros cinco se dejan escritos como **Propuestas para Nico**, porque son mejoras de producto
 o tocan estado de venta / el workflow de producción.
 
@@ -1016,17 +1031,36 @@ Bitácora de la ronda, para que quien la retome no repita trabajo. Se actualiza 
   (cliente de Supabase, `quoteId` y marca de prueba). Ajustados sus cuatro llamadores:
   `contractActions.ts`, `contrato/[token]/actions.ts`, el cron de recordatorios y
   `ContractCard.tsx`. `npx tsc --noEmit` limpio. **No repetir.**
-- [ ] Hueco 1b — los tres emisores que siguen sin `registrarEnvio`: `cotizar/actions.ts:197`
-  (tipo `cliente`), `webQuote.ts:158` (tipo `cliente`) y `api/wp/lead/route.ts:151`
-  (tipo `lead`, y ahí no hay cliente de Supabase en el ámbito: hay que crearlo).
-- [ ] Hueco 6 — `.eq("active", true)` en `seguimiento/[id]/page.tsx:153`.
-- [ ] Hueco 8 — `scripts/n8n_correo_html.md` y la lista de verificaciones de Nico.
-- [ ] Propuestas para Nico (huecos 2, 3, 4, 5 y 7).
-- [ ] `npm run build` final y cierre del bloque.
+- [x] **Hueco 1b — los tres emisores que faltaban, hecho en `2a240be`.** `cotizar/actions.ts`
+  y `webQuote.ts` registran con `tipo: "cliente"` (los dos ya tenían el cliente de Supabase a
+  mano); `api/wp/lead/route.ts` con `tipo: "lead"`, creando el cliente solo para el registro y
+  dentro de un `try` para no cambiar el 200 que WordPress espera. Con esto **los siete emisores
+  y los nueve flujos dejan fila**: `cliente`, `pilgrim`, `contrato`, `lead` y `documentacion`
+  — los cinco tipos declarados, ninguno huérfano. Ningún envío cambia de comportamiento.
+- [x] **Hueco 6 — hecho en `f18a0ed`.** `.eq("active", true)` en la consulta de la tarjeta, más
+  el aviso en pantalla (`sinPlantilla` en `EmailPreviewCard`) para que caer al cuerpo mínimo de
+  respaldo deje de ser silencioso.
+- [x] **Hueco 8 — hecho en `a003179`.** `scripts/n8n_correo_html.md`: la regresión pasa a tabla,
+  el paso 2 dice que la cotización debe llegar **maquetada** (era el falso positivo), la lista
+  de «los que no mandan `html`» queda en contrato y Pilgrim, y la cabecera avisa de que el
+  parche ya está aplicado en producción. Y la lista de verificaciones de Nico, reordenada con
+  DKIM/SPF/DMARC y `APP_BASE_URL` primero, con el cómo de cada una, y el punto del parche
+  tachado por resuelto.
+- [x] **Propuestas para Nico (huecos 2, 3, 4, 5 y 7) — hecho en `cab9130`.** Sección al final
+  del archivo, con coste en horas y qué se pierde hoy. El lead de `/api/wp/lead` va primero.
+- [x] **`npm run build` limpio** y cierre del bloque.
 
 Comprobado antes de escribir: la ronda de B3 corre en paralelo y **todavía no ha tocado**
 `lib/contracts/email.ts` ni sus llamadores (`git log` a la altura de `60c411a`; el árbol de
 trabajo solo tiene el trabajo ajeno del Estudio de Contenido).
+
+### Qué queda vivo de este bloque
+
+Nada de código. Los cinco huecos que no se implementaron están en **Propuestas para Nico** y
+son decisiones suyas, no tareas pendientes. Lo único que no depende de nadie de aquí son las
+**tres verificaciones de la lista de Nico** —DKIM/SPF/DMARC, `APP_BASE_URL` y la reputación en
+Brevo—, y las dos primeras siguen sin comprobar porque desde aquí no se leen ni el DNS ni las
+variables de Railway.
 
 ---
 
