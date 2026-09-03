@@ -532,6 +532,50 @@ que estaba. **Propuesta:** en `/catalogo`, marcar en ámbar la ruta cuyo año te
 las cuatro modalidades, y un contador arriba del estilo «2027: 2 de 11 rutas completas». Es
 lectura, no toca dinero.
 
+### Los siete huecos de la crítica, cerrados (revisión del 2-sep-2026)
+
+_Todo lo de aquí abajo sale de la ronda de revisión. Está escrito para que **B8 no tenga que
+leer la crítica**: cada hueco es un hallazgo con su etiqueta, o remite al bloque dueño._
+
+### [GRAVE] Un opcional con la fila del año creada y sin precio se cotiza a 0 €, sin aviso — `lib/pricing/year.ts:78-88` · `lib/quotes/optionals.ts:34-37`
+
+**Es el GRAVE del bloque y el único punto que puede regalar dinero con un solo clic.**
+`ratesForYearWithFallback` decide si un año tiene tarifa **contando filas, no precios**: una
+fila con `price_cs` y `price_pilgrim` en `NULL` cuenta como año cargado, así que el respaldo al
+año anterior **no se dispara**. Después `alternarOpcional` convierte esos `NULL` en ceros
+(`optionals.ts:36`, `Number(p.price_cs) || 0`) y la guarda `if (!precio)` no salta, porque
+`precio` existe: es `{price_cs: 0, price_pilgrim: 0}`.
+
+**Comprobado contra producción al 2-sep-2026 (noche): las dos filas siguen ahí.**
+`comercial.optional_prices` tiene exactamente **2 filas de 2027 y las dos están vacías** —
+`Casco de bicicleta` y `Seguro a todo riesgo para la bicicleta`, `NULL / NULL` en los dos
+precios—; los otros 14 opcionales no tienen fila de 2027, que es justo lo que los salva.
+
+Qué se rompe: en cualquiera de las **13 cotizaciones vivas con salida en 2027** esos dos
+opcionales se pintan «Pilgrim 0 € — 0 €» **sin la etiqueta ámbar** de precio de respaldo (va
+condicionada a `isFallback`, que aquí es `false`) y sin el aviso de cabecera. Un clic inserta
+una línea con `unit_price = 0` y `cost_unit = 0`, `recompute_quote_money()` la suma tal cual y
+esa línea viaja al PDF, al total y al correo a Pilgrim. Con las tarifas 2026 cargadas y a dos
+personas son **188 € de venta regalados y 144 € de costo real** que Pilgrim factura igual; y
+como el costo también entra a cero, la utilidad del expediente sale **inflada** justo en la
+línea que la destruye. El módulo de bicis sí tiene esa guarda (`bikeQuote.ts:109,178`) y por eso
+sus 35 filas sin precio no cotizan nada: aquí falta la misma.
+
+**Honestidad sobre el caso:** barridas hoy las `quote_lines`, **no hay ninguna línea a 0 €**;
+todavía no ha mordido. Es GRAVE igual porque el estado de datos que lo dispara ya está en
+producción, basta un clic en el camino normal de trabajo de los próximos meses, y falla en
+silencio y hacia abajo.
+
+**Propuesta (no se toca: es dinero, y la regla del TABLERO manda anotarlo).** Hay dos salidas y
+conviene hacer las dos, en este orden:
+1. **Parche de datos, un minuto y reversible:** borrar esas dos filas 2027 vacías de
+   `optional_prices`. Los dos opcionales vuelven al respaldo en ámbar de los otros catorce y la
+   fuga se cierra hoy. **Es lo que hay que decidir con Nico primero.**
+2. **Arreglo de código:** que `ratesForYearWithFallback` filtre las filas sin precio antes de
+   elegir el año —un año con la fila vacía debe comportarse como un año sin fila— y, de cinturón,
+   que la guarda de `optionals.ts:37` pase a `if (!precio || !precio.price_cs)` con el mismo
+   mensaje accionable que usan las bicis. Y en `/catalogo`, no crear filas de precio vacías.
+
 ---
 
 ## Arreglos aplicados
