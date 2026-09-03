@@ -703,6 +703,99 @@ de 2027 estamos perdiendo» es literalmente inaveriguable. **El hallazgo y su pr
 `B4-correo.md`**, que es el bloque dueño del endpoint; se anota aquí solo porque el disparador
 es de catálogo —el año sin tarifa— y para que B8 no lo cuente dos veces.
 
+### Las cuatro puertas de cotización: **NO hay ningún GRAVE ahí**. Que nadie lo vuelva a buscar
+
+Se recorrieron **una por una** buscando el desastre que se temía —cobrar una salida de 2027 con
+la tarifa de 2026, en silencio—. **No ocurre por ninguna de las cuatro.** Queda escrito aquí,
+con las cifras del 3-sep-2026, para que ni B8 ni nadie repita el recorrido:
+
+| puerta | `source` | cotizaciones | qué hace con una salida 2027 sin tarifa de ese año | ¿GRAVE? |
+|---|---|---|---|---|
+| WordPress | `wordpress` | 5 | `tarifarRuta` con **año exacto** → **409 `sin_tarifas_ano`**, **no escribe nada** | **no** |
+| BayMax / Telegram | `baymax` | **0** (era 1 el 2-sep; esa cotización ya no está) | el **mismo** `tarifarRuta` → 409 con `detalle` en castellano que le llega a Nico | **no** |
+| `/cotizar` | `web` | **0** | caería al año anterior con `price_note`, pero **nadie ha usado esta puerta jamás** | **no** |
+| Wizard del CRM | `interna` | **39** | **avisa en ámbar** («⚠ No hay tarifas 2027 cargadas… ingresá los precios a mano») antes de dejar teclear | **no** |
+
+Las dos puertas de máquina **comparten `tarifarRuta` y exigen coincidencia exacta de año**: si
+falta, devuelven 409 y **no crean cotización**. Son las dos que no se pueden equivocar de año.
+`/cotizar` es la única con respaldo al año anterior y **no la ha usado nadie nunca** (0 filas
+con `source = 'web'` en 44 cotizaciones). El Wizard, que es por donde entra el 89 %, **avisa en
+ámbar** antes de dejar escribir.
+
+Lo que sí sale de estas puertas son **dos MEDIO ya anotados arriba** —el costo tecleado al 85 %
+en las rutas sin catálogo, y el lead que no deja fila (de B4)—: margen inventado y demanda sin
+rastro, no dinero cobrado de menos. **El GRAVE del bloque es uno solo y es otro: el opcional a
+0 €**, que sale del mismo hilo —el año que falta— pero por la rama de los opcionales, que es
+donde no hay ni aviso ni negativa.
+
+---
+
+## Para Nico — lo que se decide, no se toca
+
+Cinco cosas. Cada una dice **qué se pierde hoy**. Números **medidos contra producción el
+3-sep-2026**; el catálogo se mueve todos los días, así que si esto se lee en octubre, hay que
+volver a medir.
+
+**1. Cuatro rutas se están vendiendo sin una sola tarifa en el catálogo: 12.180 € ya cotizados.**
+Son `Francés desde Saint Jean Pied de Port` (4.570 €), `Portugués desde Porto` (3.840 €),
+`Costero desde Porto` (2.900 €) y `Norte desde Vilalba` (870 €). Ninguna tiene **ni una fila**
+en `comercial.pricing`, en ningún año.
+*Qué se pierde hoy:* no hay con qué contrastar lo que se cobra, así que el margen real de esos
+cuatro expedientes es desconocido, y cada cotización nueva de esas rutas se vuelve a teclear
+desde cero.
+*Qué hay que pedirle a Pilgrim:* las **cuatro modalidades** (`pension_doble`, `pension_single`,
+`hotel_doble`, `hotel_single`) de esas cuatro rutas, para **2026 y 2027**. Son 32 precios.
+
+**2. En tres de esas cuatro, el «costo Pilgrim» grabado es el precio × 0,85.**
+`CS-2026-008` (0,8508), `CS-2026-033` (0,8500) y `CS-2026-081` (0,8503). No es un costo: es la
+regla de markup aplicada al revés, porque el formulario pide dos números y solo se sabe uno.
+*Qué se pierde hoy:* la utilidad de esos expedientes es **15,0 % por definición**, pase lo que
+pase con la factura de Pilgrim, y el tablero la suma como si fuera real. Si Pilgrim factura
+más, la pérdida no aparece en ninguna pantalla.
+*Qué hay que pedirle a Pilgrim:* **la factura o la tarifa real de esos tres expedientes**, para
+corregir el costo y ver el margen de verdad. Y decidir si el Wizard deja de aceptar
+`cost_base_eur = 0`, que es el arreglo de una guarda.
+
+**3. Las tarifas se guardan por año natural, no por vigencia. Ése es el mecanismo detrás de
+medio bloque.** `comercial.pricing` tiene `valid_from` y `valid_to`… y están **en `NULL` en las
+51 filas: 0 de 51**. `season` tiene **un único valor en toda la tabla: `regular`**. Lo que manda
+de verdad es la columna `year`, comparada con el año de la fecha de salida.
+*Qué se pierde hoy:* (a) es el mecanismo que produce el **GRAVE del opcional a 0 €** y **dos de
+los MEDIO** —el año que falta y el respaldo silencioso—; (b) el 1 de enero **todas** las rutas
+sin tarifa del año nuevo caen a la vez, y hoy solo **2 de las 11 rutas web** tienen algo de
+2027 (`Francés desde Sarria`, completa; `Portugués desde Tui`, 2 de 4 modalidades) — las otras
+**9 no tienen nada**; (c) no se puede cargar una subida a mitad de año, ni temporada alta, ni
+una tarifa que empiece el 1 de marzo: hoy eso solo se puede hacer pisando el precio del año.
+*Qué hay que decidir:* si se pasa a tarifar por vigencia (`valid_from`/`valid_to`, que ya
+existen y están muertas) o se asume el año natural y se **borran** esas dos columnas para que
+no engañen. Lo que no puede quedarse es lo de ahora: el esquema promete vigencias y el código
+mira el año.
+
+**4. El itinerario y el catálogo de hoteles no están unidos.** Hay **289 etapas** con
+alojamiento escrito como **texto libre** —**94 textos distintos**— y **12 fichas de hotel**, y
+entre unos y otros **no hay ninguna clave foránea**: el prellenado del Documento de Viaje une
+las dos cosas **comparando cadenas** con `hotelParaLugar`. Y **9 etapas tienen como alojamiento
+la palabra «hotel»**, que no es una localidad ni un hotel: nunca van a emparejar con nada.
+*Qué se pierde hoy:* el prellenado propone hotel en aproximadamente **1 de cada 4 noches**; el
+resto se escribe a mano cada vez, y un cambio de nombre en una ficha o una tilde de más rompen
+el emparejado sin avisar. Además hay **dos localidades escritas de dos formas** (`O pedrouzo` /
+`O Pedrouzo (O Pino)`, `Palas de rei` / `Palas de Rei`) que la base cuenta como cuatro.
+*Qué hay que decidir:* poner en `route_stages` un `hotel_id` de verdad —aunque siga habiendo un
+texto libre de respaldo— y unificar las localidades. Es lo que convierte el Documento de Viaje
+de «propuesta que se revisa a mano» en «dato del catálogo».
+
+**5. Cuatro rutas activas siguen sin etapas, y tres de ellas están publicadas en la web.**
+`Portugués Bici Oporto`, `Portugués desde Vigo` y `Primitivo Bici Oviedo` (las tres con
+`web = true`), más `Espiritual desde Tui`. El PDF sale con «—» en las etapas y la frase
+«Itinerario detallado en preparación», y el prellenado de la documentación devuelve un error.
+Buena noticia del día: **`Norte desde Vilalba` ya tiene 7 etapas cargadas** —el 2-sep no tenía
+ninguna—, aunque sigue sin `days`, sin `nights`, sin `km` y sin una sola tarifa, con una
+cotización enviada de 870 €.
+*Qué se pierde hoy:* un cliente que pide una de esas tres rutas publicadas recibe una
+cotización sin itinerario, que es justo lo que se compara entre agencias.
+*Qué hay que hacer:* cargar las etapas de las tres publicadas, y completar la ficha de `Norte
+desde Vilalba` (días, noches, km) o quitarla de circulación.
+
 ---
 
 ## Arreglos aplicados
