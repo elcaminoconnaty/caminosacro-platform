@@ -501,17 +501,15 @@ reversible posible y no toca ni la maqueta ni el color. `npx tsc --noEmit` limpi
    del punto 1 de «Cómo se juzga el diseño».
 7. Revisar si el auditor dedujo cosas del código que la pantalla desmiente (o al revés).
 
-**Por dónde voy (2º crítico, retoma tras muerte por límite):** hechos los puntos 1, 2 y 3, y
-escrito ya en esta sección el juicio del punto 4 y la parte del 7 que toca a B7.7. **Hecho (a):** bajada
-la etiqueta del hallazgo de B7.6 en la sección Hallazgos. **Ahora mismo (b) punto 5 —los tres
-estados vistos en pantalla, no en el código**: monto en un iframe, sobre la hoja de estilos
-compilada, los avisos y vacíos reales de las pantallas del panel uno al lado del otro, a 390 px
-y a 1280 px, para juzgar la **coherencia** entre ellos (sospecha de partida: el error de carga
-de página es **ámbar** y el de acción es **rojo**, y el vacío de tarifas de bici usa el mismo
-ámbar que el error). Luego (c) punto 6 —el «vistazo» de oficio— y (d) cerrar
-el punto 7 con lo que el código promete y la pantalla desmiente. Método: el mismo del
-antecesor (iframe sobre la hoja de estilos compilada del dev server); sigo **sin poder
-autenticarme**, así que las pantallas **con datos** siguen siendo hueco declarado.
+**Por dónde voy (2º crítico, retoma tras la muerte del primero por el límite):** cerrados los
+puntos 1, 2 y 3 por el antecesor, y escritos ya el juicio del punto 4 y la parte del 7 que toca a
+B7.7. En esta sesión: **(a) hecho** —bajada la etiqueta del hallazgo de B7.6 en Hallazgos, que
+seguía diciendo `[MEDIO]`—; **(b) hecho** el punto 5, los tres estados vistos en pantalla, con dos
+hallazgos nuevos escritos (el vacío que miente cuando falla la consulta, y las doce formas para
+tres ideas). **Ahora mismo: (c) el punto 6, el «vistazo» de oficio.** Falta después **(d)** cerrar
+el punto 7. Método: el del antecesor —los componentes reales sobre la hoja de estilos compilada,
+servida por el dev server, medidos con `getComputedStyle` en Chrome—; sigo **sin poder
+autenticarme**, así que las pantallas **con datos reales** siguen siendo hueco declarado.
 
 ### Cómo verifiqué (importante para quien venga detrás)
 
@@ -683,6 +681,106 @@ tres archivos pequeños en `src/app/(dashboard)/` —`loading.tsx` con un esquel
 mismo aviso rojo que ya usa el resto y un botón «Reintentar», y `not-found.tsx` con la marca y
 «← Volver al seguimiento»—. Cubren de golpe las 15 pantallas. Es media hora y cierra el hueco que
 B7.2 dio por cerrado.
+
+---
+
+### [NUEVO · MEDIO] Cuando la consulta falla, la pantalla enseña el aviso **y** un vacío que miente — `seguimiento/page.tsx:111`, `calendario/page.tsx:31`
+
+Esto es el punto 5 del plan —los tres estados **vistos en pantalla**— y es donde la revisión por
+código de B7.2 se queda corta. B7.2 recorrió las 15 pantallas contando `if (error)`, encontró el
+aviso en casi todas y concluyó que **«solo una se queda muda»** (`/finanzas`). Es cierto que el
+aviso está. Lo que no vio es **qué se dibuja debajo del aviso**, porque eso no se ve leyendo el
+`if`: se ve mirando la pantalla.
+
+Monté `/seguimiento` en su estado de error a 390 px, con la hoja de estilos compilada. Esto es
+literalmente lo que ve Nico cuando Supabase no responde:
+
+| lo que se ve | qué dice |
+|---|---|
+| franja ámbar pálida | «No se pudo cargar el seguimiento.» |
+| **Total cotizado** | **0,00 €** |
+| **Costo Pilgrim total** | **0,00 €** |
+| **Utilidad proyectada** | **0,00 €** |
+| **Cobrado al cliente** | **0,00 €** |
+| la tabla | **«Sin cotizaciones aún.»** |
+| el pie de la tabla | «Mostrando 0 de 0 cotizaciones» |
+
+Las cinco `Card` y la `QuotesTable` están **fuera** del `{error && …}` (`page.tsx:111-118` y `:120`),
+así que se pintan igual con `rows = []`. Y el vacío de la tabla es el que B7.2 celebra —«Sin
+cotizaciones aún» frente a «Ninguna coincide con los filtros»—: **esa distinción tan bien hecha
+tiene dos casos y hacen falta tres.** El tercero, «no lo sé porque falló la consulta», hoy se
+cuenta como el primero. La frase le está diciendo a Nico, con todas las letras, que no tiene
+cotizaciones.
+
+**En `/calendario` es peor todavía, porque el texto acusa a algo que no fue:** el error deja
+`events = []` y `CalendarView` (`CalendarView.tsx:173`) escribe **«No hay salidas próximas con los
+filtros actuales.»** No hay ningún filtro puesto; lo que hay es una consulta caída. El usuario va a
+tocar los filtros.
+
+Y **la jerarquía está al revés**: medido en el navegador, el fondo del aviso (`bg-amber-50`,
+#FFFBEB) contra el fondo de página (crema, #F7F5F0) da **1,05**, y su borde (`amber-200`) **1,14**.
+O sea que **la caja del aviso es prácticamente invisible**: solo lo distingue el color de la letra,
+a 14 px, sin icono, sin negrita y sin título. Al lado, cuatro cifras de dinero a 24 px que se leen
+como un hecho. **Lo falso se ve más que lo verdadero.** Es el mismo pecado que B7.2 le señaló a
+`/finanzas` —enseñar ceros como si fueran datos— solo que aquí con una nota al pie que casi nadie
+va a leer. Afecta a `/seguimiento`, `/calendario`, `/catalogo`, `/clara` y `/hoteles`.
+
+**Propuesta** (no lo hago: cambia qué se dibuja en cinco pantallas, no es «pequeño y reversible»):
+cuando `error` venga con contenido, **no pintar los números ni el vacío**. Un `if (error) return
+<AvisoDeCarga/>` antes de las tarjetas resuelve las cinco, y el aviso —ese sí— con icono, borde
+visible y botón «Reintentar». Mientras eso no pase, el mínimo honesto es cambiar el texto del vacío
+por «No se pudieron cargar las cotizaciones» cuando hay error, y pintar los KPI con «—» en vez de
+«0,00 €».
+
+---
+
+### [NUEVO · MENOR] Los tres estados existen, pero cada pantalla los dibuja a su manera — 12 formas para 3 ideas
+
+Del mismo montaje del punto 5, con todos los estados reales uno debajo del otro sobre la hoja de
+estilos compilada. La conclusión de B7.2 —«los tres estados están»— se sostiene. Lo que no se
+sostiene es el criterio de **coherencia** de CRITERIOS («el mismo elemento se ve y se comporta
+igual en todas las pantallas»). Contado y medido:
+
+**El mismo ámbar dice dos cosas opuestas.** El error de carga de página (`seguimiento:101`,
+`catalogo:210`, `calendario:25`) y el **vacío** de tarifas de bici (`BikesTable.tsx:147`) usan la
+misma caja: `bg-amber-50` + `text-amber-900` + `rounded-md px-4 py-3 text-sm`. Puestas una encima
+de otra no se distinguen más que por el borde (`amber-200` vs `amber-300`, que a 1,14 y 1,2 sobre
+crema no se ve). **«Se cayó la consulta» y «todavía no cargaste tarifas» se pintan igual**, y la
+que se pinta más suave es la grave.
+
+**Y el error de acción tiene cinco trajes**, todos rojos y ninguno igual:
+
+| dónde | forma | texto |
+|---|---|---|
+| `Wizard.tsx:775`, `clara/page.tsx:82` | tarjeta redondeada con borde | `red-800`, 14 px |
+| `HotelsManager.tsx:158` | franja a sangre, borde arriba | `red-700`, **12 px** |
+| `HotelsManager.tsx:322` | franja a sangre, borde arriba | `red-700`, 14 px |
+| `TravelDocTextsForm.tsx:137` | franja al pie del formulario | `red-700`, 14 px |
+| `RouteStagesEditor.tsx:147` | franja, borde **abajo** | `red-700`, **12 px** |
+
+Dos tonos (`red-700` da 5,87 sobre `red-50`; `red-800`, 7,64), dos tamaños y tres colocaciones para
+**el mismo suceso**. Los de 12 px son los que menos se ven y están en los sitios donde se guarda
+—hoteles y etapas—, o sea donde el usuario se va creyendo que guardó.
+
+**Y los vacíos, siete formas**: celda de tabla a 14 px centrada (`QuotesTable:275`), tarjeta con
+icono `py-14` (`HotelsManager:85`), tarjeta sin icono `py-12` (`clara:97`), tarjeta `py-10`
+(`BikesTable:121`), fila de lista `py-10` (`CalendarView:173`), texto **a la izquierda** a 12 px
+(`RouteStagesEditor:228`), y texto pelado sin caja (`ResourcesList:27`). El tono de la redacción
+también baila: unos explican qué hacer («Crea el primero y ve cargándolos a medida que Pilgrim
+confirme alojamientos», que es de los mejores que he visto en un CRM de este tamaño) y otros son
+un punto final («Sin apartados.», «Sin recursos cargados.»).
+
+**Un detalle que se cuela aquí y es de accesibilidad:** en todo el CRM no hay **ni un**
+`role="alert"` ni un `aria-live`. El único del proyecto está en `contrato/[token]/SignForm.tsx:349`
+—la firma pública, la que ve el cliente—. Un error que aparece tras pulsar «Guardar», sin anuncio y
+sin mover el foco, no existe para quien no esté mirando ese trozo de pantalla. Tercera vez que
+aparece el mismo patrón en este bloque: **el cuidado está donde mira el cliente, no donde trabajan
+Nico y Naty.**
+
+**Propuesta:** tres componentes en `components/` —`<Aviso tono="error|atencion|info">`, `<Vacio>` y
+el `<AvisoDeCarga>` del hallazgo anterior— y sustituir. Es exactamente el mismo trabajo que B7.1
+elogia con los colores de marca, que ahí sí se hizo bien: un sitio, un dato. Aquí hay doce sitios
+para tres ideas.
 
 ---
 
