@@ -601,6 +601,50 @@ donde la persona sí sabe cuál va. Y de paso unificar los dos pares de localida
 distinto (`O pedrouzo` / `O Pedrouzo (O Pino)`, `Palas de rei` / `Palas de Rei`), que hoy son
 la misma localidad partida en dos.
 
+### [MEDIO] La ruta de un expediente es texto libre: `route_id` está vacío en 32 de las 44 cotizaciones, y la protección de borrado solo cubre 12 — `comercial.quotes.route_id` · `travelDocActions.ts:41`
+
+El esquema está bien —`quotes.route_id` es `NO ACTION` y Postgres rechaza borrar una ruta con
+cotizaciones— pero **la columna casi nunca está llena**, así que la protección solo vale donde
+lo está. Medido contra producción **al 3-sep-2026**:
+
+| ruta (`route_name`) | cotizaciones | con `route_id` | **solo por nombre** |
+|---|---|---|---|
+| Francés desde Sarria | 20 | 5 | **15** |
+| Portugués desde Tui | 8 | 3 | **5** |
+| Costero desde Baiona | 4 | 1 | **3** |
+| *(sin `route_name`)* | 3 | 0 | — |
+| Frances desde Sarria 6 etapas (Melide) | 2 | **0** | **2** |
+| Camino Portugués - Viana do Castelo (personalizada) | 1 | **0** | **1** |
+| Francés desde Saint Jean Pied de Port | 1 | **0** | **1** |
+| Portugués desde Porto | 1 | **0** | **1** |
+| *«Portugues desde Tui»* (sin tilde, **no existe en el catálogo**) | 1 | **0** | **1** |
+| Costero desde Porto · Francés Bici Ponferrada · Norte desde Vilalba | 1 c/u | 1 c/u | 0 |
+
+**32 de 44 sin `route_id`** (el 73 %). Tres consecuencias, las tres comprobadas hoy:
+
+1. **Cuatro rutas activas con cotizaciones se pueden borrar ahora mismo sin que la base
+   chiste**, porque ninguno de sus expedientes tiene `route_id`: `Frances desde Sarria 6
+   etapas (Melide)`, `Camino Portugués - Viana do Castelo (personalizada)`, `Francés desde
+   Saint Jean Pied de Port` y `Portugués desde Porto`. La pantalla tampoco avisa —ése es el
+   MENOR de `errors.ts`—. Lo correcto no es «la base protege lo importante», es **«la base
+   protege las 12 cotizaciones que tienen la columna llena»**.
+2. **Renombrar una ruta rompe sus expedientes en silencio.** `updateRoute` cambia
+   `routes.name` y no toca `quotes.route_name`, y `prefillTravelNights` resuelve la ruta con
+   `.from("routes").eq("name", quote.route_name)` (`travelDocActions.ts:41`) **teniendo
+   `quotes.route_id` al lado**. Corregir la falta de ortografía de `Frances desde Sarria 6
+   etapas (Melide)` —que está a la vista y es justo lo que uno arregla un martes— deja sus dos
+   expedientes sin prellenado: «No encontré la ruta en el catálogo».
+3. **El huérfano sigue vivo:** `CS-2026-010`, con `route_name = "Portugues desde Tui"` sin
+   tilde, **no puede prellenar hoy su Documento de Viaje**, y el mensaje de error no dice que
+   el problema sea una tilde. Al 3-sep hay **4 expedientes cuyo nombre no casa con ninguna
+   ruta**: éste y tres con `route_name` en `NULL` (CS-2026-006, -007, -009).
+
+**Propuesta (no se toca: son expedientes vivos).** (a) Rellenar `route_id` en las 32 cruzando
+por nombre y arreglar a mano la de la tilde; (b) que `prefillTravelNights` use
+`quote.route_id` y caiga al nombre solo si es `NULL` —dos líneas, y es exactamente lo que ya
+hizo `pdf.ts` en `adc6466`: el prellenado se quedó atrás—; (c) hecho (a), la protección de
+borrado pasa a ser verdad y el MENOR de `errors.ts` deja de ser el único aviso.
+
 ---
 
 ## Arreglos aplicados
