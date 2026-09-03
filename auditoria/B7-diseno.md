@@ -269,6 +269,129 @@ No rompe nada y por eso es MENOR. **Propuesta:** cuatro tokens más —`--color-
 `--color-error-bg`, `--color-aviso`, `--color-aviso-bg`— elegidos con el contraste ya
 calculado, y sustituir. Es el mismo trabajo que ya se hizo bien con la marca.
 
+### [MEDIO] Cuando la consulta falla, la pantalla enseña el aviso **y** un vacío que miente — `seguimiento/page.tsx:111`, `calendario/page.tsx:31`
+
+> Levantado por el crítico y subido aquí en la ronda de revisión. Detalle completo y las medidas
+> de contraste, en «Crítica del experto».
+
+B7.2 recorrió las 15 pantallas contando `if (error)`, encontró el aviso en casi todas y concluyó
+que solo `/finanzas` se quedaba muda. El aviso está; lo que no se ve leyendo el `if` es **qué se
+dibuja debajo**. En `/seguimiento`, las cinco `Card` y la `QuotesTable` estaban **fuera** del
+`{error && …}`, así que con la consulta caída Nico veía: franja ámbar («No se pudo cargar el
+seguimiento»), **Total cotizado 0,00 €**, **Costo Pilgrim 0,00 €**, **Utilidad 0,00 €**, **Cobrado
+0,00 €** y, en la tabla, **«Sin cotizaciones aún»** — que es justo el vacío que B7.2 elogia por
+distinguir «no hay» de «no coincide con los filtros»: la distinción tiene dos casos y hacen falta
+tres. El tercero, «no lo sé porque falló la consulta», se contaba como el primero.
+
+En `/calendario` era peor porque el texto **acusa a algo que no fue**: con `events = []`,
+`CalendarView.tsx:173` escribe «No hay salidas próximas con **los filtros actuales**». No hay
+ningún filtro puesto; hay una consulta caída, y el usuario se va a poner a tocar los filtros.
+
+Y la jerarquía estaba al revés: medido en el navegador, `bg-amber-50` (#FFFBEB) contra el crema de
+página (#F7F5F0) da **1,05**, y su borde `amber-200`, **1,14**. La caja del aviso era
+prácticamente invisible —solo la delataba el color de la letra, a 14 px, sin icono, sin negrita y
+sin título— al lado de cuatro cifras de dinero a 24 px que se leen como un hecho. **Lo falso se
+veía más que lo verdadero.**
+
+**Arreglado:** `/seguimiento` y `/calendario` cortan antes de dibujar nada cuando la consulta
+falla, y muestran un aviso de error de verdad (`src/components/AvisoCarga.tsx`): barra roja a la
+izquierda —`red-600`, **5,4** de contraste contra el crema, se ve de reojo—, icono, titular en
+negrita, el mensaje técnico debajo y `role="alert"`. Ni un KPI en cero, ni un vacío que miente.
+· **Propuesta:** quedan igual `/catalogo`, `/clara` y `/hoteles`, que pintan su contenido bajo el
+mismo aviso ámbar invisible; el arreglo es el mismo `AvisoCarga` y tres `if (error) return`.
+
+---
+
+### [MEDIO] Al CRM le falta el eje del tiempo: enseña lo que hay, nunca lo que urge — `seguimiento/page.tsx:35`
+
+> Levantado por el crítico y subido aquí en la ronda de revisión. La propuesta desarrollada está
+> en «Propuestas para Nico», al final del bloque.
+
+Las pantallas están bien hechas; la pregunta es si sirven para abrir el portátil a las ocho y
+saber qué hacer. Las tres preguntas de la mañana de cualquier agencia —qué cotización se está
+enfriando, qué viaje sale pronto y no está listo, qué saldo hay que cobrar antes de que salgan—
+no se contestan en ninguna pantalla del CRM: la primera en ningún sitio, la segunda a medias en
+`/calendario` y la tercera abriendo expedientes de uno en uno.
+
+Y el dato ya está y se tira por el camino. La consulta de `/seguimiento` (`page.tsx:35`) trae
+**`valid_until`** —la fecha de caducidad que el PDF le promete al cliente, `lib/quotes/pdf.ts:429`—
+y `QuotesTable` **ni la recibe**: el tipo `QuoteRow` (`QuotesTable.tsx:11-26`) no la incluye. Se
+lee de la base, se transporta hasta el componente y se descarta. **La plataforma le pone fecha de
+vencimiento a su propia oferta y luego no mira el reloj ni una vez.** Lo mismo con `email_sent_at`,
+que existe desde la migración `0011` y ni se pide en ese `select`. La tabla se ordena por `code`
+descendente y se puede reordenar por siete columnas, **ninguna de las cuales es «qué toca mover»**.
+Con 45 cotizaciones aún se lee entera; a 150 deja de servir para trabajar.
+
+El mismo hueco en la cabecera del expediente (`seguimiento/[id]/page.tsx:375-408`): código, chip de
+origen, cliente · ruta, chip de estado y cinco cifras de dinero, y **no aparece la fecha de
+salida**. Sin «sale en nueve días», la franja «Qué falta» que propone B7.4 no tiene con qué
+compararse. Y `/calendario`, que ya lista las salidas con los datos cargados, enseña lo que existe
+—día, cliente, ruta, pax, estado— y no lo que falta: ni contrato sin firmar, ni saldo, ni
+documentación sin enviar.
+
+**Lo que sí está:** existe un perseguidor automático, el cron de recordatorios de contrato
+(`api/cron/recordatorios-contrato/route.ts` + migración `0012`). Es el instinto correcto y está
+bien resuelto; lo que dice el hallazgo es que **se quedó en el contrato**.
+
+**Propuesta** (no se aplica: es pantalla nueva): la franja «Hoy» de tres contadores sobre datos
+que ya están en memoria en esa página. Desarrollada en «Propuestas para Nico».
+
+---
+
+### [MEDIO] No hay `loading.tsx`, `error.tsx` ni `not-found.tsx` en todo el panel — `src/app/(dashboard)/**`
+
+> Levantado por el crítico y subido aquí en la ronda de revisión. Detalle en «Crítica del experto».
+
+Los tres estados que B7.2 fue a buscar pantalla por pantalla los resuelve el framework de una vez,
+y en el panel no está ninguno de los tres archivos:
+
+1. **Cargando.** Todas las páginas del panel son componentes de servidor `async`. Sin
+   `loading.tsx`, mientras el servidor resuelve **no pasa nada en pantalla**: el usuario pulsa y
+   se queda en la pantalla anterior. Donde más duele es en el expediente, que dispara **21
+   consultas** (`seguimiento/[id]/page.tsx:142`).
+2. **Error.** Sin `error.tsx` en `(dashboard)`, lo que revienta **fuera** de un `if (error)`
+   comprobado —una excepción en el render, un `throw` de una acción— no tiene dónde caer.
+3. **404.** `seguimiento/[id]/page.tsx:212` llama a `notFound()` sin `not-found.tsx` en el panel:
+   el 404 sale con la pantalla por defecto de Next, **en inglés y sin ningún enlace de vuelta**.
+
+Y el contraste con lo público es el mismo patrón que aparece tres veces en este bloque: **el
+cuidado está donde mira el cliente, no donde trabajan Nico y Naty.**
+
+**Propuesta** (no se aplica: son pantallas nuevas y la regla 9 dice proponer, no rediseñar): los
+tres archivos en `src/app/(dashboard)/`. Cubren las 15 pantallas de golpe y es media hora. Es lo
+más barato de todo B7 en relación con lo que arregla.
+
+---
+
+### [MENOR] Los tres estados existen, pero cada pantalla los dibuja a su manera — 12 formas para 3 ideas
+
+> Levantado por el crítico y subido aquí en la ronda de revisión. La tabla de los cinco trajes
+> rojos y las siete formas de vacío, en «Crítica del experto».
+
+La conclusión de B7.2 —«los tres estados están»— se sostiene; lo que no se sostiene es el criterio
+de **coherencia** de CRITERIOS. Contado sobre la hoja de estilos compilada: **el mismo ámbar dice
+dos cosas opuestas** (el error de carga de página y el vacío de tarifas de bici usan la misma
+caja, y la que se pinta más suave es la grave); **el error de acción tenía cinco trajes**, dos
+tonos (`red-700` / `red-800`), dos tamaños (12 / 14 px) y tres colocaciones para el mismo suceso,
+con los de 12 px justo en hoteles y etapas, donde el usuario se va creyendo que guardó; y **los
+vacíos, siete formas**, con el tono de la redacción bailando entre explicar qué hacer y un punto
+final («Sin apartados.»).
+
+Y un detalle de accesibilidad que se coló aquí: en todo el CRM no había **ni un** `role="alert"`
+ni un `aria-live`. El único del proyecto estaba en `contrato/[token]/SignForm.tsx:349` —la firma
+pública, la que ve el cliente—.
+
+**Arreglado:** (a) los 22 avisos de error de acción del CRM pasan a un solo tono y un solo tamaño,
+`text-sm text-red-800` (7,64 sobre `red-50`), sin tocar la colocación de ninguno; (b) los 32
+avisos de error llevan `role="alert"` y las tres cajas que alternan éxito y error llevan
+`aria-live="polite"`, que no interrumpe cuando el mensaje es «Guardado».
+· **Propuesta:** lo que queda es lo que no cabe en «pequeño y reversible» — tres componentes en
+`components/`, `<Aviso tono="error|atencion|info">` y `<Vacio>` junto al `AvisoCarga` que ya
+existe, y sustituir. El ámbar que hoy significa a la vez «se cayó la consulta» y «todavía no
+cargaste tarifas» solo se separa ahí.
+
+---
+
 ### [LECTURA TRANSVERSAL — no es un hallazgo propio] Los clics que sobran son los hallazgos de esta auditoría, vistos desde el trabajo diario
 
 > **Etiqueta corregida por el crítico (era `[MEDIO]`).** Los cinco pasos de más que se cuentan aquí
