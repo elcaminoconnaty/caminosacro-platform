@@ -1071,6 +1071,99 @@ para cumplir con la hipótesis del encargo sería exactamente lo que el TABLERO 
 
 ---
 
+---
+
+## Punto 5 — el oficio: qué trae de serie un CRM de agencia que aquí falte
+
+`CRITERIOS.md` punto 8: «un proveedor no es texto libre. Alojamientos, tarifas y cupos como
+datos, no como frases escritas a mano». Medido contra el esquema real, no contra un folleto de
+Lemax.
+
+**Lo que ya está, y conviene decirlo antes de la lista de lo que falta**, porque es más de lo
+que uno esperaría en una plataforma de dos personas: `pricing_history` y `bike_price_history`
+(el rastro del punto 7), `provider_payments` con `invoice_number` y `receipt_path` (lo pagado
+al proveedor, con soporte), `quote_hotels` con `hotel_id` **y** copia del nombre, dirección y
+contacto (el alojamiento del expediente sí es un dato, no una frase), `parent_quote_id` (las
+versiones de una misma cotización del punto 1), `route_catalogs` (el catálogo del proveedor
+archivado) y `trm_history` (la tasa del día del movimiento, punto 4). Nada de esto es obvio y
+casi todo está bien resuelto. Lo que falta es de otra naturaleza.
+
+### 1. La tarifa no tiene vigencia: tiene **año**. Y ése es el mecanismo detrás de medio bloque
+
+`comercial.pricing` **ya nació con la forma correcta**: `valid_from date, valid_to date`, con
+un `unique (route_id, modality, season, valid_from)`. La migración 0017 las jubiló a propósito
+y lo dejó escrito: «valid_from/valid_to nunca se usaron… se dejan quietas: siguen muertas». Lo
+comprobé: **51 filas, 0 con vigencia**. Y la otra dimensión corrió la misma suerte: `season`
+existe en la tabla y tiene **un solo valor distinto en las 51 filas** (`regular`), porque la
+temporada se resolvió aparte, como un recargo plano por persona en `settings.season_supplements`.
+
+Todos los CRM de la lista —Lemax, Tourplan, Ezus— tarifan por **rango de fechas**, y no por
+gusto: es como funciona el precio de un operador. Cambiar eso por un entero `year` tiene una
+consecuencia mecánica que atraviesa este bloque entero: **el catálogo caduca de golpe, todo a
+la vez, a medianoche del 31 de diciembre**. No hay tarifa que empiece el 15 de marzo ni que
+termine cuando Pilgrim mande la lista nueva; hay 2026 y hay 2027. De ahí salen, en cadena, el
+hallazgo B5.1, el MEDIO del costo congelado, el MENOR del año a medias y —por la puerta de los
+opcionales— el GRAVE del 0 €. Se está pagando el precio de esa simplificación en cinco sitios
+distintos.
+
+**No propongo reescribirlo**: funciona, es más simple de operar y `CRITERIOS.md` prohíbe
+expresamente reescribir lo que funciona. Lo que sí propongo es que quede escrito en `GUIA.md`
+como la decisión que es —«tarifamos por año natural, no por vigencia»— con su consecuencia al
+lado, porque hoy el que llega nuevo la deduce a base de tropezar con ella.
+
+### 2. El itinerario y el catálogo de hoteles **no están unidos**: 280 etapas, 93 textos, 12 fichas
+
+Es el punto 8 en su forma más literal, y explica por qué la cobertura no sube. `route_stages`
+guarda el alojamiento como `accommodation text`, **sin ninguna clave foránea a `hotels`**:
+
+- **280 etapas** con alojamiento escrito.
+- **93 textos distintos** para esos 280.
+- **12 fichas de hotel** en el catálogo (eran 6 el 1-sep, 11 ayer, 12 hoy).
+
+Y el contenido delata que la columna no significa lo que su nombre dice: los valores más
+repetidos son `santiago` (18), `arzúa` (12), `pedrouzo` (11), `sarria` (10) — **localidades, no
+alojamientos** — y hay **9 etapas cuyo alojamiento es, literalmente, la palabra `hotel`**. Ésas
+nueve no van a casar con ninguna ficha jamás, porque `normalizarLugar` las reduce a `hotel` y
+buscará una ciudad llamada así.
+
+Todo el aparato de `hotelParaLugar` y `normalizarLugar` —que está bien escrito y que el bloque
+elogia con razón— **existe para suplir una relación que no está en la base**. Por eso los cinco
+hoteles nuevos de ayer no movieron la cobertura ni una noche: el problema no es cuántas fichas
+hay, es que la unión se hace comparando cadenas de texto. Un `hotel_id` opcional en
+`route_stages` —o, más barato, una columna `city` separada de `accommodation`— convierte el
+25,8 % en un número que se puede subir a propósito en vez de por casualidad.
+
+### 3. No hay cupo, ni «confirmado con el proveedor»: la disponibilidad solo existe como prosa
+
+Busqué cupo, allotment, disponibilidad y stock en todo el esquema y en el código del catálogo:
+**no existe la idea en ninguna tabla**. Donde sí aparece la palabra es en el PDF, cinco veces,
+y siempre como aviso legal: «quedan sujetos a disponibilidad hasta que se realice el pago
+inicial», «las etapas pueden ajustarse según la disponibilidad de alojamientos».
+
+Que no haya cupos de verdad es **razonable** —quien tiene las camas es Pilgrim, y esto es una
+reventa; pedir un motor de inventario aquí sería justo lo que `CRITERIOS.md` llama una función
+de CRM corporativo que no aplica—. Lo que sí falta y es barato es un escalón antes: **nada
+distingue una cotización cuyas plazas ya se confirmaron con Pilgrim de una que todavía no**. No
+hay una fecha de «confirmado con el proveedor» ni en `quotes` ni en `quote_hotels`, y ése es
+justo el dato que decide si el precio sigue en pie y si la cotización se puede cobrar sin
+riesgo. Hoy eso vive en la cabeza de Nico y en el hilo de correo con Pilgrim.
+
+### 4. El costo estimado nunca se enfrenta a la factura (cabo suelto entre bloques)
+
+`provider_payments` guarda `amount_eur` e `invoice_number` (6 pagos registrados) y
+`/seguimiento` los lee (`page.tsx:40`), pero la utilidad se sigue calculando con la estimación:
+`utilidad: total - (q.cost_eur || 0)` (`page.tsx:80`). Es decir que **el margen que muestra la
+plataforma nunca se corrige con lo que Pilgrim facturó de verdad**, ni siquiera cuando la
+factura ya está cargada. Sumado a los dos MEDIO de este bloque —el costo congelado en el año
+viejo y el costo tecleado al 85 %— el resultado es que la cifra de utilidad de `/seguimiento`
+es, hoy, una estimación en tres capas sin ningún punto en que se cierre contra la realidad.
+
+Lo dejo anotado aquí como **cabo suelto para B8**, no como hallazgo de B5: la pantalla es de
+B2 y el dinero es de B6. Lo que aporta B5 es la mitad de la explicación —de dónde salen los
+costos que esa pantalla suma— y las tres formas en que pueden estar mal.
+
+---
+
 Lo que la auditoría pedía que revisen:
 
 - El **MEDIO de la fianza ausente del contrato**: si merece esa etiqueta dado que aún no hay
