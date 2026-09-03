@@ -100,7 +100,17 @@ caduca nunca, solo se revoca), y la vacuna es una entrada en `headers()` de `nex
 que además cubriría lo que se añada mañana. El propio proyecto ya demostró que sabe hacerlo,
 en `/correo`.
 
-### [MEDIO] Se puede borrar de un clic un expediente firmado y pagado, y el aviso no dice qué se lleva por delante — `seguimiento/[id]/actions.ts:100` · `QuotesTable.tsx:133`
+### [GRAVE] Se puede borrar de un clic un expediente firmado y pagado, y el aviso no dice qué se lleva por delante — `seguimiento/[id]/actions.ts:100` · `QuotesTable.tsx:133`
+
+> **Re-etiquetado en la ronda de revisión: era MEDIO, pasa a GRAVE.** Motivo (crítica, punto 1):
+> destruye una **prueba legal irrecuperable** —`signer_ip`, `signed_at`, `signature_image`,
+> `signer_user_agent` y `doc_hash`, la firma electrónica que B3.2 celebra como lo mejor construido
+> de la plataforma— y el **registro contable de dinero cobrado**, sin guarda, sin aviso concreto y
+> sin papelera. No es hipótesis de manual: se han emitido **83 códigos** y quedan **45
+> cotizaciones** (al 2-sep-2026), o sea **38 expedientes borrados**; el gesto es rutina, y ya se
+> llevó por delante dos veces la atribución de un PDF firmado (CS-2026-044 y -048). La asimetría
+> es lo que lo sella: siete guardas `status === "firmado"` impiden tocar un contrato firmado desde
+> el CRM, y el botón de la papelera de la lista lo borra entero tras un `confirm()` genérico.
 
 `deleteQuote` no comprueba **nada** antes de borrar: ni el estado de la venta, ni si hay
 contratos firmados, ni si hay pagos recibidos, ni si la documentación de viaje ya salió.
@@ -114,13 +124,18 @@ cobrados en dos pagos** y sus recibos emitidos. El botón está en cada fila de 
 `/seguimiento`, al lado del desplegable de estado que B2 describe como «la pantalla rápida
 que se usa desde el celular».
 
-Los tres expedientes que hoy están en esa situación:
+Los tres expedientes que estaban en esa situación **cuando se escribió la auditoría** (los
+números caducan rápido; el estado al 2-sep-2026 va debajo):
 
 | | estado | cobrado | contratos |
 |---|---|---|---|
 | **CS-2026-004** | `pago_parcial` | 970,00 € | 1 firmado |
 | **CS-2026-034** | `pago_completo` | 860,00 € | 1 firmado |
 | **CS-2026-058** | `enviada` | 0 € | 1 firmado de 3 |
+
+**Al 2-sep-2026 la foto es otra** y no la mejora: los expedientes vivos con contrato son **tres**
+—CS-2026-004, CS-2026-019 y CS-2026-034—, los **tres en `pago_completo`**, con **5 contratos, 3
+firmados**. Sigue sin haber una sola guarda.
 
 Qué se lleva por delante un clic de más: las filas de `client_payments` y
 `provider_payments` —o sea **el registro contable de un dinero que sí entró**—, los
@@ -135,43 +150,89 @@ devuelva un error cuando haya contratos firmados o pagos registrados —«este e
 para las cotizaciones sin rastro, que son la mayoría. Y que el `confirm()` diga lo que hay
 dentro. El estado `cancelada` ya existe y es la herramienta correcta para lo demás.
 
-### [MEDIO] El PDF de la cotización dice un día de regreso y la base dice otro — `src/lib/quotePdf.tsx:509-521`
+### [GRAVE] El PDF de la cotización se inventa la duración del viaje, y ya hay una oferta enviada que promete dos noches que nadie cotizó — `src/lib/quotePdf.tsx:509-521,690`
 
-El PDF de la cotización **no usa `end_date`** para la línea de fechas de la portada. La
-calcula:
+> **Re-etiquetado y reescrito en la ronda de revisión: era MEDIO («el PDF dice un día de regreso y
+> la base dice otro»), pasa a GRAVE.** Motivo (crítica, punto 2): el título viejo describía el
+> síntoma menor. Lo que hay es un PDF **ya enviado a una clienta** que promete dos noches de hotel
+> y dos desayunos que nadie coticó ni pagó, y **trece rutas del catálogo** armadas para repetirlo.
+> Se pierde dinero y se pierde la confianza de alguien que ya recibió una oferta: dos de las cuatro
+> puertas de GRAVE del TABLERO.
+
+El PDF de la cotización **no usa `end_date`** para la línea de fechas de la portada. La calcula:
 
 ```ts
 const days = (stagesCount > 0 ? stagesCount + 2 : (route?.days ?? 0)) + extraNights;
 const displayEndDate = quote.start_date && days > 0 ? sumarDiasIso(quote.start_date, days - 1) : quote.end_date;
 ```
 
-O sea: **fin = salida + (etapas con km) + 1**. Está hecho a propósito y comentado —para que el
-rango cuadre con la tabla de itinerario del propio PDF y con las noches extra—, pero el resto
-de la plataforma usa el `end_date` guardado: el **contrato** (`contracts/render.ts:46,74` →
-`fecha_fin`), la **documentación de viaje** y la lista de Seguimiento. Cuando la ruta del
-catálogo no tiene tantas etapas como noches tiene la cotización, los documentos se separan.
+O sea: **fin = salida + etapas_con_km + 1 + noches_extra** (`quotePdf.tsx:510,517`). La fórmula que
+escribió la auditoría —`fin = salida + etapas + 1`— **está incompleta**: se comió `extraNights`. En
+los casos de abajo no hay noches extra y el resultado no cambia, pero quien use la fórmula corta
+para revisar otros expedientes se equivocará.
 
-**Dos casos vivos, cruzando `route_stages` contra `quotes`:**
+Está hecho a propósito y comentado —para que el rango cuadre con la tabla de itinerario del propio
+PDF—, pero el resto de la plataforma usa el `end_date` guardado: el **contrato**
+(`contracts/render.ts:46,74` → `fecha_fin`), la **documentación de viaje** y la lista de Seguimiento.
 
-| | salida | `end_date` guardado | etapas con km | fin que pinta el PDF | desfase |
-|---|---|---|---|---|---|
-| **CS-2026-080** (`enviada`) | 2026-10-18 | **24 oct** | 6 | 18 + 6 + 1 = **25 oct** | 1 día |
-| **CS-2026-081** (`enviada`) | 2027-04-01 | **13 abr** | 13 | 1 + 13 + 1 = **15 abr** | **2 días** |
+**CS-2026-080 no tiene descuadre. La auditoría se equivocó.** Su `start_date` es **2026-10-17**, no
+2026-10-18. `Costero desde Baiona` tiene 8 filas de itinerario: llegada (km nulo), 6 etapas con km y
+fin de servicios (km nulo). `stagesCount = 6`, `days = 8`, `fin = 17 oct + 7 = 24 oct` — exactamente
+el `end_date` guardado y exactamente `routes.days = 8 / nights = 7`. Cuadra todo, y la ruta
+`Costero desde Baiona` es de las que están **bien cargadas**, no de las descuadradas. *(Cabo suelto:
+esa cotización tiene `updated_at = 2-sep-2026 13:44`, después de escrita la auditoría, así que no se
+puede distinguir «el auditor se equivocó de fecha» de «alguien movió la salida un día». Va en «Para
+Nico».)*
 
-Las dos están `enviada`, o sea que esos clientes **ya tienen en su correo un PDF que dice que
-el viaje termina dos días más tarde** de lo que dirá su contrato cuando lo firmen y de lo que
-dice el calendario del CRM. Para un producto donde el cliente compra el vuelo de vuelta por
-su cuenta, dos días es exactamente el error que se paga caro.
+**CS-2026-081 sí, y es mucho peor que una línea de fechas.** `Costero desde Porto` tiene 14 filas:
+una de llegada (creada el 1-sep, con `km = '0'` en vez de nulo — por suerte el filtro `km > 0`
+también la descarta) y **13 etapas con km**, y **le falta la fila de fin de servicios**. El
+generador ignora las filas de la base y arma el itinerario él mismo —llegada + 13 etapas + fin—, así
+que pinta **15 filas**. Y de `stagesCount` cuelga todo el documento, no solo la portada:
 
-No es que una de las dos cifras sea la buena: es que hay **dos fuentes de verdad** para el
-mismo dato. O el itinerario del catálogo está incompleto para esas rutas (6 etapas para 6
-noches, cuando el PDF asume llegada + etapas + fin), o el `end_date` está mal. Lo que no
-puede es que cada documento resuelva la duda por su cuenta y en silencio.
+| en el PDF de CS-2026-081 | lo que imprime | lo que se cotizó |
+|---|---|---|
+| línea de fechas de portada | 1 abr – **15 abr** | 1 abr – 13 abr (`end_date`) |
+| cuadro de stats | **15 DÍAS / 14 NOCHES** | 13 días / 12 noches (`routes.days/nights`) |
+| tabla de itinerario | **15 filas**, con alojamiento nombrado en 14 | 12 noches |
+| «Qué incluye» (`quotePdf.tsx:690`, `INCLUIDO_DEFAULT(nights)`) | «**14 noches** en acomodación privada con baño privado», «**14 desayunos** incluidos» | 12 y 12 |
 
-**Propuesta (no se toca: cambia lo que dice un documento ya enviado):** que el PDF avise
-cuando su cálculo no coincida con `end_date` en vez de imponer el suyo —un aviso en el CRM,
-no en el documento del cliente—, y decidir con Nico cuál manda. Y revisar esas dos rutas:
-`Costero desde Baiona` y `Costero desde Porto` son las que tienen el itinerario descuadrado.
+Esa cotización está **`enviada`** (2 personas × 1.450 €) y su PDF está en Storage
+(`CS-2026-081_Heidy_Carstens_Costero_desde_Porto.pdf`). Hay una oferta comercial en el correo de una
+clienta que promete por escrito **dos noches de alojamiento y dos desayunos que nadie cotizó, nadie
+pidió a Pilgrim y nadie pagó**, con el hotel de cada una nombrado en la tabla. Si acepta y se planta
+en Padrón la noche del 14, la diferencia la pone Camino Sacro.
+
+**Y no son dos casos: son trece rutas.** Cruzando `routes.days` contra `stagesCount + 2` en las 22
+rutas con itinerario cargado (al 2-sep-2026), **trece no cuadran**:
+
+| desfase | rutas |
+|---|---|
+| **+3** | `Francés desde Ponferrada` |
+| **+2** | `Costero desde Porto`, `Francés desde Astorga`, `Burgos`, `León`, `Logroño`, `Pamplona`, `Saint Jean Pied de Port`, `Inglés desde A Coruña`, `Portugués desde Lisboa`, `Primitivo desde Oviedo` |
+| **+1** | `Camino Portugués - Viana do Castelo (personalizada)`, `Costero desde Vigo` |
+| **−4** | **`Portugués desde Porto`** (el catálogo dice 12 días; el PDF pintaría 8) |
+| 0 | las otras 9 |
+
+Lo que ha salvado a la plataforma es la suerte: de las **seis** rutas alguna vez cotizadas, cinco
+están en el grupo que cuadra. La primera cotización de `Portugués desde Porto` sacará un PDF que le
+promete al cliente **cuatro días menos** de Camino que los que cobra. No hay alerta, ni validación,
+ni sitio donde verlo antes de que el PDF salga por correo.
+
+**Dónde está el error: en el itinerario del catálogo, no en `end_date`.** El `end_date` es coherente
+con `routes.days/nights`, que es lo que se usó para poner el precio. La convención buena es la de
+`Costero desde Baiona` y las nueve que cuadran: las filas de llegada y de fin **existen en
+`route_stages` con `km` nulo**, y `stagesCount + 2` las recupera. Las trece descuadradas cargaron
+solo las etapas caminadas.
+
+**Propuesta (no se toca: cambia lo que dice un documento ya enviado y toca el catálogo):**
+1. Completar `route_stages` de las 13 rutas descuadradas con sus filas de llegada y fin en `km`
+   nulo. Es dato, no código, y es una migración.
+2. Una validación que impida generar el PDF cuando `stagesCount + 2 ≠ routes.days`, con el aviso en
+   el CRM diciendo qué ruta arreglar. Hace falta igual, porque las rutas personalizadas se cargan a
+   mano.
+3. **Avisar a la clienta de CS-2026-081 antes de que acepte**, y decidir con Nico qué se hace con
+   esa oferta. Va en «Para Nico».
 
 ### [MEDIO] Las variables del contrato son una foto fija y solo se refrescan a mano — `contractActions.ts:334-368` · `ContractCard.tsx:474`
 
