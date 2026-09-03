@@ -993,7 +993,15 @@ Verificación: `npx tsc --noEmit` antes de cada commit con código, `npm run bui
 
 Bitácora de la ronda, para que quien la retome no repita trabajo. Se actualiza con cada commit.
 
-- [ ] Hueco 1 — `registrarEnvio` en el embudo del contrato (`lib/contracts/email.ts` + sus 3 llamadores).
+- [x] **Hueco 1a — el embudo del contrato: hecho y commiteado en `20ad15e`.**
+  `enviarCorreoContrato` devuelve el resultado completo (`ok`, `error`, `messageId`) en vez
+  del booleano y registra en `email_log` con `tipo: "contrato"`, con un `registro` obligatorio
+  (cliente de Supabase, `quoteId` y marca de prueba). Ajustados sus cuatro llamadores:
+  `contractActions.ts`, `contrato/[token]/actions.ts`, el cron de recordatorios y
+  `ContractCard.tsx`. `npx tsc --noEmit` limpio. **No repetir.**
+- [ ] Hueco 1b — los tres emisores que siguen sin `registrarEnvio`: `cotizar/actions.ts:197`
+  (tipo `cliente`), `webQuote.ts:158` (tipo `cliente`) y `api/wp/lead/route.ts:151`
+  (tipo `lead`, y ahí no hay cliente de Supabase en el ámbito: hay que crearlo).
 - [ ] Hueco 6 — `.eq("active", true)` en `seguimiento/[id]/page.tsx:153`.
 - [ ] Hueco 8 — `scripts/n8n_correo_html.md` y la lista de verificaciones de Nico.
 - [ ] Propuestas para Nico (huecos 2, 3, 4, 5 y 7).
