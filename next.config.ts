@@ -44,6 +44,24 @@ const nextConfig: NextConfig = {
     // Un mes: las fotos del banco no cambian de contenido bajo la misma URL.
     minimumCacheTTL: 2592000,
   },
+  // Las tres rutas públicas por token llevan el token EN EL PATH. `/correo/[token]` ya se
+  // protege sola en su `route.ts` (CSP, X-Robots-Tag, no-store y Referrer-Policy), pero
+  // `/contrato/[token]` y `/documentacion/[token]` son páginas y solo declaran `robots` en su
+  // metadata. Hoy no se filtra nada —el valor por defecto de los navegadores modernos,
+  // `strict-origin-when-cross-origin`, ya manda solo el origen al saltar a *.supabase.co—, pero
+  // eso es una protección del navegador, no nuestra, y el token de documentación es permanente.
+  // Fijarlo aquí, además, cubre las rutas públicas que se añadan mañana sin acordarse de nada.
+  async headers() {
+    const cabeceras = [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "X-Robots-Tag", value: "noindex, nofollow" },
+    ];
+    return [
+      { source: "/contrato/:token*", headers: cabeceras },
+      { source: "/documentacion/:token*", headers: cabeceras },
+      { source: "/correo/:token*", headers: cabeceras },
+    ];
+  },
   experimental: {
     // El default de Next es 1 MB, y por ahí se cayó la primera firma real: la foto de
     // pasaporte de un celular pesa 3-8 MB y Next devolvía 413 antes de ejecutar la acción.
