@@ -85,14 +85,25 @@ Orden deliberado: primero el recorrido de la venta, que es por donde pasa cada p
 |---|---|---|---|---|---|
 | B1 | Cotizador y alta | `B1-cotizador.md` | `hecho` | `hecho` | `hecho` |
 | B2 | Expediente y estados | `B2-expediente.md` | `hecho` | `hecho` | `hecho` |
-| B3 | Contratos y documentos | `B3-contratos-documentos.md` | `hecho` | `hecho` | `pendiente` |
+| B3 | Contratos y documentos | `B3-contratos-documentos.md` | `hecho` | `hecho` | `en curso` |
 | B4 | Correo | `B4-correo.md` | `hecho` | `hecho` | `en curso` |
-| B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `hecho` | `pendiente` |
+| B5 | Catálogo, precios y hoteles | `B5-catalogo.md` | `hecho` | `hecho` | `en curso` |
 | B6 | Datos y plataforma | `B6-datos-plataforma.md` | `hecho` | `hecho` | `en curso` |
-| B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `en curso` | `—` |
+| B7 | Diseño y experiencia | `B7-diseno.md` | `hecho` | `hecho` | `en curso` |
 | B8 | Síntesis | `SINTESIS.md` | `pendiente` | `—` | `—` |
 
 Valores: `pendiente` · `en curso` · `hecho`. En Revisión, además: `—` (no hizo falta).
+
+> **Estado a 2-sep-2026 (noche):** **las cinco críticas de B3 a B7 están cerradas**, las cinco
+> con veredicto `revisar` y con los huecos escritos al final de cada bloque. Lanzadas **en
+> paralelo las cinco rondas de revisión**; las de B4 y B6 se retoman desde el plan que dejaron
+> escrito los agentes que mató el límite (la de B6 ya corrigió lo urgente: la falsedad de las
+> copias diarias en `GUIA.md`). Cuando las cinco cierren, y solo entonces, se escribe **B8**.
+>
+> **Aviso para B8:** tres críticos llegaron por caminos distintos al mismo sitio —el correo del
+> contrato no deja rastro y `/api/wp/lead` no persiste nada—, y varios números de los informes
+> caducaron en 48 h. La síntesis debe **fechar los números** y no contar dos veces lo que dos
+> bloques miraron desde ángulos distintos (ver la nota de B7.6 y la de los tests en B6).
 
 > **Estado a 2-sep-2026 (tarde):** lanzados **en paralelo los cinco críticos de B3 a B7**.
 > B3, B4 y B5 se retoman desde la nota `en curso` que dejaron los agentes que murieron por el
