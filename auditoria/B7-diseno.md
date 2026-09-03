@@ -495,8 +495,14 @@ reversible posible y no toca ni la maqueta ni el color. `npx tsc --noEmit` limpi
    del punto 1 de «Cómo se juzga el diseño».
 7. Revisar si el auditor dedujo cosas del código que la pantalla desmiente (o al revés).
 
-**Por dónde voy:** app levantada en local y medida en el navegador. Escritos C1 (móvil) y C2
-(contrastes). Faltan: etiqueta de B7.6, los tres estados en pantalla, y el «vistazo» de oficio.
+**Por dónde voy (2º crítico, retoma tras muerte por límite):** hechos los puntos 1, 2 y 3, y
+escrito ya en esta sección el juicio del punto 4 y la parte del 7 que toca a B7.7. **Ahora
+mismo:** (a) bajar la etiqueta del hallazgo de B7.6 en la sección Hallazgos, que sigue diciendo
+`[MEDIO]` aunque aquí ya se decidió que no es hallazgo propio; luego (b) punto 5 —los tres
+estados vistos en pantalla, no en el código—, (c) punto 6 —el «vistazo» de oficio— y (d) cerrar
+el punto 7 con lo que el código promete y la pantalla desmiente. Método: el mismo del
+antecesor (iframe sobre la hoja de estilos compilada del dev server); sigo **sin poder
+autenticarme**, así que las pantallas **con datos** siguen siendo hueco declarado.
 
 ### Cómo verifiqué (importante para quien venga detrás)
 
