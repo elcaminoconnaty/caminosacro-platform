@@ -1424,8 +1424,8 @@ positivos.
 
 ## Revisión tras la crítica
 
-`Estado: en curso` — una sola ronda, cerrando los cinco huecos del veredicto. Plan, en este
-orden, escribiendo y commiteando por partes (el límite de gasto mata sin avisar):
+`Estado: hecho` — **los cinco huecos del veredicto están cerrados.** Hicieron falta tres agentes
+(el límite de gasto mató a los dos primeros); el plan que dejaron escrito es el que se siguió:
 
 1. **Subir a «Hallazgos» los ocho hallazgos nuevos** de la crítica (los cuatro de código del
    punto 4 y los cuatro de oficio del punto 5), con el formato del TABLERO, para que B8 los vea
@@ -1445,17 +1445,23 @@ orden, escribiendo y commiteando por partes (el límite de gasto mata sin avisar
    `sent_at`/`status` que se escribe antes del envío, el articulado en TypeScript frente a las
    condiciones del documento de viaje en `settings`, y por qué CS-2026-080 se tocó el 2-sep 13:44.
 
-**Por dónde voy (3-sep-2026, agente 3 de la ronda):**
-- Punto 1 — **cerrado**: los ocho hallazgos ya están en «Hallazgos», bajo el encabezado
-  «Hallazgos que aporta la crítica».
-- Punto 2 — **dos de tres**: el borrado de expediente y las fechas del PDF ya están en GRAVE con su
-  nota de por qué (commit `a2729f6`). Falta bajar los **huérfanos de Storage de GRAVE a MEDIO**.
-- Punto 3 — **dos de cuatro**: CS-2026-080 y la fórmula con `noches_extra` quedaron corregidos
-  dentro del GRAVE reescrito. Faltan la **cabecera de `clientBar`** y los **5 contratos, no 8**.
-- Punto 4 — `registrarEnvio` **ya está hecho y commiteado en `20ad15e`** (no repetirlo); el índice
-  duplicado se anota y no se toca (hallazgo escrito). Faltan guionado, `flexShrink` y
-  `Referrer-Policy`.
-- Punto 5 — **pendiente**: la sección «Para Nico».
+**Cómo quedó cada punto (3-sep-2026):**
+
+| punto | estado | dónde mirarlo |
+|---|---|---|
+| 1 · ocho hallazgos nuevos | **cerrado** | «Hallazgos que aporta la crítica», en Hallazgos |
+| 2 · tres re-etiquetados | **cerrado** | los tres llevan su cita de por qué cambian (`a2729f6`, `c6ebe9b`) |
+| 3 · cuatro imprecisiones | **cerrado** | CS-2026-080 y la fórmula, dentro del GRAVE reescrito; `clientBar` y los 5 contratos, en `97fed91` |
+| 4 · arreglos pequeños | **cerrado** | tabla de «Arreglos aplicados»: `20ad15e`, `146b943`, `433d062`, `b4912db` |
+| 5 · «Para Nico» | **cerrado** | sección «Para Nico», al final del archivo |
+
+**Tres cosas que conviene que sepa quien escriba B8:**
+- El `registrarEnvio` del contrato lo cerró la ronda de **B4** en `20ad15e`, no esta: no se cuenta
+  dos veces.
+- El índice duplicado `travel_docs_token_idx` **se anotó y no se tocó**, por la regla 9 del TABLERO.
+- **Todos los números de este bloque están fechados «al 3-sep-2026» y se reverificaron contra
+  producción ese día.** Los del informe original y los de la crítica eran del 2-sep y dos ya habían
+  caducado en 24 horas (las cotizaciones vivas pasaron de 45 a 44 y los códigos emitidos de 83 a 84).
 
 _(Solo si el veredicto fue `revisar`. Una ronda.)_
 
