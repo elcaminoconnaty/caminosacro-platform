@@ -150,7 +150,11 @@ export default function QuoteEditor({
   const catalogMatch = useMemo(() => {
     const slug = modalityToSlug(modality);
     if (!slug || !routeName) return null;
-    return yearRates.find((p) => p.route_name === routeName && p.modality_slug === slug) || null;
+    // `p.price_cs > 0`: una fila de tarifa creada y vacía no es una tarifa. Sin esto, el
+    // autorrelleno pondría la base en 0,00 € mientras `yearHasRates` —tres líneas más
+    // arriba, que sí lo comprueba— daba el año por cargado y se tragaba el aviso ámbar.
+    // Hoy no muerde (las 51 filas de `pricing` tienen precio) pero basta con crear una.
+    return yearRates.find((p) => p.route_name === routeName && p.modality_slug === slug && p.price_cs > 0) || null;
   }, [routeName, modality, yearRates]);
 
   // Mismos slots que el asistente: los que el reparto de habitaciones necesita, para los

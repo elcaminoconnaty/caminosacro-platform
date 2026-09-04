@@ -103,6 +103,20 @@ export type OptionalPrice = {
  * aplica en el CRM (decisión de Nico): marcar un seguro o una noche extra no tiene dónde
  * teclear el precio a mano, así que bloquearlo dejaría sin extras a las cotizaciones del
  * año nuevo. El año realmente usado viaja en `priceYear` para poder avisarlo en ámbar.
+ *
+ * **Una fila sin precio de venta no cuenta como año cargado.** Sin esto, el sistema decidía
+ * si un año tenía tarifa CONTANDO FILAS, no precios: una fila creada y vacía apagaba el
+ * respaldo al año anterior y el aviso ámbar, y el opcional se pintaba a «0 € — 0 €» como si
+ * ese fuera su precio (§2.7 de la auditoría). Al 4-sep-2026 había exactamente dos así —
+ * `Casco de bicicleta` y `Seguro a todo riesgo`, ambas de 2027— y 13 cotizaciones vivas con
+ * salida en 2027: con las tarifas de 2026 y dos personas, 188 € de venta regalados y 144 €
+ * de costo que Pilgrim factura igual. El módulo de bicis ya tenía esta guarda
+ * (`bikesForRouteYear`, opción `soloConPrecio`) y por eso sus 35 filas sin precio no cotizan
+ * nada; los opcionales no la tenían.
+ *
+ * Se mira `price_cs` —lo que se le cobra al cliente— porque es lo que decide si la línea
+ * regala plata. Cuando cae al respaldo se traen los dos precios de la misma fila, así que el
+ * costo viaja con su venta y la utilidad no sale inflada.
  */
 export function optionalPricesForYear(
   rows: OptionalPrice[],
@@ -110,6 +124,9 @@ export function optionalPricesForYear(
 ): Map<string, { price_pilgrim: number; price_cs: number; priceYear: number; isFallback: boolean }> {
   const porOpcional = new Map<string, OptionalPrice[]>();
   for (const r of rows) {
+    // Una fila vacía se trata como si no existiera: así el respaldo al año anterior se
+    // dispara igual que cuando de verdad no hay nada cargado, y con él su aviso en ámbar.
+    if (!(Number(r.price_cs) > 0)) continue;
     if (!porOpcional.has(r.optional_id)) porOpcional.set(r.optional_id, []);
     porOpcional.get(r.optional_id)!.push(r);
   }
