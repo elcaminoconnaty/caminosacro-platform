@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, useEffect } from "react";
+import { useMemo, useRef, useState, useTransition, useEffect } from "react";
 import { updateQuote } from "./actions";
 import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
 import { QUOTE_STATUSES, STATUS_LABELS, DEFAULT_STATUS, statusLabel } from "@/lib/quoteStatus";
@@ -184,14 +184,32 @@ export default function QuoteEditor({
     setRates(ratesFromCatalog());
   };
 
-  // Auto-fill cuando cambian ruta/modalidad/personas y autoLink está activo
+  // Lo que determina la tarifa del catálogo. Mientras no cambie, no hay nada que
+  // recalcular: el precio guardado manda.
+  const firmaTarifa = `${routeName}|${modality}|${people}|${tarifaYear}`;
+  const firmaAplicada = useRef(firmaTarifa);
+
+  // Auto-fill cuando cambian ruta/modalidad/personas/año y autoLink está activo.
+  //
+  // La comparación contra `firmaAplicada` es el arreglo de un hallazgo con dinero real
+  // detrás (§2.4): antes este efecto también corría AL MONTAR, así que abrir un expediente
+  // —sin tocar nada— devolvía la base al precio de catálogo y pisaba la cifra tecleada a
+  // mano. Pasó en dos cotizaciones ya enviadas al cliente: CS-2026-077 (585 € tecleados
+  // contra 625 de catálogo) y CS-2026-060 (800 contra 790). Tecleado a mano no es un
+  // descuido: es lo que Nico hace cuando el año de salida todavía no tiene tarifa cargada.
+  //
+  // Se guarda la firma en vez de "saltar el primer render" porque eso último se rompe con
+  // el doble montaje de StrictMode en desarrollo, y porque así el ida y vuelta funciona:
+  // cambiar 2 → 3 → 2 personas vuelve a tarifar en los dos saltos.
   useEffect(() => {
+    if (firmaTarifa === firmaAplicada.current) return;
+    firmaAplicada.current = firmaTarifa;
     if (!autoLink) return;
     if (aMedida) return; // a medida la plata la manda el reparto, no el catálogo
     if (!catalogMatch) return;
     setTotalEur((catalogMatch.price_cs * people).toFixed(2));
     setCostEur((catalogMatch.price_pilgrim * people).toFixed(2));
-  }, [catalogMatch, people, autoLink, aMedida]);
+  }, [firmaTarifa, catalogMatch, people, autoLink, aMedida]);
 
   // Reparto a medida: base, costo Pilgrim y personas salen de las habitaciones. Igual que
   // en el asistente, si las personas quedaran sueltas el suplemento de temporada (por
@@ -240,9 +258,40 @@ export default function QuoteEditor({
       formData.set("price_blocks", JSON.stringify(priceBlocksDeFilas(filas)));
     } else {
       formData.set("modality", modality);
-      // Salir del modo a medida borra el reparto guardado: dejarlo haría que el PDF
-      // siguiera dibujando habitaciones que ya no son las de esta cotización.
-      if (filasGuardadas.length > 0) formData.set("rooms_json", "");
+      // El reparto se REESCRIBE con las personas y la modalidad actuales.
+      //
+      // Antes no se tocaba nunca (§2.4): cambiar de 2 a 3 personas dejaba un `rooms_json`
+      // con 1 doble, y de ese campo salen tres cosas que no son cosméticas — la línea
+      // "Habitaciones" del pedido a Pilgrim, la acomodación del contrato firmado y las
+      // tarjetas del PDF—. O sea, se le pedían al proveedor unas camas y se le cobraban
+      // otras. Caso vivo al 4-sep: CS-2026-080, 13 personas con 8 dobles (16 camas).
+      //
+      // Las tarifas se conservan si el catálogo no las trae: son el respaldo que usa el
+      // PDF cuando `price_blocks` está vacío, y pisarlas con ceros borraría las tarjetas
+      // de precio de las cotizaciones viejas.
+      const slugModalidad = modalityToSlug(modality);
+      if (slugModalidad) {
+        const tipo = slugModalidad.startsWith("hotel") ? "hotel" : "pension";
+        const todosIndividuales = slugModalidad.endsWith("single");
+        const guardado = (quote.rooms_json ?? {}) as Record<string, unknown>;
+        const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+        formData.set(
+          "rooms_json",
+          JSON.stringify({
+            tipo,
+            dobles: todosIndividuales ? 0 : Math.floor(people / 2),
+            individuales: todosIndividuales ? people : people % 2,
+            tarifa_doble: Number(rates[`${tipo}_doble`]) || num(guardado.tarifa_doble),
+            tarifa_single: Number(rates[`${tipo}_single`]) || num(guardado.tarifa_single),
+          }),
+        );
+      } else if (filasGuardadas.length > 0) {
+        // Se sale del reparto a medida hacia una etiqueta libre ("Doble + Triple",
+        // "Personalizada"): no hay un reparto automático correcto que escribir, y dejar el
+        // viejo haría que el PDF dibujara habitaciones que ya no son las de esta
+        // cotización. Se borra y manda la etiqueta.
+        formData.set("rooms_json", "");
+      }
       // Precios de las tarjetas del PDF: solo los que tienen valor. Vacío = volver al catálogo.
       const blocks: Record<string, number> = {};
       for (const { slug } of rateSlots) {
