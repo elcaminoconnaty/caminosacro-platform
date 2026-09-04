@@ -26,10 +26,11 @@ type Quote = {
 
 type ClientPayment = { quote_id: string; amount_eur: number | null; amount: number; currency: string };
 type ProviderPayment = { quote_id: string; amount_eur: number };
+type Contract = { quote_id: string; signed_at: string | null };
 
 export default async function SeguimientoPage() {
   const supabase = await createCommercialClient();
-  const [{ data: qData, error }, { data: clientPays }, { data: providerPays }] = await Promise.all([
+  const [{ data: qData, error }, { data: clientPays }, { data: providerPays }, { data: contractRows }] = await Promise.all([
     supabase
       .from("quotes")
       .select(
@@ -39,6 +40,11 @@ export default async function SeguimientoPage() {
       .limit(500),
     supabase.from("client_payments").select("quote_id,amount_eur,amount,currency"),
     supabase.from("provider_payments").select("quote_id,amount_eur"),
+    // Dos columnas de los contratos, solo para saber quién no ha firmado. Hasta ahora esta
+    // pantalla no consultaba `contracts` en absoluto, y por eso un viaje pagado entero con
+    // un viajero sin firmar era invisible desde acá: había que entrar expediente por
+    // expediente para verlo (§2.0 de la síntesis).
+    supabase.from("contracts").select("quote_id,signed_at"),
   ]);
 
   // Si la consulta de cotizaciones falla no se pinta nada más: ni los cinco KPI en 0,00 € ni
@@ -85,6 +91,18 @@ export default async function SeguimientoPage() {
     pagadoPilgrim.set(p.quote_id, (pagadoPilgrim.get(p.quote_id) || 0) + (p.amount_eur || 0));
   }
 
+  // Contratos por cotización: cuántos hay y cuántos siguen sin firma. Si la consulta de
+  // contratos fallara, `contracts` queda vacío y la columna dice "—" en vez de inventar
+  // un "0 de 0" que se leería como "no hace falta firmar nada".
+  const contracts = (contractRows ?? []) as Contract[];
+  const contratos = new Map<string, { total: number; sinFirmar: number }>();
+  for (const c of contracts) {
+    const acc = contratos.get(c.quote_id) ?? { total: 0, sinFirmar: 0 };
+    acc.total += 1;
+    if (!c.signed_at) acc.sinFirmar += 1;
+    contratos.set(c.quote_id, acc);
+  }
+
   // Totales globales
   const totVenta = quotes.reduce((s, q) => s + (q.total_eur || 0), 0);
   const totCosto = quotes.reduce((s, q) => s + (q.cost_eur || 0), 0);
@@ -95,6 +113,7 @@ export default async function SeguimientoPage() {
   const rows: QuoteRow[] = quotes.map((q) => {
     const total = q.total_eur || 0;
     const cobr = cobrado.get(q.id) || 0;
+    const firmas = contratos.get(q.id);
     return {
       id: q.id,
       code: q.code,
@@ -111,8 +130,16 @@ export default async function SeguimientoPage() {
       utilidad: total - (q.cost_eur || 0),
       status: q.status,
       source: q.source,
+      valid_until: q.valid_until,
+      contratos: firmas?.total ?? 0,
+      sin_firmar: firmas?.sinFirmar ?? 0,
     };
   });
+
+  // El «hoy» se calcula acá, en zona Bogotá, y baja como prop: `QuotesTable` es un
+  // componente de cliente y Next lo renderiza primero en el servidor. Si cada lado mirara
+  // su propio reloj, la franja podría clasificar distinto en los dos renders.
+  const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
   return (
     <div className="space-y-6">
@@ -126,7 +153,7 @@ export default async function SeguimientoPage() {
         <Card label="Pagado a Pilgrim" value={eur(totPagadoPilgrim)} muted />
       </section>
 
-      <QuotesTable rows={rows} />
+      <QuotesTable rows={rows} hoy={hoy} />
     </div>
   );
 }

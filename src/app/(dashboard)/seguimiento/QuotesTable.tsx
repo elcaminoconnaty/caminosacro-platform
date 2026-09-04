@@ -7,6 +7,7 @@ import { eur, fechaCorta } from "@/lib/format";
 import { QUOTE_STATUSES, STATUS_COLORS, STATUS_LABELS, statusLabel } from "@/lib/quoteStatus";
 import { updateQuoteStatus, deleteQuote } from "./[id]/actions";
 import { coincideCotizacion } from "@/lib/quotes/buscar";
+import { enFoco, resumirFranja, type Foco } from "@/lib/quotes/franjaHoy";
 
 export type QuoteRow = {
   id: string;
@@ -24,6 +25,10 @@ export type QuoteRow = {
   utilidad: number;
   status: string | null;
   source: string | null;
+  valid_until: string | null;
+  /** Contratos emitidos para esta cotización, y cuántos siguen sin firma. */
+  contratos: number;
+  sin_firmar: number;
 };
 
 // Cotizaciones que creó un visitante externo (cotizador de caminosacro.com o /cotizar),
@@ -62,7 +67,7 @@ function cmp(a: QuoteRow, b: QuoteRow, key: SortKey): number {
   }
 }
 
-export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
+export default function QuotesTable({ rows, hoy }: { rows: QuoteRow[]; hoy: string }) {
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +79,11 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
   const [to, setTo] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("code");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  // Cubo de la franja «Hoy» que está aplicado. Es un filtro más, no una vista aparte: se
+  // combina con la búsqueda y con los demás, y «Limpiar» también lo quita.
+  const [foco, setFoco] = useState<Foco | null>(null);
+
+  const franja = useMemo(() => resumirFranja(rows, hoy), [rows, hoy]);
 
   const routes = useMemo(
     () => Array.from(new Set(rows.map((r) => r.route_name).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, "es")),
@@ -92,6 +102,7 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
       if (routeFilter && r.route_name !== routeFilter) return false;
       if (from && (!r.start_date || r.start_date < from)) return false;
       if (to && (!r.start_date || r.start_date > to)) return false;
+      if (foco && !enFoco(r, foco, hoy)) return false;
       return true;
     });
     out.sort((a, b) => {
@@ -99,7 +110,7 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
       return sortDir === "asc" ? c : -c;
     });
     return out;
-  }, [rows, search, activeStatuses, routeFilter, from, to, sortKey, sortDir]);
+  }, [rows, search, activeStatuses, routeFilter, from, to, foco, hoy, sortKey, sortDir]);
 
   function toggleStatus(s: string) {
     setActiveStatuses((prev) => {
@@ -146,12 +157,55 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
     setRouteFilter("");
     setFrom("");
     setTo("");
+    setFoco(null);
   };
 
-  const filtersOn = search || routeFilter || from || to || activeStatuses.size !== QUOTE_STATUSES.length;
+  const filtersOn = search || routeFilter || from || to || foco || activeStatuses.size !== QUOTE_STATUSES.length;
 
   return (
     <div className="space-y-3">
+      {/* Franja «Hoy»: qué pide trabajo. Pulsar un cubo filtra la tabla de abajo. */}
+      <section aria-label="Qué pide trabajo hoy" className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {franja.map((f) => {
+          const activo = foco === f.foco;
+          const vacio = f.cuantas === 0;
+          return (
+            <button
+              key={f.foco}
+              type="button"
+              onClick={() => setFoco(activo ? null : f.foco)}
+              disabled={vacio}
+              aria-pressed={activo}
+              className={[
+                "text-left rounded-xl border px-4 py-3 transition",
+                // El borde izquierdo es lo que se ve de reojo; el rojo se reserva para lo
+                // que se rompe si no se hace hoy, y no se gasta en el resto.
+                activo ? "border-bosque ring-1 ring-bosque bg-bosque/5" : "border-border bg-bg-card",
+                vacio ? "opacity-55 cursor-default" : "hover:border-bosque/50 cursor-pointer",
+                f.urgente && !vacio ? "border-l-4 border-l-red-600" : "border-l-4 border-l-transparent",
+              ].join(" ")}
+            >
+              <div className="flex items-baseline gap-2">
+                <span
+                  className={`font-display text-2xl ${
+                    vacio ? "text-muted" : f.urgente ? "text-red-700" : "text-bosque"
+                  }`}
+                >
+                  {f.cuantas}
+                </span>
+                <span className="text-sm font-medium text-fg">{f.titulo}</span>
+              </div>
+              <div className="text-xs text-muted mt-0.5">
+                {vacio ? "ninguna ahora" : f.pie}
+                {!vacio && f.eur != null && f.eur > 0 && (
+                  <> · <span className="text-fg font-medium">{eur(f.eur)}</span></>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </section>
+
       {/* Controles */}
       <div className="bg-bg-card border border-border rounded-xl p-3 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -220,6 +274,7 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
                 <Th label="Total €" align="right" onClick={() => sortBy("total_eur")} active={sortKey === "total_eur"} dir={sortDir} />
                 <th className="text-right px-4 py-2.5">Cobrado</th>
                 <Th label="Saldo" align="right" onClick={() => sortBy("saldo")} active={sortKey === "saldo"} dir={sortDir} />
+                <th className="text-center px-4 py-2.5">Firmas</th>
                 <Th label="Estado" onClick={() => sortBy("status")} active={sortKey === "status"} dir={sortDir} />
                 <th className="px-4 py-2.5"></th>
               </tr>
@@ -245,6 +300,24 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
                   <td className="px-4 py-2.5 text-right">{q.cobrado > 0 ? eur(q.cobrado) : <span className="text-muted">—</span>}</td>
                   <td className={`px-4 py-2.5 text-right ${q.saldo > 0 ? "text-amber-700 font-medium" : "text-muted"}`}>
                     {q.total_eur > 0 ? eur(q.saldo) : "—"}
+                  </td>
+                  {/* Firmas: "1 de 2" y en rojo si falta alguna. Sin contratos emitidos
+                      todavía se pone "—", que no es lo mismo que "0 de 0". */}
+                  <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                    {q.contratos === 0 ? (
+                      <span className="text-muted">—</span>
+                    ) : (
+                      <span
+                        className={`text-xs font-medium ${q.sin_firmar > 0 ? "text-red-700" : "text-muted"}`}
+                        title={
+                          q.sin_firmar > 0
+                            ? `${q.sin_firmar} de ${q.contratos} sin firmar`
+                            : "Todos los contratos firmados"
+                        }
+                      >
+                        {q.contratos - q.sin_firmar} de {q.contratos}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap">
                     <select
@@ -273,7 +346,7 @@ export default function QuotesTable({ rows }: { rows: QuoteRow[] }) {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-muted">
+                  <td colSpan={12} className="px-4 py-12 text-center text-muted">
                     {rows.length === 0 ? "Sin cotizaciones aún." : "Ninguna cotización coincide con los filtros."}
                   </td>
                 </tr>
