@@ -150,6 +150,43 @@ export async function POST(request: Request) {
     + `------------------------------------------------\n`
     + `Ya recibió un acuse por correo diciéndole que le escribes con el precio.\n`;
 
+  // ---- El lead se guarda ANTES de intentar el correo ----
+  //
+  // Este endpoint no crea cliente ni cotización a propósito (es justo lo que no se puede
+  // calcular), así que hasta ahora **el correo era el único registro**: si el webhook de
+  // n8n fallaba, la persona desaparecía y solo quedaba un `console.error` que se pierde
+  // con el siguiente despliegue. Guardar primero invierte eso: pase lo que pase con el
+  // correo, el lead está en la base y se puede atender a mano.
+  //
+  // Va en su propio try: que la base no responda no puede impedir que salgan los correos,
+  // que es el camino que hoy funciona. Si falla, se sigue con `leadId` en null.
+  const supabase = createAdminClient();
+  let leadId: string | null = null;
+  try {
+    const { data, error } = await supabase
+      .from("web_leads")
+      .insert({
+        code: codigo || null,
+        motivo: datos.motivo,
+        route_slug: datos.route_slug,
+        route_name: datos.route_name ?? null,
+        tipo: datos.tipo,
+        start_date: datos.start_date,
+        people: datos.people,
+        full_name: datos.full_name,
+        email: datos.email,
+        phone: datos.phone,
+        marketing_optin: datos.marketing_optin,
+        visitor_ip: datos.visitor_ip ?? null,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    leadId = data?.id ?? null;
+  } catch (e) {
+    console.error("[wp-lead] no pude guardar el lead:", e);
+  }
+
   const envio = await enviarCorreoWebhook({
     code: codigo,
     nombre: datos.full_name,
@@ -170,6 +207,17 @@ export async function POST(request: Request) {
   const emailSent = envio.ok;
   if (!emailSent) console.error("[wp-lead] no salió el correo:", envio.error);
 
+  // Cierra la fila con lo que pasó. Un lead con `email_sent = false` es uno al que hay que
+  // escribirle a mano; con `null`, uno cuya fila se creó y cuyo cierre no llegó a
+  // escribirse (el proceso se cayó entre medias), que también hay que mirar.
+  if (leadId) {
+    const { error } = await supabase
+      .from("web_leads")
+      .update({ email_sent: emailSent, email_error: emailSent ? null : (envio.error ?? "No se pudo enviar el correo.") })
+      .eq("id", leadId);
+    if (error) console.warn("[wp-lead] no pude cerrar el lead:", error);
+  }
+
   // Fila en `email_log` con tipo `lead`. Este endpoint no crea cliente ni cotización a
   // propósito, así que hasta acá el correo ERA el único registro del lead y un fallo del
   // webhook lo borraba del mapa: quedaba un console.error que se pierde con el despliegue.
@@ -178,7 +226,7 @@ export async function POST(request: Request) {
   // rescatarlo a mano y no enterarse nunca. Todo dentro de un try: la creación del cliente
   // de Supabase sí puede lanzar si falta la clave, y este endpoint debe responder igual.
   try {
-    await registrarEnvio(createAdminClient(), {
+    await registrarEnvio(supabase, {
       code: codigo || null,
       tipo: "lead",
       destinatario: datos.email,
