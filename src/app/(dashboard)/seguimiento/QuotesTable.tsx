@@ -2,10 +2,11 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Trash2, ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Trash2, Copy, ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react";
 import { eur, fechaCorta } from "@/lib/format";
 import { QUOTE_STATUSES, STATUS_COLORS, STATUS_LABELS, statusLabel } from "@/lib/quoteStatus";
-import { updateQuoteStatus, deleteQuote } from "./[id]/actions";
+import { updateQuoteStatus, deleteQuote, duplicateQuote } from "./[id]/actions";
 import { coincideCotizacion } from "@/lib/quotes/buscar";
 import { enFoco, resumirFranja, type Foco } from "@/lib/quotes/franjaHoy";
 
@@ -68,6 +69,7 @@ function cmp(a: QuoteRow, b: QuoteRow, key: SortKey): number {
 }
 
 export default function QuotesTable({ rows, hoy }: { rows: QuoteRow[]; hoy: string }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +137,19 @@ export default function QuotesTable({ rows, hoy }: { rows: QuoteRow[]; hoy: stri
     startTransition(async () => {
       const r = await updateQuoteStatus(id, status);
       if (r?.error) setError(r.error);
+      setBusyId(null);
+    });
+  }
+
+  function onDuplicate(row: QuoteRow) {
+    setError(null);
+    setBusyId(row.id);
+    startTransition(async () => {
+      const r = await duplicateQuote(row.id);
+      if (r?.error) setError(r.error);
+      // Se abre la copia: lo primero que se hace con una es cambiarle las fechas o el
+      // cliente, así que dejarla en el listado obligaría a buscarla.
+      else if (r?.id) router.push(`/seguimiento/${r.id}`);
       setBusyId(null);
     });
   }
@@ -333,14 +348,26 @@ export default function QuotesTable({ rows, hoy }: { rows: QuoteRow[]; hoy: stri
                   <td className="px-4 py-2.5 text-right">
                     {/* p-1.5 con -m-1.5 agranda el área tocable de 15x15 a 27x27 sin mover la
                         fila: 15x15 no llega ni al mínimo de 24x24 y esto borra de verdad. */}
-                    <button
-                      onClick={() => onDelete(q)}
-                      disabled={pending}
-                      title="Borrar cotización"
-                      className="p-1.5 -m-1.5 text-muted hover:text-red-600 disabled:opacity-40 transition"
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    <span className="inline-flex items-center gap-1">
+                      <button
+                        onClick={() => onDuplicate(q)}
+                        disabled={pending}
+                        title={`Duplicar ${q.code}`}
+                        className="p-1.5 text-muted hover:text-bosque disabled:opacity-40 transition"
+                      >
+                        <Copy size={15} />
+                        <span className="sr-only">Duplicar {q.code}</span>
+                      </button>
+                      <button
+                        onClick={() => onDelete(q)}
+                        disabled={pending}
+                        title={`Borrar ${q.code}`}
+                        className="p-1.5 text-muted hover:text-red-600 disabled:opacity-40 transition"
+                      >
+                        <Trash2 size={15} />
+                        <span className="sr-only">Borrar {q.code}</span>
+                      </button>
+                    </span>
                   </td>
                 </tr>
               ))}

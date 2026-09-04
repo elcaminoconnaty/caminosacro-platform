@@ -16,6 +16,7 @@ import {
 import type { OpcionalLibre } from "@/lib/quotes/opcionalLibre";
 import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
 import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
+import { duplicarCotizacion } from "@/lib/quotes/duplicar";
 
 // Borra un archivo de Storage a partir de su ruta "bucket/archivo".
 async function removeStoragePath(
@@ -157,6 +158,22 @@ export async function updateQuote(id: string, formData: FormData) {
 }
 
 // Cambio rápido de estado desde el listado (sin entrar a editar).
+/**
+ * Crea una copia de esta cotización y devuelve a dónde ir.
+ *
+ * Existe porque volver a cotizarle a alguien lo mismo con dos noches más —o armarle a otro
+ * cliente lo que ya se armó una vez— obligaba a rehacer el asistente entero y a re-marcar
+ * los opcionales uno por uno. El detalle de qué se copia y qué no está en `duplicar.ts`.
+ */
+export async function duplicateQuote(id: string) {
+  const supabase = await createCommercialClient();
+  const r = await duplicarCotizacion(supabase, id);
+  if (!r.ok) return { error: r.error };
+  revalidatePath("/seguimiento");
+  revalidatePath("/calendario");
+  return { ok: true as const, id: r.id, code: r.code };
+}
+
 export async function updateQuoteStatus(id: string, status: string) {
   if (!isQuoteStatus(status)) return { error: "Estado inválido" };
   const supabase = await createCommercialClient();
