@@ -8,6 +8,7 @@ import {
   contractClauses,
   anexosTexto,
   pagareSections,
+  llevaPagare,
 } from "./template";
 
 const fontsDir = path.join(process.cwd(), "src/lib/fonts");
@@ -242,7 +243,8 @@ export function ContractPDF({
         <Text style={s.pageNum} render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} fixed />
       </Page>
 
-      {plan.type === "financiado" && (
+      {/* La hoja del pagaré solo existe si el plan la lleva (ver `llevaPagare`). */}
+      {llevaPagare(plan) && (
         <Page size="A4" style={s.page}>
           <Membrete />
           {pagareSections(v, fechaFirma).map((sec, i) => (

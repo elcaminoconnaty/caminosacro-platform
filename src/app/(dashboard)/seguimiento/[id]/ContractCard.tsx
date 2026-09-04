@@ -197,14 +197,24 @@ export default function ContractCard({
 
   function generarCuotas() {
     if (!vars) return;
-    setPlan({ type: "financiado", cuotas: buildCronograma(totalEur, numCuotas, vars.fecha_inicio || null) });
+    setPlan((prev) => ({
+      type: "financiado",
+      cuotas: buildCronograma(totalEur, numCuotas, vars.fecha_inicio || null),
+      // Regenerar el cronograma no puede volver a meter el pagaré por la puerta de atrás:
+      // si se había quitado, sigue quitado.
+      con_pagare: prev.type === "financiado" ? prev.con_pagare : undefined,
+    }));
   }
 
   function setCuota(i: number, patch: Partial<Cuota>) {
     setPlan((prev) => {
       if (prev.type !== "financiado") return prev;
-      return { type: "financiado", cuotas: prev.cuotas.map((c, j) => (j === i ? { ...c, ...patch } : c)) };
+      return { ...prev, cuotas: prev.cuotas.map((c, j) => (j === i ? { ...c, ...patch } : c)) };
     });
+  }
+
+  function setConPagare(valor: boolean) {
+    setPlan((prev) => (prev.type === "financiado" ? { ...prev, con_pagare: valor } : prev));
   }
 
   function setFila(i: number, patch: Partial<FilaViajero>) {
@@ -437,9 +447,33 @@ export default function ContractCard({
             {plan.type === "financiado" && (
               <div className="mt-3 space-y-1.5">
                 <p className="text-[11px] text-muted">
-                  La última cuota queda máximo 60 días antes del viaje (regla del contrato). Con pago financiado, el
-                  paquete de firma incluye automáticamente el pagaré en blanco y su carta de instrucciones.
+                  La última cuota queda máximo 60 días antes del viaje (regla del contrato).
                 </p>
+                {/* El pagaré es una garantía de deuda: cuando el plan ya está pagado, pedirlo
+                    sobra y es motivo para no firmar. Por eso se elige, no se da por hecho. */}
+                <label className="flex items-start gap-2 py-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={plan.con_pagare !== false}
+                    onChange={(e) => setConPagare(e.target.checked)}
+                    className="mt-0.5 rounded border-border"
+                  />
+                  <span className="text-[11px] leading-relaxed">
+                    <span className="text-fg font-medium">Incluir el pagaré en blanco y su carta de instrucciones</span>{" "}
+                    (Anexo No. 2).
+                    {plan.con_pagare === false ? (
+                      <span className="text-muted">
+                        {" "}Sin él, el contrato no lleva el Anexo No. 2 ni el parágrafo que lo respalda. Úsalo cuando el
+                        plan ya esté pagado: el pagaré garantiza una deuda, y no hay deuda que garantizar.
+                      </span>
+                    ) : (
+                      <span className="text-muted">
+                        {" "}Garantiza las cuotas pendientes. Si el plan ya está cobrado, desmárcalo y vuelve a enviar el
+                        contrato.
+                      </span>
+                    )}
+                  </span>
+                </label>
                 {plan.cuotas.map((c, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <span className="w-14 text-xs text-muted">Cuota {c.n}</span>

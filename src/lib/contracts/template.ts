@@ -35,7 +35,32 @@ export type ContractVariables = {
 export type Cuota = { n: number; fecha: string; monto_eur: number };
 export type PaymentPlan =
   | { type: "contado" }
-  | { type: "financiado"; cuotas: Cuota[] };
+  | {
+      type: "financiado";
+      cuotas: Cuota[];
+      /**
+       * Si el paquete de firma lleva el pagaré en blanco y su carta de instrucciones.
+       *
+       * Ausente = `true`, para que los contratos firmados antes de que esto existiera
+       * sigan diciendo exactamente lo mismo que decían al firmarse.
+       *
+       * Se puede apagar porque el pagaré es una **garantía de una deuda**, y hay planes
+       * financiados que a la hora de firmar ya están pagados: pedirle a alguien que firme
+       * un pagaré en blanco por una plata que ya entregó es motivo suficiente para que no
+       * firme. Pasó con CS-2026-004 (4-sep-2026): dos cuotas de 485 €, las dos cobradas,
+       * y la viajera sin firmar.
+       */
+      con_pagare?: boolean;
+    };
+
+/**
+ * ¿Este contrato lleva pagaré? Fuente única: la usan el articulado, los anexos, el PDF,
+ * la página pública y la declaración que acepta quien firma. Si alguna se saliera de aquí,
+ * el contrato diría una cosa y el papel firmado otra.
+ */
+export function llevaPagare(plan: PaymentPlan): boolean {
+  return plan.type === "financiado" && plan.con_pagare !== false;
+}
 
 export const VARIABLE_LABELS: Record<keyof ContractVariables, string> = {
   codigo_cotizacion: "Código de cotización",
@@ -146,6 +171,7 @@ export function contractConsideraciones(v: ContractVariables): string[] {
 
 export function contractClauses(v: ContractVariables, plan: PaymentPlan): ContractSection[] {
   const financiado = plan.type === "financiado";
+  const conPagare = llevaPagare(plan);
   const numCuotas = financiado ? plan.cuotas.length : 0;
   const crono = financiado ? cronogramaTexto(plan) : "";
 
@@ -160,11 +186,23 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
     `Por regla general, EL VIAJERO pagará el cien por ciento (100%) del valor del plan al momento de confirmar la reserva, mediante los medios de pago que EL ORGANIZADOR le informe.`,
   ];
   if (financiado) {
+    // Los parágrafos se numeran seguidos. Sin pagaré, el que era CUARTO pasa a TERCERO:
+    // un contrato que salta del SEGUNDO al CUARTO delata que se le quitó algo, y en un
+    // documento que se firma eso invita a preguntas que no tienen buena respuesta.
+    const parrafos = [
+      `Las partes pactan un plan de pagos en ${numCuotas} cuotas, conforme al siguiente cronograma, que hace parte de este Contrato: ${crono}. En todo caso, el cien por ciento (100%) del valor del plan deberá estar pagado a más tardar sesenta (60) días calendario antes de la fecha de inicio del viaje. Sin el pago total no habrá lugar a la entrega de la documentación del viaje ni a la prestación de los servicios.`,
+      `El plan financiado no causa intereses remuneratorios. En caso de mora en cualquiera de las cuotas, EL ORGANIZADOR podrá cobrar intereses moratorios a la tasa máxima legal permitida, declarar vencido el plazo de las cuotas pendientes y exigir su pago inmediato, y, transcurridos cinco (5) días calendario desde el vencimiento sin pago ni justificación, entender que EL VIAJERO ha desistido del viaje, con aplicación de la política de cancelación de la cláusula sexta y liberación del cupo.`,
+      ...(conPagare
+        ? [`Como garantía de las obligaciones dinerarias de este Contrato, EL VIAJERO suscribe un pagaré en blanco con carta de instrucciones (Anexo No. 2), de conformidad con los artículos 621, 622 y 710 del Código de Comercio.`]
+        : []),
+      `Los costos y comisiones bancarias o de la pasarela de pago dependen del banco desde donde se origina el pago y de la forma de pago elegida, y son asumidos por EL VIAJERO. Se tendrá como valor pagado el que efectivamente ingrese a la cuenta de EL ORGANIZADOR; si el monto acreditado es menor al pactado, EL VIAJERO deberá realizar el ajuste correspondiente por la diferencia. Los pagos se entienden recibidos cuando EL ORGANIZADOR confirme su acreditación por escrito.`,
+    ];
+    const ORDINALES = ["PRIMERO", "SEGUNDO", "TERCERO", "CUARTO", "QUINTO"];
     formaPago.push(
-      `PARÁGRAFO PRIMERO (PLAN FINANCIADO). — Las partes pactan un plan de pagos en ${numCuotas} cuotas, conforme al siguiente cronograma, que hace parte de este Contrato: ${crono}. En todo caso, el cien por ciento (100%) del valor del plan deberá estar pagado a más tardar sesenta (60) días calendario antes de la fecha de inicio del viaje. Sin el pago total no habrá lugar a la entrega de la documentación del viaje ni a la prestación de los servicios.`,
-      `PARÁGRAFO SEGUNDO. — El plan financiado no causa intereses remuneratorios. En caso de mora en cualquiera de las cuotas, EL ORGANIZADOR podrá cobrar intereses moratorios a la tasa máxima legal permitida, declarar vencido el plazo de las cuotas pendientes y exigir su pago inmediato, y, transcurridos cinco (5) días calendario desde el vencimiento sin pago ni justificación, entender que EL VIAJERO ha desistido del viaje, con aplicación de la política de cancelación de la cláusula sexta y liberación del cupo.`,
-      `PARÁGRAFO TERCERO. — Como garantía de las obligaciones dinerarias de este Contrato, EL VIAJERO suscribe un pagaré en blanco con carta de instrucciones (Anexo No. 2), de conformidad con los artículos 621, 622 y 710 del Código de Comercio.`,
-      `PARÁGRAFO CUARTO. — Los costos y comisiones bancarias o de la pasarela de pago dependen del banco desde donde se origina el pago y de la forma de pago elegida, y son asumidos por EL VIAJERO. Se tendrá como valor pagado el que efectivamente ingrese a la cuenta de EL ORGANIZADOR; si el monto acreditado es menor al pactado, EL VIAJERO deberá realizar el ajuste correspondiente por la diferencia. Los pagos se entienden recibidos cuando EL ORGANIZADOR confirme su acreditación por escrito.`,
+      ...parrafos.map(
+        (texto, i) =>
+          `PARÁGRAFO ${ORDINALES[i]}${i === 0 ? " (PLAN FINANCIADO)" : ""}. — ${texto}`,
+      ),
     );
   } else {
     formaPago.push(
@@ -292,12 +330,13 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
 
 export function anexosTexto(v: ContractVariables, plan: PaymentPlan): string {
   const base = `Anexos: No. 1 — Cotización ${v.codigo_cotizacion} (itinerario, servicios incluidos y no incluidos, opcionales y valores).`;
-  return plan.type === "financiado"
+  return llevaPagare(plan)
     ? `${base} No. 2 — Pagaré en blanco y carta de instrucciones.`
     : base;
 }
 
-// ---------- Anexo No. 2: pagaré + carta (solo plan financiado) ----------
+// ---------- Anexo No. 2: pagaré + carta (financiado Y con_pagare) ----------
+// Quien llame a esto debe preguntar antes por `llevaPagare(plan)`.
 
 export function pagareSections(v: ContractVariables, fechaFirma: string): ContractSection[] {
   const f = fmtFechaLarga(fechaFirma);

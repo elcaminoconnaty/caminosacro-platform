@@ -11,6 +11,7 @@ import {
   contractClauses,
   anexosTexto,
   pagareSections,
+  llevaPagare,
   type ContractVariables,
   type PaymentPlan,
 } from "@/lib/contracts/template";
@@ -62,7 +63,8 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
     day: "2-digit",
     timeZone: "America/Bogota",
   }).format(new Date());
-  const pagare = plan.type === "financiado" ? pagareSections(v, hoyBogota) : [];
+  const conPagare = llevaPagare(plan);
+  const pagare = conPagare ? pagareSections(v, hoyBogota) : [];
 
   return (
     <main className="min-h-screen bg-crema">
@@ -121,7 +123,7 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
             defaultName={v.viajero_nombre}
             defaultDocument={v.viajero_documento}
             docType={v.viajero_tipo_documento}
-            financiado={plan.type === "financiado"}
+            financiado={conPagare}
           />
         </div>
 

@@ -140,7 +140,7 @@ export default function SignForm({
   defaultName,
   defaultDocument,
   docType,
-  financiado,
+  financiado, // = el paquete incluye el pagaré (ver `llevaPagare`), no solo que el plan sea a cuotas
 }: {
   token: string;
   defaultName: string;
