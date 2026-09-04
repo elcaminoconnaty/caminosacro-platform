@@ -43,8 +43,47 @@ const str = (v: FormDataEntryValue | null) => {
   return s === "" ? null : s;
 };
 
+/**
+ * ¿Estos dos valores dicen lo mismo, vengan de donde vengan?
+ *
+ * Hace falta porque los dos lados llegan en formatos distintos: Postgres devuelve los
+ * `numeric` como cadena ("585.00") y las fechas como "2026-10-19", mientras el formulario
+ * manda números y cadenas ya normalizados. Sin esto, comparar 585 con "585.00" diría que
+ * cambió el precio en cada guardado y no serviría de nada.
+ */
+function mismoValor(a: unknown, b: unknown): boolean {
+  const vacio = (v: unknown) => v == null || v === "";
+  if (vacio(a) && vacio(b)) return true;
+  if (vacio(a) !== vacio(b)) return false;
+  if (typeof a === "object" || typeof b === "object") {
+    // `price_blocks` y `rooms_json`: se comparan por contenido con las claves ordenadas,
+    // porque el orden en que Postgres devuelve un jsonb no es el que armó el formulario.
+    const orden = (v: unknown): unknown => {
+      if (Array.isArray(v)) return v.map(orden);
+      if (v && typeof v === "object") {
+        return Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).sort(([x], [y]) => x.localeCompare(y)).map(([k, val]) => [k, orden(val)]),
+        );
+      }
+      return v;
+    };
+    return JSON.stringify(orden(a)) === JSON.stringify(orden(b));
+  }
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return na === nb;
+  return String(a) === String(b);
+}
+
 export async function updateQuote(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
+  // Cómo está ahora, para saber después si de verdad cambió algo (ver más abajo).
+  const { data: antesRaw } = await supabase
+    .from("quotes")
+    .select("client_name,client_phone,client_email,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,valid_until,notes,price_blocks,rooms_json,pdf_path")
+    .eq("id", id)
+    .maybeSingle();
+  const antes = (antesRaw ?? null) as Record<string, unknown> | null;
   const newBase = num(formData.get("total_eur"));
   const seasonKindRaw = str(formData.get("season_kind"));
   const seasonKind = (seasonKindRaw === "high_season" || seasonKindRaw === "easter") ? seasonKindRaw : "regular";
@@ -93,11 +132,25 @@ export async function updateQuote(id: string, formData: FormData) {
   if (error) return { error: mensajeError(error) };
   // Recalcula total_eur y cost_eur: base + suplemento + opcionales de cada lado.
   await supabase.rpc("recompute_quote_total", { p_quote_id: id });
-  // Y el PDF, porque el documento lleva fechas, personas, precios y notas: sin esto el
-  // PDF que ya se le mandó al cliente seguía diciendo lo viejo hasta que alguien entrara
-  // a Documentos a regenerarlo a mano.
-  const pdf = await renderAndStoreQuotePdf(supabase, id);
-  const pdfAviso = "error" in pdf && pdf.error ? "Se guardó, pero el PDF no se pudo regenerar." : null;
+
+  // El PDF se regenera SOLO si cambió algo que sale en él.
+  //
+  // Antes se regeneraba en cada guardado, aunque no se hubiera tocado nada (§2.4): abrir un
+  // expediente y pulsar Guardar por costumbre pisaba el PDF que el cliente ya tenía en su
+  // correo, y con él se quemaba el único rastro que quedaba de la versión anterior. Como el
+  // archivo se sobrescribe en la misma ruta de Storage, eso no se puede deshacer.
+  //
+  // `status` queda fuera de la comparación a propósito: no aparece en el documento. El
+  // resto del parche sí, y `pdf_path` vacío fuerza la generación —una cotización sin PDF
+  // todavía siempre lo necesita—.
+  const cambiaElPdf =
+    !antes?.pdf_path ||
+    (Object.keys(patch) as Array<keyof typeof patch>).some(
+      (k) => k !== "status" && !mismoValor(antes[k], patch[k]),
+    );
+
+  const pdf = cambiaElPdf ? await renderAndStoreQuotePdf(supabase, id) : null;
+  const pdfAviso = pdf && "error" in pdf && pdf.error ? "Se guardó, pero el PDF no se pudo regenerar." : null;
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
   return pdfAviso ? { ok: true as const, aviso: pdfAviso } : { ok: true as const };
