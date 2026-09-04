@@ -234,11 +234,28 @@ function PaymentForm({
           {ACCOUNTS.map((a) => <option key={a.slug} value={a.slug}>{a.label} ({a.currency})</option>)}
         </select>
       </label>
-      {currency === "COP" && (
+      {/* La tasa aparece para CUALQUIER moneda que no sea el euro, no solo para el peso.
+          Los dólares no tenían campo (§2.5): el cobro entraba con el importe en euros vacío
+          y desaparecía del saldo, así que al cliente se le podía reclamar plata que ya pagó.
+          Ahora el servidor la exige —ver `resolverPagoCliente`—, o sea que sin este campo el
+          pago en dólares no se podría guardar. */}
+      {currency !== "EUR" && (
         <label className="col-span-2">
-          <span className="text-xs text-muted">TRM al recibir (COP por 1 EUR)</span>
-          <input name="trm_eur_cop" type="number" step="0.01" placeholder="ej. 4350" defaultValue={payment?.trm_eur_cop ?? ""} className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white" />
-          <span className="text-[10px] text-muted">Para convertir el COP a EUR y descontarlo del saldo.</span>
+          <span className="text-xs text-muted">
+            Tasa al recibir ({currency} por 1 EUR) <span className="text-red-700">·  obligatoria</span>
+          </span>
+          <input
+            name="trm_eur_cop"
+            type="number"
+            step="0.01"
+            required
+            placeholder={currency === "COP" ? "ej. 4350" : "ej. 1.08"}
+            defaultValue={payment?.trm_eur_cop ?? ""}
+            className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white"
+          />
+          <span className="text-[10px] text-muted">
+            Para convertir el {currency} a EUR y descontarlo del saldo. Es la del día del pago, no la de hoy.
+          </span>
         </label>
       )}
       <label className="col-span-2">

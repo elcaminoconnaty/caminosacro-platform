@@ -17,6 +17,49 @@ import type { OpcionalLibre } from "@/lib/quotes/opcionalLibre";
 import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
 import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
 import { duplicarCotizacion } from "@/lib/quotes/duplicar";
+import { resolverPagoCliente, esMonedaPago, type MonedaPago } from "@/lib/quotes/pagoCliente";
+
+/**
+ * Mueve el estado de la venta según lo cobrado. Se llama después de cada alta, edición o
+ * borrado de un pago del cliente.
+ *
+ * Existe porque registrar un pago NO cambiaba el estado: había que acordarse de moverlo a
+ * mano en un desplegable, y la tarjeta que genera la documentación de viaje solo se dibujaba
+ * si el estado decía «pago completo». O sea que un cliente que ya pagó no recibía sus
+ * documentos porque la plataforma creía que no había pagado (§2.6). Le pasaba a CS-2026-004:
+ * 970 de 970 € cobrados.
+ *
+ * Solo avanza, nunca retrocede por su cuenta más allá de lo que el dinero justifica, y no
+ * toca los estados que son decisión de una persona: `cancelada` y `completada` se quedan
+ * como están. `sin_enviar` tampoco se toca sin dinero de por medio: una cotización que nadie
+ * ha mandado no pasa a «aceptada» sola.
+ */
+async function sincronizarEstadoPorCobro(
+  supabase: Awaited<ReturnType<typeof createCommercialClient>>,
+  quoteId: string,
+) {
+  const [{ data: q }, { data: pagos }] = await Promise.all([
+    supabase.from("quotes").select("status,total_eur").eq("id", quoteId).maybeSingle(),
+    supabase.from("client_payments").select("amount_eur,amount,currency").eq("quote_id", quoteId),
+  ]);
+  if (!q) return;
+  // Estos dos los decide una persona, no el saldo.
+  if (q.status === "cancelada" || q.status === "completada") return;
+
+  const cobrado = (pagos ?? []).reduce((s, p) => {
+    const v = p.amount_eur ?? (p.currency === "EUR" ? p.amount : 0);
+    return s + (Number(v) || 0);
+  }, 0);
+  const total = Number(q.total_eur) || 0;
+
+  // Con un céntimo de margen: los redondeos de tasa no pueden dejar un viaje pagado
+  // figurando como "parcial" por dos céntimos.
+  const nuevo =
+    cobrado <= 0 ? null : total > 0 && cobrado >= total - 0.01 ? "pago_completo" : "pago_parcial";
+  if (!nuevo || nuevo === q.status) return;
+
+  await supabase.from("quotes").update({ status: nuevo }).eq("id", quoteId);
+}
 
 // Borra un archivo de Storage a partir de su ruta "bucket/archivo".
 async function removeStoragePath(
@@ -185,11 +228,50 @@ export async function updateQuoteStatus(id: string, status: string) {
   return { ok: true };
 }
 
-// Borra una cotización por completo (incluye sus PDFs en Storage).
-// Las tablas hijas (quote_lines, client_payments, provider_payments, quote_hotels)
-// se borran solas por ON DELETE CASCADE.
+/**
+ * Borra una cotización por completo (incluye sus PDFs en Storage).
+ * Las tablas hijas (quote_lines, client_payments, provider_payments, quote_hotels)
+ * se borran solas por ON DELETE CASCADE.
+ *
+ * **Se niega si hay un contrato firmado o dinero registrado.** Antes no comprobaba nada:
+ * borraba igual una venta con contrato firmado, pagos y documentación enviada, tras un
+ * «¿seguro?» genérico que no mencionaba ni una cosa ni la otra. Y borrar es rutina —se han
+ * emitido 84 códigos y quedan 44 cotizaciones—, así que el accidente era cuestión de
+ * tiempo. Lo peor es lo que SÍ sobrevivía: los archivos quedaban sueltos en el
+ * almacenamiento (hay dos pasaportes de cotizaciones borradas, `CS-2026-048` y
+ * `CS-2026-044`), o sea que se perdía el registro y se conservaba el dato personal,
+ * exactamente al revés de lo deseable.
+ *
+ * Para eso está `cancelada`, que ya existe en los estados: conserva el rastro y saca la
+ * venta de en medio. Mientras no haya copia de seguridad, esta guarda es la única red que
+ * hay debajo de un error irreversible.
+ */
 export async function deleteQuote(id: string) {
   const supabase = await createCommercialClient();
+
+  const [{ data: firmados }, { data: pagosCliente }, { data: pagosProveedor }] = await Promise.all([
+    supabase.from("contracts").select("id").eq("quote_id", id).not("signed_at", "is", null),
+    supabase.from("client_payments").select("id").eq("quote_id", id),
+    supabase.from("provider_payments").select("id").eq("quote_id", id),
+  ]);
+
+  const nFirmados = firmados?.length ?? 0;
+  const nPagos = (pagosCliente?.length ?? 0) + (pagosProveedor?.length ?? 0);
+  if (nFirmados > 0 || nPagos > 0) {
+    // El motivo se dice con las cifras concretas: un "no se puede" a secas invita a buscar
+    // la forma de saltárselo, y aquí la alternativa buena es real.
+    const partes = [
+      nFirmados > 0 ? `${nFirmados} contrato${nFirmados === 1 ? "" : "s"} firmado${nFirmados === 1 ? "" : "s"}` : null,
+      nPagos > 0 ? `${nPagos} pago${nPagos === 1 ? "" : "s"} registrado${nPagos === 1 ? "" : "s"}` : null,
+    ].filter(Boolean);
+    return {
+      error:
+        `No se puede borrar: esta cotización tiene ${partes.join(" y ")}. ` +
+        `Borrarla se llevaría la prueba de la firma y el rastro del dinero, y no hay vuelta atrás. ` +
+        `Si la venta se cayó, cámbiale el estado a «Cancelada»: se queda fuera de en medio y el registro se conserva.`,
+    };
+  }
+
   const { data: q } = await supabase
     .from("quotes")
     .select("pdf_path, hotels_pdf_path")
@@ -259,9 +341,16 @@ export async function updateQuoteLineQuantity(quoteId: string, lineId: string, q
 export async function addClientPayment(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
   const amount = num(formData.get("amount")) ?? 0;
-  const currency = (str(formData.get("currency")) || "EUR") as "EUR" | "COP" | "USD";
+  const monedaCruda = str(formData.get("currency")) || "EUR";
+  const currency: MonedaPago = esMonedaPago(monedaCruda) ? monedaCruda : "EUR";
   const trm = num(formData.get("trm_eur_cop"));
-  const amountEur = currency === "EUR" ? amount : currency === "COP" && trm ? amount / trm : null;
+  const account = str(formData.get("account"));
+
+  // Las tres guardas del euro: ver @/lib/quotes/pagoCliente. La misma llamada está en la
+  // edición, para que un pago correcto no pueda corromperse al editarlo.
+  const cuentas = resolverPagoCliente({ amount, currency, trm, account });
+  if (!cuentas.ok) return { error: cuentas.error };
+  const amountEur = cuentas.amountEur;
 
   const { error } = await supabase.from("client_payments").insert({
     quote_id: id,
@@ -271,22 +360,29 @@ export async function addClientPayment(id: string, formData: FormData) {
     trm_eur_cop: trm,
     amount_eur: amountEur,
     method: str(formData.get("method")),
-    account: str(formData.get("account")),
+    account,
     reference: str(formData.get("reference")),
     notes: str(formData.get("notes")),
   });
   if (error) return { error: mensajeError(error) };
+  await sincronizarEstadoPorCobro(supabase, id);
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
-  return { ok: true };
+  revalidatePath("/calendario");
+  return cuentas.aviso ? { ok: true as const, aviso: cuentas.aviso } : { ok: true as const };
 }
 
 export async function updateClientPayment(quoteId: string, paymentId: string, formData: FormData) {
   const supabase = await createCommercialClient();
   const amount = num(formData.get("amount")) ?? 0;
-  const currency = (str(formData.get("currency")) || "EUR") as "EUR" | "COP" | "USD";
+  const monedaCruda = str(formData.get("currency")) || "EUR";
+  const currency: MonedaPago = esMonedaPago(monedaCruda) ? monedaCruda : "EUR";
   const trm = num(formData.get("trm_eur_cop"));
-  const amountEur = currency === "EUR" ? amount : currency === "COP" && trm ? amount / trm : null;
+  const account = str(formData.get("account"));
+
+  const cuentas = resolverPagoCliente({ amount, currency, trm, account });
+  if (!cuentas.ok) return { error: cuentas.error };
+  const amountEur = cuentas.amountEur;
 
   const { error } = await supabase
     .from("client_payments")
@@ -297,17 +393,19 @@ export async function updateClientPayment(quoteId: string, paymentId: string, fo
       trm_eur_cop: trm,
       amount_eur: amountEur,
       method: str(formData.get("method")),
-      account: str(formData.get("account")),
+      account,
       reference: str(formData.get("reference")),
       notes: str(formData.get("notes")),
     })
     .eq("id", paymentId)
     .eq("quote_id", quoteId);
   if (error) return { error: mensajeError(error) };
+  await sincronizarEstadoPorCobro(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   revalidatePath("/finanzas");
-  return { ok: true };
+  revalidatePath("/calendario");
+  return cuentas.aviso ? { ok: true as const, aviso: cuentas.aviso } : { ok: true as const };
 }
 
 export async function deleteClientPayment(quoteId: string, paymentId: string) {
@@ -320,8 +418,12 @@ export async function deleteClientPayment(quoteId: string, paymentId: string) {
   const { error } = await supabase.from("client_payments").delete().eq("id", paymentId);
   if (error) return { error: mensajeError(error) };
   await removeStoragePath(supabase, pago?.receipt_path);
+  // Borrar un pago también mueve el estado: si se quita el que completaba el total, la venta
+  // no puede seguir diciendo «pago completo».
+  await sincronizarEstadoPorCobro(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
+  revalidatePath("/calendario");
   return { ok: true };
 }
 

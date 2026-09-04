@@ -508,7 +508,15 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         files={((pilgrimFiles as unknown) as PilgrimFile[]) || []}
       />
 
-      {isFullyPaid(quote.status) && (
+      {/* La puerta es el SALDO, no la etiqueta.
+          Antes esta tarjeta solo se dibujaba si el estado decía «pago completo», y como
+          cobrar no movía el estado, un cliente que ya había pagado no recibía sus documentos
+          porque la plataforma creía que no había pagado (§2.6). Le pasaba a CS-2026-004: 970
+          de 970 € cobrados. Ahora el estado se mueve solo al cobrar, pero la puerta mira el
+          dinero de todas formas: es el dato duro, y las 45 cotizaciones anteriores a ese
+          cambio no lo tienen reflejado en su etiqueta. `isFullyPaid` se mantiene como
+          segunda vía para los estados que pone una persona a mano («completada»). */}
+      {(saldoCliente <= 0.01 && total > 0) || isFullyPaid(quote.status) ? (
         <TravelDocCard
           quoteId={id}
           quoteCode={quote.code}
@@ -527,7 +535,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             .filter((t) => !!t.email)
             .map((t) => ({ nombre: t.full_name || "", email: String(t.email) }))}
         />
-      )}
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <ClientPaymentsCard quoteId={id} payments={cps || []} cobrado={cobrado} saldo={saldoCliente} />
