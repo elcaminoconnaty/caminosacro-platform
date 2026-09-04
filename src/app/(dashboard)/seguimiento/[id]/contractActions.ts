@@ -476,18 +476,27 @@ export async function sendContractLink(
   const esPrueba = !!opts.pruebaEmail;
   const token = c.token || newContractToken();
   const expires = new Date(Date.now() + TOKEN_TTL_DAYS * 86400000).toISOString();
+
+  // Primero SOLO el token: hace falta para construir el enlace que va dentro del correo.
+  //
+  // El estado se movía aquí también, ANTES de intentar el envío, y no se revertía si el
+  // correo fallaba. Un contrato que nunca salió quedaba en «enviado» y entraba igual en la
+  // escalera de recordatorios —el cron coge `status = 'enviado'` y, a falta de `sent_at`,
+  // toma `created_at` como último contacto—: cinco correos recordándole a alguien que firme
+  // algo que nunca recibió. Ahora el estado se mueve abajo, y solo si el correo salió.
+  //
+  // Cuando se pide el enlace SIN correo (`opts.email` falso) sí se marca «enviado» de una
+  // vez: ahí el envío lo hace Nico a mano por WhatsApp, y el enlace ya está en la calle.
+  //
+  // Y un envío de PRUEBA ya no mueve el estado en absoluto —antes sí lo movía—: el correo
+  // fue a la dirección de ensayo, así que el viajero sigue sin recibir nada y el contrato
+  // no puede figurar como enviado.
   const { error } = await supabase
     .from("contracts")
     .update({
       token,
       token_expires_at: expires,
-      status: "enviado",
-      // Reenviar a mano reinicia el ciclo de recordatorios automáticos: el siguiente
-      // sale 4 días después de este envío, no del anterior. En modo prueba no se
-      // toca, para no meter contratos de ensayo en el cron de recordatorios.
-      ...(opts.email && !esPrueba
-        ? { sent_at: new Date().toISOString(), last_reminder_at: null, reminder_count: 0 }
-        : {}),
+      ...(opts.email ? {} : { status: "enviado" }),
     })
     .eq("id", c.id);
   if (error) return { error: mensajeError(error) };
@@ -561,6 +570,24 @@ export async function sendContractLink(
     }, { supabase, quoteId: c.quote_id as string, prueba: esPrueba });
     emailEnviado = envio.ok;
     errorEmail = envio.ok ? undefined : (envio.error ?? "No se pudo enviar el correo.");
+
+    // El correo salió: ahora sí «enviado». Reenviar reinicia el ciclo de recordatorios —el
+    // siguiente sale 4 días después de ESTE envío, no del anterior—. En modo prueba no se
+    // toca ninguna de las dos cosas, para no meter contratos de ensayo en el cron.
+    if (envio.ok && !esPrueba) {
+      const { error: errEstado } = await supabase
+        .from("contracts")
+        .update({
+          status: "enviado",
+          sent_at: new Date().toISOString(),
+          last_reminder_at: null,
+          reminder_count: 0,
+        })
+        .eq("id", c.id);
+      // Que esto falle no invalida un correo que ya salió: se avisa y se sigue. Lo peor que
+      // pasa es que el contrato se quede sin entrar en la escalera de recordatorios.
+      if (errEstado) console.error("[sendContractLink] el correo salió pero no pude marcar enviado:", errEstado);
+    }
   }
 
   revalidatePath(`/seguimiento/${c.quote_id}`);
