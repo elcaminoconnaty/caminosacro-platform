@@ -8,6 +8,12 @@
 // El aviso rojo de `AvisoCarga` solo cubre los errores *devueltos* por Supabase; los
 // lanzados no tenían dónde caer. Mismo patrón que `contenido/error.tsx` y
 // `contrato/[token]/error.tsx`, que ya existían: el hueco era solo el CRM.
+//
+// `unstable_retry` y no `reset`: en este panel casi todos los fallos son de datos —Supabase
+// que no responde—, y la documentación de Next 16.2 es explícita en que `reset()` vuelve a
+// renderizar SIN volver a pedir los datos. O sea que "Intentar de nuevo" habría enseñado el
+// mismo error una y otra vez. `unstable_retry()` sí re-pide. Es el prop que ya usa
+// `contenido/error.tsx`; el `reset` de `contrato/[token]/error.tsx` es anterior al cambio.
 
 import { useEffect } from "react";
 import Link from "next/link";
@@ -15,10 +21,10 @@ import { ArrowLeft, RotateCcw } from "lucide-react";
 
 export default function ErrorPanel({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
   useEffect(() => {
     console.error("[panel] la pantalla falló:", error);
@@ -40,7 +46,7 @@ export default function ErrorPanel({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => reset()}
+          onClick={() => unstable_retry()}
           className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-bosque text-white text-sm hover:bg-bosque-medio transition"
         >
           <RotateCcw size={14} /> Intentar de nuevo
