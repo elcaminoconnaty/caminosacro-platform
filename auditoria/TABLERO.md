@@ -96,7 +96,12 @@ Valores: `pendiente` · `en curso` · `hecho`. En Revisión, además: `—` (no 
 
 > **AUDITORÍA TERMINADA (3-sep-2026).** Los ocho bloques están cerrados. Lo que sigue no es
 > auditoría: es lo que Nico decida hacer con `SINTESIS.md`, que se lee sola y está ordenada por
-> impacto contra esfuerzo. Si alguien retoma esto, empieza por ahí.
+> impacto contra esfuerzo.
+>
+> **Si retomas esto, empieza por `RETOMAR.md`, no por la síntesis.** Ahí está lo que se hizo
+> los días 3 y 4 de septiembre —catorce commits, dos migraciones y cuatro decisiones ya
+> tomadas—, qué falta, de quién es cada cosa, y dos hallazgos de la síntesis que no
+> sobrevivieron al repaso contra producción.
 
 > **Estado anterior a 3-sep-2026:** **los siete bloques están cerrados enteros** —auditoría, crítica y
 > revisión—. Queda **B8, la síntesis**, y con ella se acaba la auditoría. Los números de cada
