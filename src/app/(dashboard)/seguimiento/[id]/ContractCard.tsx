@@ -6,9 +6,15 @@
 // uno recibe su propio enlace, firma con su nombre y sube su pasaporte. Por eso la
 // tarjeta tiene tres bloques:
 //
-//   1. Viajeros          — nombres y correos (se editan una vez)
+//   1. Viajeros          — nombres, correos y pasaportes (se editan una vez)
 //   2. Datos del viaje   — comunes a todos los contratos (se editan una vez)
 //   3. Contratos         — una fila por viajero, con sus acciones y las masivas
+//
+// MODALIDAD EMPRESA (migración 0036). Si la cotización tiene empresa contratante, el
+// bloque 3 se convierte en UNA sola fila: el contrato de la empresa, que firma su
+// representante legal y que lleva la relación de viajeros como Anexo No. 2. Los bloques 1
+// y 2 no cambian — salvo que ahí los pasaportes los carga el equipo, porque en esa
+// modalidad nadie firma individualmente.
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -20,11 +26,18 @@ import {
   seedTravelersFromQuote,
   createContractForTraveler,
   createAllContracts,
+  createCompanyContract,
+  refreshCompanyTravelers,
   applySharedToAll,
   generateContractPdf,
   sendContractLink,
   sendAllContractLinks,
   revokeContractLink,
+  subirPasaporteViajero,
+  quitarPasaporteViajero,
+  enviarFichaViajero,
+  enviarFichasATodos,
+  setOrgSignerForQuote,
   type ContractRow,
   type TravelerRow,
 } from "./contractActions";
@@ -34,6 +47,7 @@ import {
   type ContractVariables,
   type PaymentPlan,
   type Cuota,
+  type Firmante,
 } from "@/lib/contracts/template";
 
 // Igual que MAX_RECORDATORIOS en /api/cron/recordatorios-contrato: solo para el rótulo.
@@ -83,6 +97,78 @@ type FilaViajero = {
   document_number: string;
 };
 
+/** En qué va la ficha de un viajero: sin enviar, enviada sin responder, o completa. */
+function estadoFicha(t: TravelerRow): { label: string; cls: string; title: string } {
+  if (t.ficha_completed_at) {
+    const cuando = new Date(t.ficha_completed_at).toLocaleDateString("es-CO", { day: "numeric", month: "short" });
+    return { label: "Ficha ✓", cls: "bg-bosque text-white", title: `Completó su ficha el ${cuando}` };
+  }
+  if (t.ficha_sent_at) {
+    const cuando = new Date(t.ficha_sent_at).toLocaleDateString("es-CO", { day: "numeric", month: "short" });
+    return { label: "Ficha enviada", cls: "bg-amber-100 text-amber-800", title: `Se le envió el ${cuando} y no ha respondido` };
+  }
+  return { label: "Sin ficha", cls: "bg-taupe/60 text-fg", title: "Todavía no se le ha enviado la ficha" };
+}
+
+/** Sube el pasaporte de un viajero desde el CRM (input de archivo por fila). */
+function BotonPasaporte({
+  travelerId,
+  cargado,
+  disabled,
+  onSubir,
+  onQuitar,
+  onVer,
+}: {
+  travelerId: string;
+  cargado: boolean;
+  disabled: boolean;
+  onSubir: (id: string, archivo: File) => void;
+  onQuitar: (id: string) => void;
+  onVer: (id: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {cargado ? (
+        <>
+          <button
+            type="button"
+            onClick={() => onVer(travelerId)}
+            disabled={disabled}
+            className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider bg-bosque text-white disabled:opacity-50"
+            title="Ver el pasaporte cargado"
+          >
+            Pasaporte ✓
+          </button>
+          <button
+            type="button"
+            onClick={() => onQuitar(travelerId)}
+            disabled={disabled}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted hover:bg-taupe/40 disabled:opacity-50"
+            title="Quitar el pasaporte de este viajero"
+          >
+            ×
+          </button>
+        </>
+      ) : (
+        <label className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider bg-dorado/30 text-dorado-oscuro cursor-pointer hover:bg-dorado/50">
+          Subir pasaporte
+          <input
+            type="file"
+            className="hidden"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+            disabled={disabled}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onSubir(travelerId, f);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
 export default function ContractCard({
   quoteId,
   quoteCode,
@@ -91,6 +177,8 @@ export default function ContractCard({
   contracts,
   sharedVariables,
   totalEur,
+  companyName = null,
+  firmantes = [],
 }: {
   quoteId: string;
   quoteCode: string;
@@ -99,12 +187,21 @@ export default function ContractCard({
   contracts: ContractRow[];
   sharedVariables: ContractVariables | null;
   totalEur: number;
+  /** Razón social si la cotización tiene empresa contratante. Null = modalidad de siempre. */
+  companyName?: string | null;
+  /** Quiénes pueden firmar por Camino Sacro (settings.firmantes). */
+  firmantes?: Firmante[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [openDatos, setOpenDatos] = useState(contracts.length === 0);
+  // Quién firma por Camino Sacro. Sale del primer contrato existente; si no hay ninguno,
+  // del primero de la lista de firmantes (Nico).
+  const [firmanteActual, setFirmanteActual] = useState<string>(
+    contracts[0]?.org_signer || firmantes[0]?.slug || "nico",
+  );
 
   // Las variables compartidas salen del primer contrato existente (ya revisado por
   // el equipo) y, si aún no hay ninguno, de la precarga de la cotización.
@@ -136,12 +233,20 @@ export default function ContractCard({
 
   const porViajero = useMemo(() => {
     const m = new Map<string, ContractRow>();
-    for (const c of contracts) m.set(c.traveler_id, c);
+    // El contrato de empresa no cuelga de ningún viajero: su `traveler_id` es nulo.
+    for (const c of contracts) if (c.traveler_id) m.set(c.traveler_id, c);
     return m;
   }, [contracts]);
 
+  // Modalidad: la marca la cotización (tiene empresa) o un contrato de empresa ya creado.
+  const contratoEmpresa = contracts.find((c) => c.kind === "empresa") ?? null;
+  const modoEmpresa = !!companyName || !!contratoEmpresa;
+
   const firmados = contracts.filter((c) => c.status === "firmado").length;
   const sinContrato = travelers.filter((t) => !porViajero.has(t.id)).length;
+  const conPasaporte = travelers.filter((t) => t.passport_path).length;
+  const fichasCompletas = travelers.filter((t) => t.ficha_completed_at).length;
+  const fichasPendientes = travelers.length - fichasCompletas;
 
   const sumaCuotas = useMemo(
     () => (plan.type === "financiado" ? plan.cuotas.reduce((s, c) => s + (Number(c.monto_eur) || 0), 0) : 0),
@@ -217,6 +322,144 @@ export default function ContractCard({
     setPlan((prev) => (prev.type === "financiado" ? { ...prev, con_pagare: valor } : prev));
   }
 
+  /**
+   * La única fila del contrato de empresa. Mismas acciones que las de un viajero, pero el
+   * destinatario es la empresa y no hay pasaporte que abrir: quien firma es el
+   * representante legal.
+   */
+  function filaContratoEmpresa() {
+    const c = contratoEmpresa;
+    if (!c) return null;
+    const chip = STATUS_CHIP[c.status];
+    const recordatorios = rotuloRecordatorios(c);
+    const v = c.variables_json as ContractVariables;
+    const anexo = c.travelers_json?.length ?? 0;
+    // Comparar solo la CANTIDAD no alcanza: renombrar a un viajero o cargarle el pasaporte
+    // deja el anexo desactualizado sin cambiar cuántos son, y eso es justo lo que se
+    // imprime en el contrato. Se compara el contenido que sale en el Anexo No. 2.
+    const huella = (filas: { position: number; nombre: string; documento: string; autoriza_imagen: boolean | null }[]) =>
+      filas
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((f) => `${f.position}|${f.nombre}|${f.documento}|${f.autoriza_imagen}`)
+        .join("~");
+    const actual = huella(
+      travelers.map((t) => ({
+        position: t.position,
+        nombre: t.full_name,
+        documento: t.document_number ?? "",
+        autoriza_imagen: t.autoriza_imagen,
+      })),
+    );
+    const congelado = huella(
+      (c.travelers_json ?? []).map((t) => ({
+        position: t.position,
+        nombre: t.nombre,
+        documento: t.documento,
+        autoriza_imagen: t.autoriza_imagen,
+      })),
+    );
+    const desfasado = actual !== congelado && c.status !== "firmado";
+    return (
+      <div className="py-2.5 flex flex-wrap items-center gap-2 border-b border-border">
+        <div className="flex-1 min-w-[12rem]">
+          <div className="text-sm font-medium">{v.empresa_razon_social || companyName || "Empresa"}</div>
+          <div className="text-[11px] text-muted">
+            {v.empresa_nit ? `NIT ${v.empresa_nit} · ` : ""}
+            {v.empresa_email || <span className="text-amber-700">sin correo de notificaciones</span>}
+            {v.rep_nombre ? ` · rep. ${v.rep_nombre}` : ""}
+            {recordatorios ? ` · ${recordatorios}` : ""}
+          </div>
+          <div className={`text-[11px] ${desfasado ? "text-amber-700" : "text-muted"}`}>
+            Anexo No. 2: {anexo} viajero(s)
+            {desfasado
+              ? anexo !== travelers.length
+                ? ` — la lista tiene ${travelers.length}; actualiza el anexo antes de enviar`
+                : " — los datos de la lista cambiaron; actualiza el anexo antes de enviar"
+              : ""}
+          </div>
+        </div>
+
+        <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${chip.cls}`}>{chip.label}</span>
+
+        <div className="flex flex-wrap gap-1.5">
+          {c.status === "firmado" ? (
+            <button
+              onClick={() => abrirArchivo(c.signed_pdf_path)}
+              disabled={pending || !c.signed_pdf_path}
+              className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+            >
+              Contrato firmado
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => verVistaPrevia(c)}
+                disabled={pending}
+                className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+              >
+                Vista previa
+              </button>
+              <button
+                onClick={() =>
+                  run(async () => {
+                    if (modoPrueba && !pruebaEmail) return { error: "Escribe el correo de prueba." };
+                    const g = await saveContract(c.id, c.variables_json, plan);
+                    if (g.error) return g;
+                    const r = await sendContractLink(c.id, { email: true, pruebaEmail });
+                    if (r.error && !r.url) return r;
+                    setInfo(
+                      r.emailEnviado
+                        ? `Contrato enviado a ${pruebaEmail || v.empresa_email} para firma.`
+                        : `El correo no salió (${r.error ?? "revisa el webhook n8n"}); envíale este link: ${r.url}`,
+                    );
+                  })
+                }
+                disabled={pending}
+                className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+              >
+                {c.status === "enviado" ? "Reenviar" : "Enviar para firma"}
+              </button>
+              {c.status === "enviado" && (
+                <>
+                  <button
+                    onClick={() =>
+                      run(async () => {
+                        const r = await sendContractLink(c.id, { email: false });
+                        if (r.error) return r;
+                        if (r.url) {
+                          await navigator.clipboard.writeText(r.url).catch(() => {});
+                          setInfo(`Link de firma copiado: ${r.url}`);
+                        }
+                      })
+                    }
+                    disabled={pending}
+                    className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                  >
+                    Copiar link
+                  </button>
+                  <button
+                    onClick={() => run(() => revokeContractLink(c.id), "Link anulado.")}
+                    disabled={pending}
+                    className="text-xs px-2.5 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 transition disabled:opacity-50"
+                  >
+                    Anular
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function subirPasaporte(travelerId: string, archivo: File) {
+    const fd = new FormData();
+    fd.set("pasaporte", archivo);
+    run(() => subirPasaporteViajero(travelerId, fd), "Pasaporte cargado.");
+  }
+
   function setFila(i: number, patch: Partial<FilaViajero>) {
     setFilas((prev) => prev.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   }
@@ -237,12 +480,28 @@ export default function ContractCard({
     <section className="bg-bg-card border border-border rounded-xl overflow-hidden">
       <div className="px-5 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h2 className="font-display text-lg text-bosque">Contratos de servicios</h2>
+          <h2 className="font-display text-lg text-bosque">
+            {modoEmpresa ? "Contrato de empresa" : "Contratos de servicios"}
+          </h2>
           <p className="text-xs text-muted mt-0.5">
-            Un contrato por viajero: cada uno firma el suyo con su enlace y su pasaporte.{" "}
-            {contracts.length > 0
-              ? `${firmados} de ${contracts.length} firmado(s)${sinContrato > 0 ? ` · ${sinContrato} viajero(s) sin contrato` : ""}.`
-              : "Todavía no hay contratos creados."}
+            {modoEmpresa ? (
+              <>
+                Un solo contrato a nombre de {companyName || vars?.empresa_razon_social || "la empresa"}, firmado por su
+                representante legal, con los {travelers.length} viajeros en el Anexo No. 2.{" "}
+                {contratoEmpresa
+                  ? contratoEmpresa.status === "firmado"
+                    ? "Firmado."
+                    : "Todavía sin firmar."
+                  : "Todavía no está creado."}
+              </>
+            ) : (
+              <>
+                Un contrato por viajero: cada uno firma el suyo con su enlace y su pasaporte.{" "}
+                {contracts.length > 0
+                  ? `${firmados} de ${contracts.length} firmado(s)${sinContrato > 0 ? ` · ${sinContrato} viajero(s) sin contrato` : ""}.`
+                  : "Todavía no hay contratos creados."}
+              </>
+            )}
           </p>
         </div>
         <button
@@ -275,6 +534,26 @@ export default function ContractCard({
             >
               + Agregar viajero
             </button>
+            {travelers.length > 0 && fichasPendientes > 0 && (
+              <button
+                onClick={() =>
+                  run(async () => {
+                    if (modoPrueba && !pruebaEmail) return { error: "Escribe el correo de prueba." };
+                    const r = await enviarFichasATodos(quoteId, { pruebaEmail });
+                    if (r.error) return r;
+                    setInfo(
+                      `Ficha enviada a ${r.enviados} viajero(s)${pruebaEmail ? ` (prueba a ${pruebaEmail})` : ""}.` +
+                        (r.fallos?.length ? ` No salieron: ${r.fallos.join(" · ")}` : ""),
+                    );
+                  })
+                }
+                disabled={pending}
+                className="text-xs px-3 py-1.5 rounded-md border border-bosque text-bosque hover:bg-bosque hover:text-white transition disabled:opacity-50"
+                title="Le manda a cada viajero su enlace para completar pasaporte y autorizaciones"
+              >
+                Enviar la ficha a los {fichasPendientes} que faltan
+              </button>
+            )}
             <button
               onClick={() =>
                 run(async () => {
@@ -300,7 +579,16 @@ export default function ContractCard({
         </div>
 
         <p className="text-[11px] text-muted mb-2">
-          El número de pasaporte lo escribe cada viajero al firmar; si ya lo tienes, puedes adelantarlo aquí.
+          {modoEmpresa ? (
+            <>
+              Estos son los viajeros del Anexo No. 2. Lo normal es <strong>mandarles la ficha</strong>: cada uno
+              completa su pasaporte y sus autorizaciones desde su propio enlace, sin ver el contrato. También puedes
+              cargar tú los pasaportes que te lleguen por correo. Fichas completas: {fichasCompletas} de{" "}
+              {travelers.length} · pasaportes: {conPasaporte} de {travelers.length}.
+            </>
+          ) : (
+            "El número de pasaporte lo escribe cada viajero al firmar; si ya lo tienes, puedes adelantarlo aquí. También puedes mandarle la ficha para que complete sus datos y autorizaciones."
+          )}
         </p>
 
         <div className="space-y-1.5">
@@ -329,6 +617,45 @@ export default function ContractCard({
                   placeholder="Pasaporte"
                   className="w-32 border border-border rounded-md px-2 py-1.5 text-sm bg-white"
                 />
+                {t && (
+                  <>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${estadoFicha(t).cls}`}
+                      title={estadoFicha(t).title}
+                    >
+                      {estadoFicha(t).label}
+                    </span>
+                    <button
+                      onClick={() =>
+                        run(async () => {
+                          if (modoPrueba && !pruebaEmail) return { error: "Escribe el correo de prueba." };
+                          const r = await enviarFichaViajero(t.id, { pruebaEmail });
+                          if (r.error && !r.url) return r;
+                          setInfo(
+                            r.emailEnviado
+                              ? `Ficha enviada a ${pruebaEmail || t.email}.`
+                              : `El correo no salió (${r.error ?? "revisa el webhook"}); envíale este link: ${r.url}`,
+                          );
+                        })
+                      }
+                      disabled={pending}
+                      className="text-[10px] px-2 py-0.5 rounded border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                      title="Enviarle (o reenviarle) su enlace de ficha"
+                    >
+                      {t.ficha_sent_at ? "Reenviar" : "Enviar ficha"}
+                    </button>
+                  </>
+                )}
+                {t && (
+                  <BotonPasaporte
+                    travelerId={t.id}
+                    cargado={!!t.passport_path}
+                    disabled={pending}
+                    onSubir={subirPasaporte}
+                    onQuitar={(id) => run(() => quitarPasaporteViajero(id), "Pasaporte quitado.")}
+                    onVer={() => abrirArchivo(t.passport_path)}
+                  />
+                )}
                 {c ? (
                   <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${STATUS_CHIP[c.status].cls}`}>
                     {STATUS_CHIP[c.status].label}
@@ -501,6 +828,46 @@ export default function ContractCard({
             )}
           </fieldset>
 
+          {firmantes.length > 1 && (
+            <fieldset>
+              <legend className="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
+                Firma por Camino Sacro
+              </legend>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={firmanteActual}
+                  onChange={(e) => {
+                    const slug = e.target.value;
+                    setFirmanteActual(slug);
+                    run(async () => {
+                      const r = await setOrgSignerForQuote(quoteId, slug);
+                      if (r.error) return r;
+                      if (r.actualizados) {
+                        setInfo(
+                          `Firmante cambiado en ${r.actualizados} contrato(s).` +
+                            (r.omitidos ? ` ${r.omitidos} ya estaban firmados y no se tocaron.` : ""),
+                        );
+                      }
+                    });
+                  }}
+                  disabled={pending}
+                  className="border border-border rounded-md px-2 py-1.5 text-sm bg-white disabled:opacity-50"
+                >
+                  {firmantes.map((f) => (
+                    <option key={f.slug} value={f.slug}>
+                      {f.nombre}
+                      {f.data_url ? "" : " (sin firma capturada)"}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-muted">
+                  Quien elijas queda como EL ORGANIZADOR en el contrato y es su firma la que sale en el PDF. Se aplica
+                  a los contratos que aún no estén firmados.
+                </span>
+              </div>
+            </fieldset>
+          )}
+
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() =>
@@ -538,9 +905,36 @@ export default function ContractCard({
       {/* ---------- 3. Contratos ---------- */}
       <div className="px-5 py-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Contratos</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+            {modoEmpresa ? "Contrato de la empresa" : "Contratos"}
+          </h3>
           <div className="flex flex-wrap gap-2">
-            {sinContrato > 0 && (
+            {modoEmpresa && !contratoEmpresa && (
+              <button
+                onClick={() => run(() => createCompanyContract(quoteId, vars, plan), "Contrato de empresa creado.")}
+                disabled={pending || travelers.length === 0}
+                className="text-xs px-3.5 py-1.5 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50 font-medium"
+              >
+                Crear el contrato de empresa
+              </button>
+            )}
+            {modoEmpresa && contratoEmpresa && contratoEmpresa.status !== "firmado" && (
+              <button
+                onClick={() =>
+                  run(async () => {
+                    const r = await refreshCompanyTravelers(contratoEmpresa.id);
+                    if (r.error) return r;
+                    setInfo(`Anexo actualizado: ${r.viajeros} viajero(s).`);
+                  })
+                }
+                disabled={pending}
+                className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                title="Vuelve a copiar la lista de viajeros al Anexo No. 2 del contrato"
+              >
+                Actualizar la lista de viajeros del anexo
+              </button>
+            )}
+            {!modoEmpresa && sinContrato > 0 && (
               <button
                 onClick={() =>
                   run(async () => {
@@ -555,7 +949,7 @@ export default function ContractCard({
                 Crear los {travelers.length} contratos
               </button>
             )}
-            {contracts.length > 0 && firmados < contracts.length && (
+            {!modoEmpresa && contracts.length > 0 && firmados < contracts.length && (
               <button
                 onClick={() =>
                   run(async () => {
@@ -598,15 +992,23 @@ export default function ContractCard({
           />
           {modoPrueba && (
             <span className="text-muted">
-              Los correos van a esta dirección en vez de a los viajeros. No entra al ciclo de recordatorios.
+              Los correos van a esta dirección en vez de{modoEmpresa ? " a la empresa" : " a los viajeros"}. No entra al
+              ciclo de recordatorios.
             </span>
           )}
         </div>
 
         {travelers.length === 0 && (
-          <p className="text-sm text-muted">Carga primero los viajeros para poder generar sus contratos.</p>
+          <p className="text-sm text-muted">
+            {modoEmpresa
+              ? "Carga primero los viajeros: son el Anexo No. 2 del contrato de empresa."
+              : "Carga primero los viajeros para poder generar sus contratos."}
+          </p>
         )}
 
+        {modoEmpresa && contratoEmpresa && filaContratoEmpresa()}
+
+        {!modoEmpresa && (
         <div className="divide-y divide-border">
           {travelers.map((t) => {
             const c = porViajero.get(t.id);
@@ -729,9 +1131,13 @@ export default function ContractCard({
             );
           })}
         </div>
+        )}
 
         <p className="text-[11px] text-muted mt-3">
-          Expediente {quoteCode}. Los pasaportes que suban al firmar son los que después se le adjuntan a Pilgrim.
+          Expediente {quoteCode}.{" "}
+          {modoEmpresa
+            ? "Los pasaportes que cargues arriba son los que después se le adjuntan a Pilgrim."
+            : "Los pasaportes que suban al firmar son los que después se le adjuntan a Pilgrim."}
         </p>
       </div>
 

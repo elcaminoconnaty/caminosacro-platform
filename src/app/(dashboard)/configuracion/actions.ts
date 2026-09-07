@@ -5,10 +5,50 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { renderAndStoreAsistencia } from "@/lib/travelDocs/render";
 
-// Firma del organizador (Nico), guardada una sola vez en comercial.settings y
-// reutilizada en todos los contratos firmados. Se captura desde el celular.
+// Firmas de quienes firman por Camino Sacro (Nico y Nathalia), guardadas en
+// `settings.firmantes` y reutilizadas en todos los contratos. Cada uno la captura una sola
+// vez desde su celular. Migración 0037.
+//
+// `settings.org_signature` sigue existiendo por compatibilidad con lo anterior a la 0037;
+// la lectura cae en ella si un firmante todavía no tiene la suya (ver getOrgSignature).
 
 const MAX_CHARS = 400_000; // data URL PNG del canvas
+
+/** Guarda la firma dibujada de UN firmante dentro de `settings.firmantes`. */
+export async function saveFirmanteSignature(
+  slug: string,
+  dataUrl: string,
+): Promise<{ ok?: true; error?: string }> {
+  if (!dataUrl.startsWith("data:image/png;base64,") || dataUrl.length > MAX_CHARS) {
+    return { error: "La firma no es válida. Vuelve a dibujarla." };
+  }
+  const supabase = await createCommercialClient();
+  const { data } = await supabase.from("settings").select("value").eq("key", "firmantes").maybeSingle();
+  const lista = (data?.value as { slug: string; data_url?: string | null }[] | null) ?? [];
+  if (!lista.some((f) => f.slug === slug)) return { error: "Ese firmante no existe." };
+
+  const nueva = lista.map((f) => (f.slug === slug ? { ...f, data_url: dataUrl } : f));
+  const { error } = await supabase
+    .from("settings")
+    .upsert({ key: "firmantes", value: nueva }, { onConflict: "key" });
+  if (error) return { error: mensajeError(error) };
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+/** Borra la firma de un firmante. Sus contratos vuelven a salir con la firma mecánica. */
+export async function clearFirmanteSignature(slug: string): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data } = await supabase.from("settings").select("value").eq("key", "firmantes").maybeSingle();
+  const lista = (data?.value as { slug: string; data_url?: string | null }[] | null) ?? [];
+  const nueva = lista.map((f) => (f.slug === slug ? { ...f, data_url: null } : f));
+  const { error } = await supabase
+    .from("settings")
+    .upsert({ key: "firmantes", value: nueva }, { onConflict: "key" });
+  if (error) return { error: mensajeError(error) };
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
 
 export async function saveOrgSignature(dataUrl: string): Promise<{ ok?: true; error?: string }> {
   if (!dataUrl.startsWith("data:image/png;base64,") || dataUrl.length > MAX_CHARS) {

@@ -1,5 +1,5 @@
 import { createCommercialClient } from "@/lib/supabase/server";
-import { getOrgSignature } from "@/lib/contracts/render";
+import { getFirmantes } from "@/lib/contracts/render";
 import { getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 import { getAsistenciaTexts, getTravelDocTexts } from "@/lib/travelDocs/texts";
 import { rutaAsistencia } from "@/lib/storage/paths";
@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ConfiguracionPage() {
   const supabase = await createCommercialClient();
-  const [orgSignature, pilgrim, travelDocTexts, asistenciaTexts, asistenciaFiles] = await Promise.all([
-    getOrgSignature(supabase),
+  const [firmantes, pilgrim, travelDocTexts, asistenciaTexts, asistenciaFiles] = await Promise.all([
+    getFirmantes(supabase),
     getPilgrimSettings(supabase),
     getTravelDocTexts(supabase),
     getAsistenciaTexts(supabase),
@@ -28,7 +28,7 @@ export default async function ConfiguracionPage() {
         <p className="text-muted text-sm mt-1">Firma del organizador, proveedor Pilgrim, textos de la documentación de viaje, plantillas de correo.</p>
       </header>
 
-      <OrgSignatureForm current={orgSignature} />
+      <OrgSignatureForm firmantes={firmantes} />
 
       <PilgrimForm current={pilgrim} />
 

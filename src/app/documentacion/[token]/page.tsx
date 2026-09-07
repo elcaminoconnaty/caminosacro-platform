@@ -94,7 +94,7 @@ export default async function DocumentacionViaje({ params }: { params: Promise<{
       <header className="bg-bosque px-6 py-10">
         <div className="mx-auto max-w-2xl">
           <p className="font-display text-xl text-white">Camino Sacro</p>
-          <p className="text-xs text-white/70 mt-1">Agencia del Camino de Santiago</p>
+          <p className="text-xs text-white/70 mt-1">Viajes y peregrinaciones al Camino de Santiago</p>
           <p className="text-[11px] uppercase tracking-[0.2em] text-dorado mt-7">Documentación de viaje</p>
           <h1 className="font-display text-3xl text-white mt-2">
             {quote?.route_name || "Camino de Santiago"}

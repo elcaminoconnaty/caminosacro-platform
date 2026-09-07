@@ -140,6 +140,16 @@ export function rutaContrato(code: string, firmado = false, posicion?: number | 
   return `comercial-contracts/${carpetaCotizacion(code)}/${archivo}`;
 }
 
+/**
+ * El contrato de empresa es uno solo y no cuelga de ningún viajero, así que no puede usar
+ * el nombre de `rutaContrato(code, firmado, null)`: ese ya es el del viajero 1 y se
+ * pisarían si una cotización llegara a tener los dos.
+ */
+export function rutaContratoEmpresa(code: string, firmado = false): string {
+  const archivo = firmado ? `Contrato-${code}-empresa-firmado.pdf` : `Contrato-${code}-empresa.pdf`;
+  return `comercial-contracts/${carpetaCotizacion(code)}/${archivo}`;
+}
+
 export function rutaPasaporte(code: string, ext: string, marca = Date.now()): string {
   return `comercial-passports/${carpetaCotizacion(code)}/Pasaporte-${code}-${marca}.${ext}`;
 }

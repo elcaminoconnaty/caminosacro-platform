@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
-import type { ContractVariables } from "@/lib/contracts/template";
+import { destinatarioContrato, saludoContrato, type ContractVariables } from "@/lib/contracts/template";
 import { sinBucket } from "@/lib/storage/paths";
 
 /**
@@ -183,9 +183,12 @@ export async function POST(request: Request) {
   for (const c of toca) {
     const vars = (c.variables_json ?? {}) as ContractVariables;
     const code = vars.codigo_cotizacion || c.quote_id;
+    // El contrato de empresa se le recuerda a la empresa, por su correo de notificaciones:
+    // ahí `viajero_email` está vacío y el recordatorio no llegaría a ninguna parte.
+    const { email: correoParte, nombre: nombreParte } = destinatarioContrato(vars);
     try {
-      if (!vars.viajero_email) {
-        errores.push({ code, motivo: "el contrato no tiene correo del viajero" });
+      if (!correoParte) {
+        errores.push({ code, motivo: "el contrato no tiene correo del destinatario" });
         continue;
       }
 
@@ -194,7 +197,7 @@ export async function POST(request: Request) {
       // Un aviso de salida no es "el último de la escalera": la escalera ya se acabó, o ni
       // siquiera aplica. Pero sí avisa a reservas@, porque es de los que piden llamar.
       const esUltimo = hito == null && numero >= MAX_RECORDATORIOS;
-      const primerNombre = (vars.viajero_nombre || "").split(/\s+/).filter(Boolean)[0] || "peregrino";
+      const primerNombre = saludoContrato(vars) || "peregrino";
       const { etiqueta, entrada } = tono(numero, primerNombre, vars.ruta_nombre, hito);
       const url = `${base}/contrato/${c.token}`;
 
@@ -218,9 +221,9 @@ export async function POST(request: Request) {
 
       const envio = await enviarCorreoContrato({
         code,
-        nombre: vars.viajero_nombre,
-        email: vars.viajero_email,
-        telefono: vars.viajero_telefono || null,
+        nombre: nombreParte,
+        email: correoParte,
+        telefono: vars.viajero_telefono || vars.empresa_telefono || null,
         ruta: vars.ruta_nombre || null,
         fecha_inicio: vars.fecha_inicio || null,
         personas: Number(vars.num_personas) || 1,
@@ -252,18 +255,18 @@ export async function POST(request: Request) {
         aviso: esUltimo || hito != null,
         aviso_subject:
           hito != null
-            ? `SALE EN ${hito} DIAS sin firmar: ${vars.viajero_nombre} - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`
+            ? `SALE EN ${hito} DIAS sin firmar: ${nombreParte} - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`
             : esUltimo
               ? `ATENCION: ${vars.viajero_nombre} no ha firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`
-              : `Recordatorio ${numero} de ${MAX_RECORDATORIOS} enviado - ${code} - ${vars.viajero_nombre}`,
+              : `Recordatorio ${numero} de ${MAX_RECORDATORIOS} enviado - ${code} - ${nombreParte}`,
         aviso_body: hito != null
           ? [
               `Este viaje sale en ${hito} días y el contrato sigue SIN FIRMAR.`,
               `Se le acaba de mandar un recordatorio, pero a esta altura conviene llamar.`,
               ``,
               `Contrato: ${code}`,
-              `Cliente: ${vars.viajero_nombre}`,
-              `Correo: ${vars.viajero_email}`,
+              `Cliente: ${nombreParte}`,
+              `Correo: ${correoParte}`,
               `WhatsApp: ${vars.viajero_telefono || "-"}`,
               `Ruta: ${vars.ruta_nombre || "-"}`,
               `Salida: ${vars.fecha_inicio || "-"}`,
@@ -277,8 +280,8 @@ export async function POST(request: Request) {
               `A partir de ahora no se envían más recordatorios automáticos.`,
               ``,
               `Contrato: ${code}`,
-              `Cliente: ${vars.viajero_nombre}`,
-              `Correo: ${vars.viajero_email}`,
+              `Cliente: ${nombreParte}`,
+              `Correo: ${correoParte}`,
               `WhatsApp: ${vars.viajero_telefono || "-"}`,
               `Ruta: ${vars.ruta_nombre || "-"}`,
               `Salida: ${vars.fecha_inicio || "-"}`,
@@ -290,7 +293,7 @@ export async function POST(request: Request) {
               `Recordatorio automático de firma ${numero} de ${MAX_RECORDATORIOS}.`,
               ``,
               `Contrato: ${code}`,
-              `Cliente: ${vars.viajero_nombre}`,
+              `Cliente: ${nombreParte}`,
               `WhatsApp: ${vars.viajero_telefono || "-"}`,
               `Ruta: ${vars.ruta_nombre || "-"}`,
               ``,

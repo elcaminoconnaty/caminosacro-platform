@@ -39,7 +39,7 @@ export async function estadoCotizacion(supabase: ComercialClient, quoteId: strin
   // el campito de al lado de cada opcional en la pantalla.
   const [{ data: lines }, { data: travelers }, { data: contracts }, { data: hijas }] = await Promise.all([
     supabase.from("quote_lines").select("id,description,quantity,unit_price,total,type,reference_id").eq("quote_id", quoteId),
-    supabase.from("quote_travelers").select("position,full_name,document_number").eq("quote_id", quoteId).order("position"),
+    supabase.from("quote_travelers").select("id,position,full_name,document_number,passport_path").eq("quote_id", quoteId).order("position"),
     supabase.from("contracts").select("traveler_id,status,passport_path").eq("quote_id", quoteId),
     // El camino en bici deja dos cotizaciones del mismo peregrino: sin este enlace se
     // confunden y se termina trabajando sobre la vieja.
@@ -48,7 +48,15 @@ export async function estadoCotizacion(supabase: ComercialClient, quoteId: strin
 
   const personas = Number(quote.people) || 0;
   const viajeros = travelers || [];
-  const conPasaporte = (contracts || []).filter((c) => c.passport_path).length;
+
+
+  // El pasaporte vive en la ficha del viajero desde la migración 0036 (con contrato de
+  // empresa no hay una fila de contrato por persona donde colgarlo); el contrato queda de
+  // respaldo para lo anterior a esa migración.
+  const pasaportesDeContrato = new Set(
+    (contracts || []).filter((c) => c.passport_path && c.traveler_id).map((c) => c.traveler_id as string),
+  );
+  const conPasaporte = viajeros.filter((t) => t.passport_path || pasaportesDeContrato.has(t.id as string)).length;
 
   const faltantes: string[] = [];
   if (!quote.client_email) faltantes.push("correo_cliente");

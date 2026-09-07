@@ -565,7 +565,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
         <View style={s.coverTopHeader}>
           <View style={s.hLeft}>
             <Text style={s.coverBrand}>Camino Sacro</Text>
-            <Text style={s.coverBrandSub}>Agencia del Camino de Santiago</Text>
+            <Text style={s.coverBrandSub}>Viajes y peregrinaciones al Camino de Santiago</Text>
             <Text style={s.coverBrandLink}>www.caminosacro.com</Text>
           </View>
           <View style={s.coverRight}>

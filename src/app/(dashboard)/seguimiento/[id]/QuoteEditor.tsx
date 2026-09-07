@@ -42,6 +42,22 @@ type Quote = {
   price_blocks?: Record<string, number | string | null> | null;
   // Reparto de habitaciones. Con `filas` es un reparto a medida (ver @/lib/quotes/rooms).
   rooms_json?: unknown;
+  // Empresa contratante (migración 0036). Su presencia cambia el módulo de contratos:
+  // un solo contrato a nombre de la empresa en vez de uno por viajero.
+  company_id?: string | null;
+};
+
+export type CompanyLite = {
+  id: string;
+  legal_name: string | null;
+  nit: string | null;
+  address: string | null;
+  city: string | null;
+  email: string | null;
+  phone: string | null;
+  rep_name: string | null;
+  rep_document_type: string | null;
+  rep_document_number: string | null;
 };
 
 type PricingRow = {
@@ -88,13 +104,18 @@ export default function QuoteEditor({
   routes,
   pricing,
   seasonConfig,
+  company = null,
 }: {
   quote: Quote;
   routes: { id: string; name: string }[];
   pricing: PricingRow[];
   seasonConfig: SeasonSupplements;
+  company?: CompanyLite | null;
 }) {
   const [editing, setEditing] = useState(false);
+  // El bloque de empresa arranca abierto solo si ya hay una: la mayoría de cotizaciones
+  // son de personas y no tienen por qué ver este formulario.
+  const [conEmpresa, setConEmpresa] = useState(!!company);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -396,6 +417,57 @@ export default function QuoteEditor({
         <Input label="Cliente" name="client_name" defaultValue={quote.client_name} />
         <Input label="Teléfono" name="client_phone" defaultValue={quote.client_phone} placeholder="+57 ..." />
         <Input label="Email" name="client_email" type="email" defaultValue={quote.client_email} />
+
+        {/* Empresa contratante. Los campos de arriba se quedan: siguen siendo el contacto
+            humano con quien se habla. Lo de acá es quién firma y a quién se le factura. */}
+        <div className="md:col-span-3 border border-border rounded-lg bg-crema/40">
+          <label className="flex items-center gap-2 px-3 py-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={conEmpresa}
+              onChange={(e) => setConEmpresa(e.target.checked)}
+            />
+            <span className="font-medium text-bosque">Contrata una empresa</span>
+            <span className="text-muted">
+              — el contrato sale a nombre de la empresa, uno solo para todo el grupo, y lo firma su representante legal
+            </span>
+          </label>
+
+          {conEmpresa ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-3 pb-3">
+              <Input label="Razón social" name="company_legal_name" defaultValue={company?.legal_name} placeholder="COLEGIO SAN JOSÉ S.A.S." />
+              <Input label="NIT" name="company_nit" defaultValue={company?.nit} placeholder="900.123.456-7" />
+              <Input label="Correo de notificaciones" name="company_email" type="email" defaultValue={company?.email} />
+              <Input label="Dirección de notificaciones" name="company_address" defaultValue={company?.address} placeholder="Calle 100 # 15-20, of. 401" />
+              <Input label="Ciudad" name="company_city" defaultValue={company?.city} placeholder="Bogotá D.C." />
+              <Input label="Teléfono de la empresa" name="company_phone" defaultValue={company?.phone} />
+              <Input label="Representante legal" name="company_rep_name" defaultValue={company?.rep_name} />
+              <label className="block">
+                <span className="text-xs text-muted">Tipo de documento del representante</span>
+                <select
+                  name="company_rep_document_type"
+                  defaultValue={company?.rep_document_type ?? "Cédula de ciudadanía"}
+                  className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+                >
+                  <option>Cédula de ciudadanía</option>
+                  <option>Cédula de extranjería</option>
+                  <option>Pasaporte</option>
+                </select>
+              </label>
+              <Input label="Documento del representante" name="company_rep_document_number" defaultValue={company?.rep_document_number} />
+              <p className="md:col-span-3 text-[11px] text-muted">
+                La empresa se identifica por el NIT: si ya cotizó antes, se actualiza su ficha en vez de duplicarla.
+              </p>
+            </div>
+          ) : (
+            // Campos vacíos ocultos: sin ellos el formulario no manda nada y `updateQuote`
+            // no sabría que hay que desvincular la empresa al desmarcar la casilla.
+            <>
+              <input type="hidden" name="company_legal_name" value="" />
+              <input type="hidden" name="company_nit" value="" />
+            </>
+          )}
+        </div>
 
         <div className="md:col-span-2">
           <label className="block">

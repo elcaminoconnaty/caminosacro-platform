@@ -9,6 +9,11 @@ import {
   anexosTexto,
   pagareSections,
   llevaPagare,
+  esEmpresa,
+  firmanteOrg,
+  viajerosAnexoIntro,
+  VIAJEROS_ANEXO_TITULO,
+  type ViajeroAnexo,
 } from "./template";
 
 const fontsDir = path.join(process.cwd(), "src/lib/fonts");
@@ -93,6 +98,14 @@ const s = StyleSheet.create({
     paddingTop: 6,
   },
   pageNum: { position: "absolute", bottom: 24, right: 20, fontSize: 7, color: COLORS.grisTexto },
+  // Tabla del anexo de viajeros (solo contrato de empresa).
+  tablaFila: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: COLORS.taupe, paddingVertical: 3 },
+  tablaCabecera: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: COLORS.dorado, paddingBottom: 3, marginTop: 6 },
+  th: { fontWeight: 700, fontSize: 7.5, textTransform: "uppercase", letterSpacing: 0.4, color: COLORS.bosque },
+  colNum: { width: 24 },
+  colNombre: { flex: 1 },
+  colDoc: { width: 150 },
+  colImagen: { width: 74, textAlign: "right" },
 });
 
 export type ContractSignature = {
@@ -105,11 +118,18 @@ export type ContractSignature = {
   doc_hash: string | null;        // hash del documento presentado al firmar
 };
 
+/** "NICOLÁS VILLA POSADA" → "Nicolás Villa Posada", para la firma mecánica en cursiva. */
+function tituloCase(nombre: string): string {
+  return nombre
+    .toLocaleLowerCase("es-CO")
+    .replace(/(^|\s)(\p{L})/gu, (_m, sep, letra) => sep + letra.toLocaleUpperCase("es-CO"));
+}
+
 function Membrete() {
   return (
     <View style={s.membrete} fixed>
       <Text style={s.marca}>CAMINO SACRO</Text>
-      <Text style={s.submarca}>Agencia del Camino de Santiago · caminosacro.com</Text>
+      <Text style={s.submarca}>Viajes y peregrinaciones al Camino de Santiago · caminosacro.com</Text>
     </View>
   );
 }
@@ -122,11 +142,44 @@ function Pie() {
   );
 }
 
+function AnexoViajeros({ v, travelers }: { v: ContractVariables; travelers: ViajeroAnexo[] }) {
+  return (
+    <Page size="A4" style={s.page}>
+      <Membrete />
+      <Text style={[s.h2, { textAlign: "center" }]}>{VIAJEROS_ANEXO_TITULO}</Text>
+      <Text style={s.p}>{viajerosAnexoIntro(v, travelers.length)}</Text>
+
+      <View style={s.tablaCabecera} fixed>
+        <Text style={[s.th, s.colNum]}>#</Text>
+        <Text style={[s.th, s.colNombre]}>Nombre completo</Text>
+        <Text style={[s.th, s.colDoc]}>Documento</Text>
+        <Text style={[s.th, s.colImagen]}>Uso de imagen</Text>
+      </View>
+      {travelers.map((t) => (
+        <View key={t.position} style={s.tablaFila} wrap={false}>
+          <Text style={s.colNum}>{t.position}.</Text>
+          <Text style={s.colNombre}>{t.nombre || "________________"}</Text>
+          <Text style={s.colDoc}>
+            {t.documento ? `${t.documento_tipo || "Pasaporte"} ${t.documento}` : "pendiente"}
+          </Text>
+          <Text style={s.colImagen}>
+            {t.autoriza_imagen === null ? "Pendiente" : t.autoriza_imagen ? "Autoriza" : "No autoriza"}
+          </Text>
+        </View>
+      ))}
+
+      <Pie />
+      <Text style={s.pageNum} render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} fixed />
+    </Page>
+  );
+}
+
 export function ContractPDF({
   variables: v,
   plan,
   signature,
   orgSignature,
+  travelers = [],
 }: {
   variables: ContractVariables;
   plan: PaymentPlan;
@@ -134,6 +187,8 @@ export function ContractPDF({
   // Firma guardada del organizador (data URL PNG). Si no hay, se usa la firma
   // mecánica en cursiva — ambas válidas bajo la Ley 527.
   orgSignature?: string | null;
+  /** Relación de viajeros del Anexo No. 2. Solo se dibuja en el contrato de empresa. */
+  travelers?: ViajeroAnexo[];
 }) {
   // Fechas siempre en hora de Colombia (la firma se hace desde Colombia; usar
   // UTC corría el día después de las 7 p.m.).
@@ -144,6 +199,17 @@ export function ContractPDF({
     day: "2-digit",
     timeZone: "America/Bogota",
   }).format(signedDate); // yyyy-mm-dd
+  const empresa = esEmpresa(v);
+  const org = firmanteOrg(v);
+  // Quién aparece en la línea de firma. En empresa la parte es la sociedad y quien estampa
+  // la firma es su representante legal: se muestran las dos cosas, no una sola.
+  const firmanteNombre = empresa
+    ? signature?.signer_name || v.rep_nombre || "________________"
+    : signature?.signer_name || v.viajero_nombre || "________________";
+  const firmanteTipoDoc = (empresa ? v.rep_tipo_documento : v.viajero_tipo_documento) || "Documento";
+  const firmanteDoc = empresa
+    ? signature?.signer_document || v.rep_documento || "________"
+    : signature?.signer_document || v.viajero_documento || "________";
   const fechaFirmaLarga = new Intl.DateTimeFormat("es-CO", {
     day: "numeric",
     month: "long",
@@ -195,11 +261,23 @@ export function ContractPDF({
               <View style={s.firmaEspacio} />
             )}
             <View style={s.firmaLinea}>
-              <Text style={s.firmaNombre}>EL VIAJERO</Text>
-              <Text>{signature?.signer_name || v.viajero_nombre || "________________"}</Text>
-              <Text>
-                {v.viajero_tipo_documento || "Documento"} {signature?.signer_document || v.viajero_documento || "________"}
-              </Text>
+              {empresa ? (
+                <>
+                  <Text style={s.firmaNombre}>EL CONTRATANTE</Text>
+                  <Text>{v.empresa_razon_social || "________________"}</Text>
+                  <Text>NIT {v.empresa_nit || "________"}</Text>
+                  <Text style={{ marginTop: 2 }}>
+                    Representante legal: {firmanteNombre}
+                  </Text>
+                  <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={s.firmaNombre}>EL VIAJERO</Text>
+                  <Text>{firmanteNombre}</Text>
+                  <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
+                </>
+              )}
             </View>
           </View>
           <View style={s.firmaCol}>
@@ -208,15 +286,15 @@ export function ContractPDF({
                 // eslint-disable-next-line jsx-a11y/alt-text
                 <Image src={orgSignature} style={s.firmaImg} />
               ) : (
-                <Text style={s.firmaMecanica}>Nicolás Villa Posada</Text>
+                <Text style={s.firmaMecanica}>{tituloCase(org.nombre)}</Text>
               )
             ) : (
               <View style={s.firmaEspacio} />
             )}
             <View style={s.firmaLinea}>
               <Text style={s.firmaNombre}>EL ORGANIZADOR — CAMINO SACRO</Text>
-              <Text>NICOLÁS VILLA POSADA</Text>
-              <Text>C.C. 1.017.126.076</Text>
+              <Text>{org.nombre}</Text>
+              <Text>{org.documento_tipo} {org.documento}</Text>
               {signature && <Text style={s.firmaMecanicaNota}>Firmado electrónicamente al aprobar y enviar este contrato</Text>}
             </View>
           </View>
@@ -226,7 +304,8 @@ export function ContractPDF({
           <View style={s.sello} wrap={false}>
             <Text style={s.selloTitulo}>Constancia de firma electrónica — Ley 527 de 1999 / Decreto 2364 de 2012</Text>
             <Text style={s.selloLinea}>
-              Firmado por: {signature.signer_name} · {v.viajero_tipo_documento} {signature.signer_document}
+              Firmado por: {signature.signer_name} · {firmanteTipoDoc} {signature.signer_document}
+              {empresa ? ` · en representación de ${v.empresa_razon_social || "—"} (NIT ${v.empresa_nit || "—"})` : ""}
             </Text>
             <Text style={s.selloLinea}>
               Fecha y hora: {new Date(signature.signed_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })} (America/Bogota)
@@ -242,6 +321,11 @@ export function ContractPDF({
         <Pie />
         <Text style={s.pageNum} render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} fixed />
       </Page>
+
+      {/* Anexo No. 2: la relación de viajeros. Solo en el contrato de empresa, y solo si
+          hay viajeros cargados — un anexo vacío en un documento que se firma es peor que
+          ninguno. */}
+      {empresa && travelers.length > 0 && <AnexoViajeros v={v} travelers={travelers} />}
 
       {/* La hoja del pagaré solo existe si el plan la lleva (ver `llevaPagare`). */}
       {llevaPagare(plan) && (
@@ -266,10 +350,9 @@ export function ContractPDF({
               )}
               <View style={s.firmaLinea}>
                 <Text style={s.firmaNombre}>EL DEUDOR</Text>
-                <Text>{signature?.signer_name || v.viajero_nombre || "________________"}</Text>
-                <Text>
-                  {v.viajero_tipo_documento || "Documento"} {signature?.signer_document || v.viajero_documento || "________"}
-                </Text>
+                {empresa && <Text>{v.empresa_razon_social || "________________"} · NIT {v.empresa_nit || "________"}</Text>}
+                <Text>{empresa ? `Representante legal: ${firmanteNombre}` : firmanteNombre}</Text>
+                <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
               </View>
             </View>
             <View style={s.firmaCol} />

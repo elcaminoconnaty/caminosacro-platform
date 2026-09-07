@@ -242,6 +242,105 @@ sube su pasaporte.
 - Un viajero que ya tiene contrato **no se puede borrar** de la lista (arrastraría el
   contrato, y si está firmado destruiría una prueba legal): primero hay que anularlo.
 
+### D3b. Contrato de empresa (bienestar laboral, colegiaturas)
+
+Cuando quien contrata **no es el viajero** sino una empresa que manda a sus trabajadores,
+el módulo cambia de forma: **un solo contrato a nombre de la empresa**, firmado por su
+representante legal, con la relación de los N viajeros como **Anexo No. 2**.
+Migración **0036**.
+
+**Cómo se activa:** en `/seguimiento/[id]` → *Editar cotización* → casilla
+**"Contrata una empresa"** (también está en el asistente de cotización nueva). Se piden
+razón social, NIT, correo y dirección de notificaciones, y el representante legal con su
+documento. Con eso, `quotes.company_id` queda lleno y **eso solo** es lo que marca la
+modalidad — no hay ningún flag aparte que se pueda desincronizar.
+
+- La empresa vive en `comercial.companies` y se **deduplica por NIT** (comparado sin
+  puntos ni guiones), igual que `clients` se deduplica por teléfono. Si el colegio vuelve
+  el año entrante, se actualiza su ficha en vez de duplicarla.
+- Los campos de cliente de la cotización **se quedan**: siguen siendo el contacto humano
+  con quien se habla. La empresa es quien firma y a quien se le factura.
+
+**El flujo:**
+1. Cargar los viajeros como siempre (card *Contratos*, "Crear las N filas").
+2. **Subir los pasaportes desde el CRM**: cada fila de viajero tiene su botón. En esta
+   modalidad nadie firma individualmente, así que la empresa los manda por correo y los
+   sube el equipo. Se guardan en `quote_travelers.passport_path`, que es de donde salen
+   los adjuntos del correo a Pilgrim en **las dos** modalidades.
+3. **"Crear el contrato de empresa"** — congela la lista de viajeros en
+   `contracts.travelers_json`, que es lo que se imprime en el Anexo No. 2.
+4. Si después cambia la lista, **"Actualizar la lista de viajeros del anexo"**. La tarjeta
+   avisa en ámbar cuando el anexo y la lista no coinciden. Firmado el contrato, el anexo
+   queda cerrado: cambiar a alguien es una **sustitución** (cláusula décima sexta), no un
+   borrado.
+5. Enviar para firma → el correo va **solo a la empresa**, a su correo de notificaciones.
+   El modo prueba funciona igual.
+6. El representante legal firma en `/contrato/[token]`. Ahí **no hay campo de pasaporte**
+   y se le piden su nombre y su cédula.
+
+**Qué cambia en el texto legal** (`src/lib/contracts/template.ts`): es **el mismo
+articulado**, con la parte parametrizada — `EL VIAJERO` pasa a `EL CONTRATANTE`, siempre en
+singular. Las obligaciones de quien camina se redactan como obligaciones de la empresa
+*respecto de* sus viajeros. Con cambio de fondo: los comparecientes, el tratamiento de
+datos (la empresa **declara contar con la autorización de cada viajero** y mantiene indemne
+a Camino Sacro), la autorización de imagen (**individual**, en la columna del anexo), la
+cancelación parcial de viajeros, la **sustitución de un viajero** (hasta 15 días antes, con
+el cargo de la cláusula quinta) y las notificaciones. El pagaré, si lo lleva, pasa a ser el
+**Anexo No. 3** porque el 2 lo ocupa la relación de viajeros.
+
+> **Las dos modalidades son excluyentes.** Una cotización no puede tener a la vez contrato
+> de empresa y contratos por viajero: serían dos acuerdos vivos sobre el mismo viaje, con
+> dos obligados al pago. Las acciones lo bloquean con un mensaje claro, y la base también
+> (`contracts_kind_coherente` + el índice `contracts_empresa_unica`).
+
+**Un contrato de persona natural firmado antes de esto sigue diciendo exactamente lo
+mismo**: `contratante_tipo` ausente = persona, con la misma doctrina que `con_pagare`.
+
+### D3c. Quién firma por Camino Sacro
+
+Los contratos los puede firmar **Nicolás Villa Posada** o **Nathalia Largo Durán**: los dos
+son titulares. Migración **0037**.
+
+- Se elige **por cotización**, en la card *Contratos* → "Firma por Camino Sacro". Se aplica
+  a todos los contratos de esa cotización que aún no estén firmados.
+- Quien se elija queda nombrado como **EL ORGANIZADOR** en el articulado y en el pagaré, y
+  es su firma la que se estampa en el PDF.
+- Cada uno captura su firma una sola vez en `/configuracion` → *Firmas de Camino Sacro*.
+  Quien no la tenga capturada sale con su firma mecánica en cursiva, válida igual (Ley 527).
+- Por defecto los contratos nacen a nombre de **Nico**, que es quien firmó todo lo anterior.
+- La lista vive en `settings.firmantes`. Para agregar a alguien más hay que agregar una
+  entrada ahí (slug, nombre, documento_tipo, documento).
+
+### D3d. Ficha del viajero (el enlace que recoge sus datos)
+
+Enlace propio por viajero, en `/viajero/[token]`. **No muestra el contrato**: nació para el
+contrato de empresa, donde firma el representante legal y los viajeros no entran a ninguna
+pantalla. Migración **0037**.
+
+Cada viajero completa: nombre, número y foto del pasaporte, nacionalidad, fecha de
+nacimiento, su correo y celular, contacto de emergencia, y **dos autorizaciones**:
+
+- **Uso de imagen** — sus fotos y videos en los canales de Camino Sacro.
+- **Información comercial** — usar su correo para contarle de próximos Caminos.
+
+Las dos son **sí/no explícito, sin opción preseleccionada**: bajo la Ley 1581 una casilla
+marcada por defecto no es consentimiento. Mientras no responda quedan en `NULL`, y el
+Anexo No. 2 dice **"pendiente"** — que en el propio anexo se aclara que significa *no
+concedida*.
+
+- Se envía desde la card *Contratos* → bloque **Viajeros**: "Enviar la ficha a los N que
+  faltan", o el botón de cada fila. El chip de cada viajero dice *Sin ficha / Ficha enviada
+  / Ficha ✓*.
+- El enlace **vence a los 45 días** (más que el del contrato: acá no hay nada que se venza).
+- El viajero puede volver a abrirlo y corregir: el token no se anula al completar.
+- Queda registro de **IP, dispositivo y fecha** de la respuesta (`consent_ip`,
+  `consent_user_agent`, `ficha_completed_at`). Una autorización sin eso no prueba nada.
+- Los correos quedan en `email_log` con `tipo = 'ficha'`.
+
+> **El orden importa.** Fichas primero, contrato después. Cuando la empresa firma, el Anexo
+> No. 2 queda congelado: si alguien responde tarde, su "pendiente" queda impreso en el PDF
+> firmado. La tarjeta avisa en ámbar cuando el anexo y la lista no coinciden.
+
 ### D4. Costo Pilgrim y utilidad
 `quotes.cost_eur` es **derivado**, no se escribe a mano. Lo calcula
 `comercial.recompute_quote_money()`, espejando el lado del cliente:
@@ -478,6 +577,11 @@ Servicio actual en `asia-southeast1` (Singapur). Edge sirve global desde Virgini
 | Copiar email para cliente | `/seguimiento/[id]` → botones "Copiar..." en card de email |
 | Cargar los viajeros de un grupo | `/seguimiento/[id]` → card "Contratos" → "Crear las N filas" |
 | Enviar los contratos a firmar | `/seguimiento/[id]` → card "Contratos" → "Enviar todos para firma" |
+| Marcar que contrata una empresa | `/seguimiento/[id]` → "Editar cotización" → casilla "Contrata una empresa" (§D3b) |
+| Cargar el pasaporte de un viajero | `/seguimiento/[id]` → card "Contratos" → botón "Subir pasaporte" de su fila |
+| Pedirle los datos a cada viajero | `/seguimiento/[id]` → card "Contratos" → "Enviar la ficha a los N que faltan" (§D3d) |
+| Cambiar quién firma por Camino Sacro | `/seguimiento/[id]` → card "Contratos" → "Firma por Camino Sacro" (§D3c) |
+| Capturar la firma de Nathalia | `/configuracion` → "Firmas de Camino Sacro" |
 | Enviarle la reserva a Pilgrim | `/seguimiento/[id]` → card "Correo a Pilgrim" |
 | Cambiar el correo de Pilgrim | `/configuracion` → "Proveedor Pilgrim" |
 | Subir PDF manual (override) | `/seguimiento/[id]` → "Subir manual" |
@@ -515,6 +619,8 @@ comercial-docs/       generico/Asistencia-en-Viaje-Camino-Sacro.pdf
 comercial-hotel-fotos/ siete-en-el-camino/1.jpg
 comercial-receipts/   2026/CS-2026-034/REC-CS-2026-034-1_Amalia.pdf
 comercial-contracts/  2026/CS-2026-034/Contrato-CS-2026-034.pdf  (+ -firmado)
+                      2026/CS-2026-034/Contrato-CS-2026-034-2.pdf  (viajero 2, 3, …)
+                      2026/CS-2026-041/Contrato-CS-2026-041-empresa.pdf  (+ -firmado)
 comercial-passports/  2026/CS-2026-034/Pasaporte-CS-2026-034-<ts>.jpg
 comercial-catalogs/   fichas-de-viaje/...
 comercial-welcome/    cartas-bienvenida/...

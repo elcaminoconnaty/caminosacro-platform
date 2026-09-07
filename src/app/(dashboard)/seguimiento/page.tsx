@@ -26,7 +26,7 @@ type Quote = {
 
 type ClientPayment = { quote_id: string; amount_eur: number | null; amount: number; currency: string };
 type ProviderPayment = { quote_id: string; amount_eur: number };
-type Contract = { quote_id: string; signed_at: string | null };
+type Contract = { quote_id: string; signed_at: string | null; kind: string | null };
 
 export default async function SeguimientoPage() {
   const supabase = await createCommercialClient();
@@ -44,7 +44,7 @@ export default async function SeguimientoPage() {
     // pantalla no consultaba `contracts` en absoluto, y por eso un viaje pagado entero con
     // un viajero sin firmar era invisible desde acá: había que entrar expediente por
     // expediente para verlo (§2.0 de la síntesis).
-    supabase.from("contracts").select("quote_id,signed_at"),
+    supabase.from("contracts").select("quote_id,signed_at,kind"),
   ]);
 
   // Si la consulta de cotizaciones falla no se pinta nada más: ni los cinco KPI en 0,00 € ni
@@ -95,11 +95,14 @@ export default async function SeguimientoPage() {
   // contratos fallara, `contracts` queda vacío y la columna dice "—" en vez de inventar
   // un "0 de 0" que se leería como "no hace falta firmar nada".
   const contracts = (contractRows ?? []) as Contract[];
-  const contratos = new Map<string, { total: number; sinFirmar: number }>();
+  const contratos = new Map<string, { total: number; sinFirmar: number; empresa: boolean }>();
   for (const c of contracts) {
-    const acc = contratos.get(c.quote_id) ?? { total: 0, sinFirmar: 0 };
+    const acc = contratos.get(c.quote_id) ?? { total: 0, sinFirmar: 0, empresa: false };
     acc.total += 1;
     if (!c.signed_at) acc.sinFirmar += 1;
+    // Un contrato de empresa cubre a todo el grupo: decir "1 de 1" en un viaje de 14 se
+    // lee como que falta gente por firmar, y no falta nadie.
+    if (c.kind === "empresa") acc.empresa = true;
     contratos.set(c.quote_id, acc);
   }
 
@@ -133,6 +136,7 @@ export default async function SeguimientoPage() {
       valid_until: q.valid_until,
       contratos: firmas?.total ?? 0,
       sin_firmar: firmas?.sinFirmar ?? 0,
+      contrato_empresa: firmas?.empresa ?? false,
     };
   });
 

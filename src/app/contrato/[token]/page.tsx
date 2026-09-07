@@ -12,8 +12,13 @@ import {
   anexosTexto,
   pagareSections,
   llevaPagare,
+  esEmpresa,
+  saludoContrato,
+  viajerosAnexoIntro,
+  VIAJEROS_ANEXO_TITULO,
   type ContractVariables,
   type PaymentPlan,
+  type ViajeroAnexo,
 } from "@/lib/contracts/template";
 import SignForm from "./SignForm";
 import Aviso from "./Aviso";
@@ -32,7 +37,7 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
   const supabase = createAdminClient("comercial");
   const { data: contract } = await supabase
     .from("contracts")
-    .select("id,status,token_expires_at,variables_json,payment_plan_json,signed_at,signer_name")
+    .select("id,status,token_expires_at,variables_json,payment_plan_json,signed_at,signer_name,kind,travelers_json")
     .eq("token", token)
     .maybeSingle();
 
@@ -65,6 +70,10 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
   }).format(new Date());
   const conPagare = llevaPagare(plan);
   const pagare = conPagare ? pagareSections(v, hoyBogota) : [];
+  // Contrato de empresa: firma el representante legal, no hay pasaporte que subir (los
+  // carga el equipo) y la relación de viajeros va como Anexo No. 2 a la vista.
+  const empresa = esEmpresa(v);
+  const viajeros = empresa ? ((contract.travelers_json as ViajeroAnexo[]) ?? []) : [];
 
   return (
     <main className="min-h-screen bg-crema">
@@ -72,10 +81,23 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
       <header className="bg-bosque px-4 py-10 text-white">
         <div className="mx-auto max-w-3xl text-center">
           <p className="text-xs uppercase tracking-[0.18em] text-dorado">Camino Sacro</p>
-          <h1 className="font-display mt-2 text-3xl sm:text-4xl">Tu contrato de servicios</h1>
+          <h1 className="font-display mt-2 text-3xl sm:text-4xl">
+            {empresa ? "Contrato de servicios" : "Tu contrato de servicios"}
+          </h1>
           <p className="mt-3 text-sm text-white/75 max-w-xl mx-auto">
-            Hola {v.viajero_nombre.split(/\s+/)[0] || "peregrino"}: revisa tu contrato, fírmalo y sube la foto de tu
-            pasaporte. Es el último paso antes de que gestionemos tus reservas.
+            {empresa ? (
+              <>
+                Hola {saludoContrato(v) || "buen día"}: este es el contrato de{" "}
+                {v.empresa_razon_social || "la empresa"} para los {viajeros.length || v.num_personas} viajeros del{" "}
+                {v.ruta_nombre}. Revísalo, verifica la relación de viajeros del Anexo No. 2 y fírmalo como
+                representante legal.
+              </>
+            ) : (
+              <>
+                Hola {saludoContrato(v) || "peregrino"}: revisa tu contrato, fírmalo y sube la foto de tu pasaporte. Es
+                el último paso antes de que gestionemos tus reservas.
+              </>
+            )}
           </p>
         </div>
       </header>
@@ -108,6 +130,36 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
               </div>
             ))}
             <p className="pt-2 text-muted">{anexosTexto(v, plan)}</p>
+            {empresa && viajeros.length > 0 && (
+              <div className="pt-2">
+                <h3 className="font-semibold text-xs uppercase">{VIAJEROS_ANEXO_TITULO}</h3>
+                <p className="mt-1">{viajerosAnexoIntro(v, viajeros.length)}</p>
+                <table className="mt-2 w-full text-[12px]">
+                  <thead>
+                    <tr className="border-b border-border text-left text-muted">
+                      <th className="py-1 pr-2 font-semibold">#</th>
+                      <th className="py-1 pr-2 font-semibold">Nombre completo</th>
+                      <th className="py-1 pr-2 font-semibold">Documento</th>
+                      <th className="py-1 font-semibold text-right">Uso de imagen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viajeros.map((t) => (
+                      <tr key={t.position} className="border-b border-border/60">
+                        <td className="py-1 pr-2 tabular-nums">{t.position}.</td>
+                        <td className="py-1 pr-2">{t.nombre || "________________"}</td>
+                        <td className="py-1 pr-2">
+                          {t.documento ? `${t.documento_tipo || "Pasaporte"} ${t.documento}` : "pendiente"}
+                        </td>
+                        <td className="py-1 text-right">
+                          {t.autoriza_imagen === null ? "Pendiente" : t.autoriza_imagen ? "Autoriza" : "No autoriza"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {pagare.map((sec, i) => (
               <div key={`px${i}`} className="pt-2">
                 <h3 className="font-semibold text-xs uppercase">{sec.title}</h3>
@@ -120,10 +172,12 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
 
           <SignForm
             token={token}
-            defaultName={v.viajero_nombre}
-            defaultDocument={v.viajero_documento}
-            docType={v.viajero_tipo_documento}
+            defaultName={empresa ? v.rep_nombre || "" : v.viajero_nombre}
+            defaultDocument={empresa ? v.rep_documento || "" : v.viajero_documento}
+            docType={(empresa ? v.rep_tipo_documento : v.viajero_tipo_documento) || "Pasaporte"}
             financiado={conPagare}
+            empresa={empresa}
+            razonSocial={v.empresa_razon_social ?? null}
           />
         </div>
 

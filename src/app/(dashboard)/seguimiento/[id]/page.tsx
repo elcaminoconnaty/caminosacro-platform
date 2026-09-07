@@ -7,7 +7,7 @@ import { statusColor, statusLabel, isFullyPaid } from "@/lib/quoteStatus";
 import { CATALOG_BASE_YEAR, optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import QuoteEditor from "./QuoteEditor";
+import QuoteEditor, { type CompanyLite } from "./QuoteEditor";
 import ClientPaymentsCard from "./ClientPaymentsCard";
 import ProviderPaymentsCard from "./ProviderPaymentsCard";
 import DocumentsCard from "./DocumentsCard";
@@ -21,7 +21,7 @@ import { type EnvioResumen } from "./EstadoEnvio";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
-import { buildDefaultVariables } from "@/lib/contracts/render";
+import { buildDefaultVariables, getFirmantes } from "@/lib/contracts/render";
 import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 
 function basename(p: string | null): string | null {
@@ -213,7 +213,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     supabase.from("contracts").select("*").eq("quote_id", id),
     supabase
       .from("quote_travelers")
-      .select("id,quote_id,position,full_name,email,phone,document_type,document_number,is_holder")
+      .select("id,quote_id,position,full_name,email,phone,document_type,document_number,is_holder,passport_path,autoriza_imagen,marketing_optin,ficha_sent_at,ficha_completed_at")
       .eq("quote_id", id)
       .order("position"),
     // La flota es de 7 modelos y sus tarifas son un puñado de filas: se traen enteras y
@@ -227,6 +227,19 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const seasonConfig = ((seasonSetting?.value as SeasonSupplements | null) ?? DEFAULT_SEASON_SUPPLEMENTS);
 
   if (!quote) notFound();
+
+  // Quiénes pueden firmar por Camino Sacro (Nico o Nathalia).
+  const firmantes = await getFirmantes(supabase);
+
+  // Empresa contratante, si la hay. Su presencia es lo que pone el módulo de contratos en
+  // modalidad empresa (migración 0036).
+  const { data: company } = quote.company_id
+    ? await supabase
+        .from("companies")
+        .select("id,legal_name,nit,address,city,email,phone,rep_name,rep_document_type,rep_document_number")
+        .eq("id", quote.company_id)
+        .maybeSingle()
+    : { data: null };
 
   // Si aún no hay contratos, precargamos las variables desde la cotización para
   // que el equipo las revise ANTES de crearlos.
@@ -438,7 +451,13 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           a Pilgrim → los hoteles → los pagos. Sigue el recorrido real de una venta:
           los contratos se firman ANTES del correo a Pilgrim, que es justo cuando
           entran los números de pasaporte que ese correo necesita. */}
-      <QuoteEditor quote={quote} routes={routes || []} pricing={pricingFlat} seasonConfig={seasonConfig} />
+      <QuoteEditor
+        quote={quote}
+        routes={routes || []}
+        pricing={pricingFlat}
+        seasonConfig={seasonConfig}
+        company={(company as CompanyLite | null) ?? null}
+      />
 
       <OptionalsCard
         quoteId={id}
@@ -491,6 +510,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         contracts={(contractRows as ContractRow[] | null) ?? []}
         sharedVariables={contractDefaults}
         totalEur={total}
+        companyName={(company as CompanyLite | null)?.legal_name ?? null}
+        firmantes={firmantes}
       />
 
       <PilgrimEmailCard

@@ -98,7 +98,7 @@ export async function armarCorreoPilgrim(
       : Promise.resolve({ data: null }),
     supabase
       .from("quote_travelers")
-      .select("id,position,full_name,document_number")
+      .select("id,position,full_name,document_number,passport_path")
       .eq("quote_id", quoteId)
       .order("position"),
     supabase
@@ -106,6 +106,8 @@ export async function armarCorreoPilgrim(
       .select("description,quantity,cost_unit,type")
       .eq("quote_id", quoteId)
       .in("type", ["optional", "custom", "discount"]),
+    // Respaldo para los contratos anteriores a la migración 0036, por si algún
+    // `passport_path` no alcanzó a copiarse a la ficha del viajero.
     supabase.from("contracts").select("traveler_id,status,passport_path").eq("quote_id", quoteId),
   ]);
 
@@ -148,8 +150,12 @@ export async function armarCorreoPilgrim(
   ];
 
   // ---- Viajeros y sus pasaportes ----
+  // El pasaporte se lee de la ficha del VIAJERO, no del contrato: con contrato de empresa
+  // nadie firma individualmente y los pasaportes los carga el equipo desde el CRM. El
+  // contrato queda solo como respaldo de lo anterior a la migración 0036.
   const porViajero = new Map<string, { status: string; passport_path: string | null }>();
   for (const c of contracts || []) {
+    if (!c.traveler_id) continue;
     porViajero.set(c.traveler_id as string, {
       status: String(c.status),
       passport_path: (c.passport_path as string | null) ?? null,
@@ -163,11 +169,12 @@ export async function armarCorreoPilgrim(
   for (const t of travelers || []) {
     const c = porViajero.get(t.id as string);
     const doc = (t.document_number as string | null) || null;
-    const tienePasaporte = !!c?.passport_path;
+    const pasaporte = (t.passport_path as string | null) || c?.passport_path || null;
+    const tienePasaporte = !!pasaporte;
     if (tienePasaporte) {
       adjuntos.push({
-        path: c!.passport_path!,
-        nombre: `Pasaporte-${quote.code}-${t.position}.${(c!.passport_path!.split(".").pop() || "jpg").toLowerCase()}`,
+        path: pasaporte!,
+        nombre: `Pasaporte-${quote.code}-${t.position}.${(pasaporte!.split(".").pop() || "jpg").toLowerCase()}`,
         viajero: String(t.full_name),
       });
     } else {

@@ -2,9 +2,17 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { saveOrgSignature, clearOrgSignature } from "./actions";
+import { saveFirmanteSignature, clearFirmanteSignature } from "./actions";
+import type { Firmante } from "@/lib/contracts/template";
 
-export default function OrgSignatureForm({ current }: { current: string | null }) {
+/**
+ * Firma de quienes firman por Camino Sacro. Desde la migración 0037 son varios (Nico y
+ * Nathalia): cada contrato dice cuál de ellos lo firma, y acá cada uno captura la suya.
+ */
+export default function OrgSignatureForm({ firmantes }: { firmantes: Firmante[] }) {
+  const [slug, setSlug] = useState<string>(firmantes[0]?.slug ?? "nico");
+  const elegido = firmantes.find((f) => f.slug === slug) ?? firmantes[0];
+  const current = elegido?.data_url ?? null;
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
@@ -62,10 +70,10 @@ export default function OrgSignatureForm({ current }: { current: string | null }
     setError(null);
     setInfo(null);
     startTransition(async () => {
-      const r = await saveOrgSignature(dataUrl);
+      const r = await saveFirmanteSignature(slug, dataUrl);
       if (r.error) setError(r.error);
       else {
-        setInfo("Firma guardada. Se usará en todos los contratos que firmen tus peregrinos.");
+        setInfo(`Firma de ${elegido?.nombre ?? "el firmante"} guardada. Se usará en los contratos donde figure como ORGANIZADOR.`);
         clear();
         router.refresh();
       }
@@ -76,7 +84,7 @@ export default function OrgSignatureForm({ current }: { current: string | null }
     setError(null);
     setInfo(null);
     startTransition(async () => {
-      const r = await clearOrgSignature();
+      const r = await clearFirmanteSignature(slug);
       if (r.error) setError(r.error);
       else {
         setInfo("Firma eliminada. Los próximos contratos usarán la firma mecánica hasta que guardes una nueva.");
@@ -88,16 +96,34 @@ export default function OrgSignatureForm({ current }: { current: string | null }
   return (
     <section className="bg-bg-card border border-border rounded-xl overflow-hidden max-w-xl">
       <div className="px-5 py-3 border-b border-border">
-        <h2 className="font-display text-lg text-bosque">Mi firma (EL ORGANIZADOR)</h2>
+        <h2 className="font-display text-lg text-bosque">Firmas de Camino Sacro (EL ORGANIZADOR)</h2>
         <p className="text-xs text-muted mt-0.5">
-          Dibújala una sola vez —idealmente desde el celular— y se estampará automáticamente en cada contrato que
-          firmen tus peregrinos. Válida bajo la Ley 527 de 1999.
+          Cada uno dibuja la suya una sola vez —idealmente desde el celular— y se estampa automáticamente en los
+          contratos donde figure como ORGANIZADOR. Válida bajo la Ley 527 de 1999. Quien no tenga firma capturada sale
+          con su firma mecánica en cursiva, que vale igual.
         </p>
       </div>
 
+      {firmantes.length > 1 && (
+        <div className="px-5 py-3 border-b border-border flex flex-wrap items-center gap-2">
+          {firmantes.map((f) => (
+            <button
+              key={f.slug}
+              onClick={() => { setSlug(f.slug); setInfo(null); setError(null); clear(); }}
+              className={`text-xs px-3 py-1.5 rounded-full border transition ${
+                f.slug === slug ? "bg-bosque text-white border-bosque" : "border-border hover:bg-taupe/40"
+              }`}
+            >
+              {f.nombre}
+              {f.data_url ? " ✓" : ""}
+            </button>
+          ))}
+        </div>
+      )}
+
       {current && (
         <div className="px-5 py-3 border-b border-border flex items-center gap-4">
-          <span className="text-xs text-muted">Firma actual:</span>
+          <span className="text-xs text-muted">Firma de {elegido?.nombre}:</span>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={current} alt="Firma guardada" className="h-12 object-contain" />
         </div>

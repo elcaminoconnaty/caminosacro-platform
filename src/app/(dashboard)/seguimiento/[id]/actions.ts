@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
+import { upsertCompany, companyDeFormData } from "@/lib/quotes/company";
 import { DEFAULT_STATUS, isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { rutaCotizacion, rutaDocumentoPilgrim, rutaRecibo, sinBucket } from "@/lib/storage/paths";
@@ -174,6 +175,26 @@ export async function updateQuote(id: string, formData: FormData) {
   };
   const { error } = await supabase.from("quotes").update(patch).eq("id", id);
   if (error) return { error: mensajeError(error) };
+
+  // La empresa contratante va APARTE del `patch` a propósito: ese objeto alimenta la
+  // comparación `cambiaElPdf` de más abajo, y la empresa no sale en el PDF comercial.
+  // Meterla ahí regeneraría el PDF que el cliente ya tiene en su correo sin motivo.
+  let avisoEmpresa: string | null = null;
+  if (formData.has("company_legal_name") || formData.has("company_nit")) {
+    const r = await upsertCompany(supabase, companyDeFormData(formData));
+    if (r && "error" in r) {
+      avisoEmpresa = r.error;
+    } else {
+      // Sin datos (`r === null`) la cotización vuelve a ser de persona natural. Se limpia
+      // el vínculo pero NO se borra la empresa: puede estar en otras cotizaciones.
+      const { error: errEmpresa } = await supabase
+        .from("quotes")
+        .update({ company_id: r ? r.id : null })
+        .eq("id", id);
+      if (errEmpresa) avisoEmpresa = mensajeError(errEmpresa);
+    }
+  }
+
   // Recalcula total_eur y cost_eur: base + suplemento + opcionales de cada lado.
   await supabase.rpc("recompute_quote_total", { p_quote_id: id });
 
@@ -197,7 +218,8 @@ export async function updateQuote(id: string, formData: FormData) {
   const pdfAviso = pdf && "error" in pdf && pdf.error ? "Se guardó, pero el PDF no se pudo regenerar." : null;
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
-  return pdfAviso ? { ok: true as const, aviso: pdfAviso } : { ok: true as const };
+  const aviso = [avisoEmpresa, pdfAviso].filter(Boolean).join(" ");
+  return aviso ? { ok: true as const, aviso } : { ok: true as const };
 }
 
 // Cambio rápido de estado desde el listado (sin entrar a editar).

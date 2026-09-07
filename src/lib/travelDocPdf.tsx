@@ -395,7 +395,7 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
         <View style={s.coverTopHeader}>
           <View style={s.coverLeft}>
             <Text style={s.coverBrand}>Camino Sacro</Text>
-            <Text style={s.coverBrandSub}>Agencia del Camino de Santiago</Text>
+            <Text style={s.coverBrandSub}>Viajes y peregrinaciones al Camino de Santiago</Text>
             <Text style={s.coverBrandLink}>{cont.web || "www.caminosacro.com"}</Text>
           </View>
           <View style={s.coverRight}>

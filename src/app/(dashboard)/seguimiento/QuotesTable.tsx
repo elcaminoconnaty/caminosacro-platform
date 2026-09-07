@@ -30,6 +30,8 @@ export type QuoteRow = {
   /** Contratos emitidos para esta cotización, y cuántos siguen sin firma. */
   contratos: number;
   sin_firmar: number;
+  /** El grupo va con un solo contrato a nombre de la empresa (migración 0036). */
+  contrato_empresa?: boolean;
 };
 
 // Cotizaciones que creó un visitante externo (cotizador de caminosacro.com o /cotizar),
@@ -321,6 +323,17 @@ export default function QuotesTable({ rows, hoy }: { rows: QuoteRow[]; hoy: stri
                   <td className="px-4 py-2.5 text-center whitespace-nowrap">
                     {q.contratos === 0 ? (
                       <span className="text-muted">—</span>
+                    ) : q.contrato_empresa ? (
+                      <span
+                        className={`text-xs font-medium ${q.sin_firmar > 0 ? "text-red-700" : "text-muted"}`}
+                        title={
+                          q.sin_firmar > 0
+                            ? "Contrato de empresa sin firmar"
+                            : "Contrato de empresa firmado"
+                        }
+                      >
+                        {q.sin_firmar > 0 ? "Empresa · sin firmar" : "Empresa · firmado"}
+                      </span>
                     ) : (
                       <span
                         className={`text-xs font-medium ${q.sin_firmar > 0 ? "text-red-700" : "text-muted"}`}

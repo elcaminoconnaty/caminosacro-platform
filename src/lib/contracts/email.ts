@@ -24,6 +24,11 @@ export type RegistroCorreoContrato = {
   quoteId?: string | null;
   /** Envío de prueba desde el CRM: se registra igual, pero marcado. */
   prueba?: boolean;
+  /**
+   * Con qué etiqueta queda en `email_log`. Por defecto `contrato`; la ficha del viajero
+   * usa `ficha` para poder distinguir en el historial quién recibió qué.
+   */
+  tipo?: "contrato" | "ficha";
 };
 
 export type ResultadoCorreoContrato = {
@@ -42,7 +47,7 @@ export async function enviarCorreoContrato(
   await registrarEnvio(registro.supabase, {
     quoteId: registro.quoteId ?? null,
     code: payload.code,
-    tipo: "contrato",
+    tipo: registro.tipo ?? "contrato",
     destinatario: payload.email,
     asunto: payload.subject,
     adjuntos: payload.attachments?.length ?? (payload.pdf_url ? 1 : 0),

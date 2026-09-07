@@ -14,11 +14,14 @@ import { createServerClient } from "@supabase/ssr";
 // /documentacion es la documentación de viaje del peregrino: autentica por el token
 // único de la URL (ver src/app/documentacion/[token]). Es el enlace que va en el correo
 // y que el cliente abre durante el viaje; sin esto lo mandaría a iniciar sesión en el CRM.
+// /viajero es la ficha del viajero: cada persona de un grupo completa ahí sus datos y
+// autorizaciones con su token único (ver src/app/viajero/[token]). No muestra el
+// contrato — en la modalidad de empresa lo firma el representante legal.
 // /correo es la versión web de un correo enviado ("¿No ves bien este correo? Ábrelo
 // aquí"): mismo patrón de token, y lo abre el mismo cliente sin sesión.
 const PUBLIC_PATHS = [
   "/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato",
-  "/api/cron", "/api/agente", "/documentacion", "/correo",
+  "/api/cron", "/api/agente", "/documentacion", "/correo", "/viajero",
 ];
 
 export async function proxy(request: NextRequest) {

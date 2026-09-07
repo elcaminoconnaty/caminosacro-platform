@@ -75,6 +75,7 @@ export default function Wizard({
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const [clientEmail, setClientEmail] = useState("");
+  const [conEmpresa, setConEmpresa] = useState(false);
   const [foundClient, setFoundClient] = useState<ClientLite | null | "loading">(null);
 
   // Cotización — selección por cascada
@@ -481,6 +482,65 @@ export default function Wizard({
               className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
             />
           </label>
+        </div>
+
+        {/* Empresa contratante (opcional). Los campos de arriba se quedan: son el contacto
+            humano. Esto es quién firma el contrato y a quién se le factura. */}
+        <div className="border border-border rounded-lg bg-crema/40">
+          <label className="flex items-center gap-2 px-3 py-2 text-xs cursor-pointer">
+            <input type="checkbox" checked={conEmpresa} onChange={(e) => setConEmpresa(e.target.checked)} />
+            <span className="font-medium text-bosque">Contrata una empresa</span>
+            <span className="text-muted">
+              — el contrato sale a nombre de la empresa, uno solo para todo el grupo, y lo firma su representante legal
+            </span>
+          </label>
+          {conEmpresa && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-3 pb-3 text-sm">
+              <label className="block">
+                <span className="text-xs text-muted">Razón social</span>
+                <input name="company_legal_name" placeholder="COLEGIO SAN JOSÉ S.A.S." className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white" />
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">NIT</span>
+                <input name="company_nit" placeholder="900.123.456-7" className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white" />
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">Correo de notificaciones</span>
+                <input name="company_email" type="email" className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white" />
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">Dirección de notificaciones</span>
+                <input name="company_address" placeholder="Calle 100 # 15-20, of. 401" className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white" />
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">Ciudad</span>
+                <input name="company_city" placeholder="Bogotá D.C." className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white" />
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">Teléfono de la empresa</span>
+                <input name="company_phone" className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white" />
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">Representante legal</span>
+                <input name="company_rep_name" className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white" />
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">Tipo de documento</span>
+                <select name="company_rep_document_type" defaultValue="Cédula de ciudadanía" className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white">
+                  <option>Cédula de ciudadanía</option>
+                  <option>Cédula de extranjería</option>
+                  <option>Pasaporte</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">Documento del representante</span>
+                <input name="company_rep_document_number" className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white" />
+              </label>
+              <p className="md:col-span-3 text-[11px] text-muted">
+                Se identifica por el NIT: si la empresa ya cotizó antes, se actualiza su ficha en vez de duplicarla.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

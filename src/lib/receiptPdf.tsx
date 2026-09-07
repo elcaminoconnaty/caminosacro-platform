@@ -185,7 +185,7 @@ export function ReceiptPDF({
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
           <Text style={styles.brand}>Camino Sacro</Text>
-          <Text style={styles.brandSub}>AGENCIA DEL CAMINO DE SANTIAGO</Text>
+          <Text style={styles.brandSub}>VIAJES Y PEREGRINACIONES AL CAMINO DE SANTIAGO</Text>
           <View style={styles.headerRow}>
             <Text style={styles.docTitle}>Recibo de pago</Text>
             <Text style={styles.receiptNum}>{payment.receipt_number}</Text>

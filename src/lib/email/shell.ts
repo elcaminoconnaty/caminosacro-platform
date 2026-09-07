@@ -106,7 +106,7 @@ export function envolturaCorreo(o: EnvolturaOpciones): string {
 
   <tr><td class="cs-pad" style="background:${C.verde};padding:26px 32px;">
     <div style="font-family:Georgia,'Times New Roman',serif;font-size:20px;color:#ffffff;">Camino Sacro</div>
-    <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:rgba(255,255,255,0.75);margin-top:5px;">Agencia del Camino de Santiago · www.caminosacro.com</div>
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:rgba(255,255,255,0.75);margin-top:5px;">Viajes y peregrinaciones al Camino de Santiago · www.caminosacro.com</div>
     <div style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${C.oro};letter-spacing:2px;margin-top:16px;">${esc(o.eyebrow)}</div>
   </td></tr>
 

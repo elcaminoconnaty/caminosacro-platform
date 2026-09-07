@@ -6,6 +6,13 @@
 // Una cotización tiene N viajeros y N contratos, uno por persona. Por eso las
 // acciones operan por `contractId` y no por cotización: la cotización ya no
 // identifica un contrato único.
+//
+// DOS MODALIDADES (migración 0036). Si la cotización tiene `company_id`, quien contrata es
+// una empresa y el contrato es UNO SOLO (`kind = 'empresa'`), a su nombre, firmado por su
+// representante legal, con la relación de viajeros congelada en `travelers_json`. Ahí nadie
+// firma individualmente, así que los pasaportes los carga el equipo desde el CRM
+// (`subirPasaporteViajero`). Las dos modalidades son excluyentes y hay guardas para que no
+// se mezclen: dos contratos vivos por el mismo viaje es un problema legal, no de UI.
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
@@ -13,12 +20,23 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import {
   buildDefaultVariables,
+  buildTravelersAnexo,
+  getFirmante,
   renderContractPdfBuffer,
   newContractToken,
 } from "@/lib/contracts/render";
-import type { ContractVariables, PaymentPlan } from "@/lib/contracts/template";
+import {
+  esEmpresa,
+  FIRMANTE_POR_DEFECTO,
+  destinatarioContrato,
+  saludoContrato,
+  type ContractVariables,
+  type PaymentPlan,
+  type ViajeroAnexo,
+} from "@/lib/contracts/template";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
-import { rutaContrato, sinBucket } from "@/lib/storage/paths";
+import { FICHA_TTL_DAYS, newFichaToken } from "@/lib/travelers/ficha";
+import { rutaContrato, rutaContratoEmpresa, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
 
 const TOKEN_TTL_DAYS = 21;
 
@@ -32,12 +50,23 @@ export type TravelerRow = {
   document_type: string | null;
   document_number: string | null;
   is_holder: boolean;
+  /** Pasaporte del viajero. Lo sube él al firmar, en su ficha, o el equipo desde el CRM. */
+  passport_path: string | null;
+  /** null = todavía no respondió la ficha. Distinto de false, que es "dijo que no". */
+  autoriza_imagen: boolean | null;
+  marketing_optin: boolean | null;
+  ficha_sent_at: string | null;
+  ficha_completed_at: string | null;
 };
 
 export type ContractRow = {
   id: string;
   quote_id: string;
-  traveler_id: string;
+  kind: "viajero" | "empresa";
+  org_signer: string;
+  company_id: string | null;
+  travelers_json: ViajeroAnexo[];
+  traveler_id: string | null;
   variables_json: ContractVariables;
   payment_plan_json: PaymentPlan;
   status: "borrador" | "enviado" | "firmado" | "anulado";
@@ -64,6 +93,60 @@ export type TravelerInput = {
   phone?: string | null;
   document_number?: string | null;
 };
+
+// =============================================================
+// Modalidad
+// =============================================================
+
+/**
+ * ¿Esta cotización ya tiene un contrato de la otra modalidad?
+ *
+ * Las dos son excluyentes: un viaje no puede estar amparado a la vez por un contrato de
+ * empresa y por contratos individuales — serían dos acuerdos vivos sobre el mismo objeto,
+ * con dos obligados al pago. Se corta acá y no en la pantalla.
+ */
+async function contratoDeOtraModalidad(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  quoteId: string,
+  quiero: "viajero" | "empresa",
+): Promise<string | null> {
+  const otra = quiero === "empresa" ? "viajero" : "empresa";
+  const { data } = await supabase
+    .from("contracts")
+    .select("id")
+    .eq("quote_id", quoteId)
+    .eq("kind", otra)
+    .limit(1);
+  if (!data?.length) return null;
+  return otra === "empresa"
+    ? "Esta cotización ya tiene un contrato de empresa. Anúlalo antes de crear contratos por viajero."
+    : "Esta cotización ya tiene contratos por viajero. Anúlalos antes de crear el contrato de empresa.";
+}
+
+async function persistirDatosEmpresa(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  companyId: string,
+  v: ContractVariables,
+) {
+  // `legal_name` y `nit` son NOT NULL: si el snapshot llegara sin ellos no se tocan, en
+  // vez de tumbar el update entero.
+  await supabase
+    .from("companies")
+    .update({
+      ...(v.empresa_razon_social ? { legal_name: v.empresa_razon_social } : {}),
+      ...(v.empresa_nit ? { nit: v.empresa_nit } : {}),
+      address: v.empresa_direccion || null,
+      city: v.empresa_ciudad || null,
+      email: v.empresa_email || null,
+      phone: v.empresa_telefono || null,
+      rep_name: v.rep_nombre || null,
+      rep_document_type: v.rep_tipo_documento || null,
+      rep_document_number: v.rep_documento || null,
+    })
+    .eq("id", companyId);
+}
 
 // =============================================================
 // Viajeros
@@ -93,14 +176,34 @@ export async function saveTravelers(
     .eq("quote_id", quoteId);
   const { data: conContrato } = await supabase
     .from("contracts")
-    .select("traveler_id")
+    .select("traveler_id,kind,status")
     .eq("quote_id", quoteId);
-  const protegidos = new Set((conContrato || []).map((c) => c.traveler_id as string));
+  const protegidos = new Set(
+    (conContrato || []).map((c) => c.traveler_id as string | null).filter(Boolean) as string[],
+  );
+
+  // Con contrato de empresa NINGÚN viajero tiene contrato propio, así que la guarda de
+  // arriba no protege a nadie — y la lista está dentro de un anexo firmado. Firmado el
+  // contrato, la relación de viajeros queda cerrada: se cambia con una sustitución
+  // (cláusula décima sexta), no borrando la fila.
+  const empresaFirmada = (conContrato || []).some((c) => c.kind === "empresa" && c.status === "firmado");
 
   const conservados = new Set(limpias.map((f) => f.id).filter(Boolean) as string[]);
   const aBorrar = (actuales || [])
     .map((t) => t.id as string)
     .filter((id) => !conservados.has(id));
+
+  // Firmado el anexo, no se quita ni se agrega gente: quien viaje sin estar en él viaja
+  // sin contrato. Editar los datos de los que ya están (el pasaporte llega tarde) sí se
+  // permite, que es justo lo que hace falta.
+  const altas = limpias.filter((f) => !f.id).length;
+  if (empresaFirmada && (aBorrar.length > 0 || altas > 0)) {
+    return {
+      error:
+        "El contrato de empresa ya está firmado y esta es la lista de su Anexo No. 2. " +
+        "Para cambiar a alguien hay que tramitar una sustitución (cláusula décima sexta), no editar la lista.",
+    };
+  }
   const bloqueados = aBorrar.filter((id) => protegidos.has(id));
   const borrables = aBorrar.filter((id) => !protegidos.has(id));
 
@@ -181,6 +284,410 @@ export async function seedTravelersFromQuote(quoteId: string): Promise<{ ok?: tr
   return { ok: true };
 }
 
+
+/**
+ * Cambia quién firma por Camino Sacro en este contrato (Nico o Nathalia).
+ *
+ * Escribe también el nombre y el documento dentro de `variables_json`: el articulado los
+ * usa para nombrar a EL ORGANIZADOR, y tienen que quedar congelados con el resto del
+ * contrato y no resolverse tarde contra los ajustes.
+ */
+export async function setOrgSigner(
+  contractId: string,
+  slug: string,
+): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: c } = await supabase
+    .from("contracts")
+    .select("id,status,quote_id,variables_json")
+    .eq("id", contractId)
+    .maybeSingle();
+  if (!c) return { error: "El contrato no existe." };
+  if (c.status === "firmado") return { error: "El contrato ya está firmado: no se puede cambiar quién firmó." };
+
+  const f = await getFirmante(supabase, slug);
+  const variables: ContractVariables = {
+    ...(c.variables_json as ContractVariables),
+    org_nombre: f.nombre,
+    org_tipo_documento: f.documento_tipo,
+    org_documento: f.documento,
+  };
+  const { error } = await supabase
+    .from("contracts")
+    .update({ org_signer: f.slug, variables_json: variables })
+    .eq("id", c.id);
+  if (error) return { error: mensajeError(error) };
+
+  revalidatePath(`/seguimiento/${c.quote_id}`);
+  return { ok: true };
+}
+
+// =============================================================
+// Ficha del viajero
+// =============================================================
+// El enlace que le pide a cada persona del grupo su pasaporte y sus autorizaciones. Nació
+// con el contrato de empresa: ahí firma el representante legal y los viajeros no entran a
+// ninguna pantalla, así que sus datos no había cómo pedírselos y el Anexo No. 2 salía con
+// "pendiente" en todas las filas.
+
+export async function enviarFichaViajero(
+  travelerId: string,
+  opts: { pruebaEmail?: string | null } = {},
+): Promise<{ ok?: true; url?: string; emailEnviado?: boolean; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: t } = await supabase
+    .from("quote_travelers")
+    .select("id,quote_id,full_name,email,token")
+    .eq("id", travelerId)
+    .maybeSingle();
+  if (!t) return { error: "No encontré el viajero." };
+
+  const { data: q } = await supabase
+    .from("quotes")
+    .select("code,route_name,start_date,company_id")
+    .eq("id", t.quote_id)
+    .maybeSingle();
+
+  let empresa: string | null = null;
+  if (q?.company_id) {
+    const { data: c } = await supabase.from("companies").select("legal_name").eq("id", q.company_id).maybeSingle();
+    empresa = (c?.legal_name as string | null) ?? null;
+  }
+
+  // El token se conserva si ya existía: así un enlace que el viajero ya tiene guardado
+  // sigue sirviendo aunque se le reenvíe el correo.
+  const token = (t.token as string | null) || newFichaToken();
+  const expires = new Date(Date.now() + FICHA_TTL_DAYS * 86400000).toISOString();
+  const { error: errToken } = await supabase
+    .from("quote_travelers")
+    .update({ token, token_expires_at: expires })
+    .eq("id", t.id);
+  if (errToken) return { error: mensajeError(errToken) };
+
+  const h = await headers();
+  const url = `${baseUrl(h)}/viajero/${token}`;
+
+  const esPrueba = !!opts.pruebaEmail;
+  const destino = opts.pruebaEmail || (t.email as string | null);
+  if (!destino) {
+    return { ok: true, url, emailEnviado: false, error: `${t.full_name} no tiene correo.` };
+  }
+
+  const primerNombre = String(t.full_name || "").trim().split(/\s+/)[0] || "";
+  const code = String(q?.code || "");
+  const envio = await enviarCorreoContrato(
+    {
+      code,
+      nombre: String(t.full_name || ""),
+      email: destino,
+      telefono: null,
+      ruta: (q?.route_name as string | null) ?? null,
+      fecha_inicio: (q?.start_date as string | null) ?? null,
+      personas: 1,
+      alojamiento: null,
+      total_eur: null,
+      pdf_url: null,
+      subject: `${esPrueba ? "[PRUEBA] " : ""}${primerNombre}, necesitamos tus datos para el Camino - ${code}`,
+      body: [
+        ...(esPrueba ? [`(Correo de PRUEBA. El destinatario real sería ${t.email || "—"}.)`, ``] : []),
+        `Hola ${primerNombre},`,
+        ``,
+        `¡Vas al ${q?.route_name || "Camino de Santiago"}${empresa ? ` con ${empresa}` : ""}! Para reservar tus alojamientos, emitir tu seguro y prepararte la documentación necesitamos algunos datos tuyos.`,
+        ``,
+        `Entra a este enlace y complétalos. Te toma dos minutos y necesitas tener a mano tu pasaporte:`,
+        ``,
+        url,
+        ``,
+        `El enlace es personal y vence en ${FICHA_TTL_DAYS} días. Si te equivocas en algo, puedes volver a abrirlo y corregirlo.`,
+        ``,
+        `Cualquier duda, respóndenos por aquí.`,
+        ``,
+        `Buen Camino,`,
+        `Camino Sacro · reservas@caminosacro.com`,
+      ].join("\n"),
+      // Sin aviso interno: lo dispara alguien del equipo desde el CRM.
+      aviso: false,
+    },
+    { supabase, quoteId: t.quote_id as string, prueba: esPrueba, tipo: "ficha" },
+  );
+
+  if (envio.ok && !esPrueba) {
+    await supabase.from("quote_travelers").update({ ficha_sent_at: new Date().toISOString() }).eq("id", t.id);
+  }
+
+  revalidatePath(`/seguimiento/${t.quote_id}`);
+  return {
+    ok: true,
+    url,
+    emailEnviado: envio.ok,
+    error: envio.ok ? undefined : (envio.error ?? "No se pudo enviar el correo."),
+  };
+}
+
+/** Manda la ficha a todos los que todavía no la han completado. */
+export async function enviarFichasATodos(
+  quoteId: string,
+  opts: { pruebaEmail?: string | null } = {},
+): Promise<{ ok?: true; enviados?: number; fallos?: string[]; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: travelers } = await supabase
+    .from("quote_travelers")
+    .select("id,full_name,ficha_completed_at")
+    .eq("quote_id", quoteId)
+    .order("position");
+  if (!travelers?.length) return { error: "Primero carga los viajeros." };
+
+  let enviados = 0;
+  const fallos: string[] = [];
+  for (const t of travelers) {
+    if (t.ficha_completed_at) continue; // ya respondió: no se le insiste
+    const r = await enviarFichaViajero(t.id as string, opts);
+    if (r.error || !r.emailEnviado) {
+      fallos.push(`${t.full_name}: ${r.error ?? "el servicio de correo no aceptó el envío"}`);
+      continue;
+    }
+    enviados++;
+  }
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true, enviados, fallos };
+}
+
+/** Cambia el firmante en todos los contratos sin firmar de la cotización. */
+export async function setOrgSignerForQuote(
+  quoteId: string,
+  slug: string,
+): Promise<{ ok?: true; actualizados?: number; omitidos?: number; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: contratos } = await supabase
+    .from("contracts")
+    .select("id,status")
+    .eq("quote_id", quoteId);
+  if (!contratos?.length) return { ok: true, actualizados: 0, omitidos: 0 };
+
+  let actualizados = 0;
+  let omitidos = 0;
+  for (const c of contratos) {
+    if (c.status === "firmado") { omitidos++; continue; }
+    const r = await setOrgSigner(c.id as string, slug);
+    if (r.error) return { error: r.error };
+    actualizados++;
+  }
+  return { ok: true, actualizados, omitidos };
+}
+
+// =============================================================
+// Pasaportes cargados desde el CRM
+// =============================================================
+// En el contrato por viajero cada uno sube el suyo al firmar. Con contrato de empresa
+// nadie firma individualmente: la empresa manda los pasaportes y el equipo los carga acá.
+// Se guardan en `quote_travelers.passport_path`, que es de donde el correo a Pilgrim saca
+// los adjuntos en las dos modalidades.
+
+const PASAPORTE_MAX_BYTES = 12 * 1024 * 1024;
+const PASAPORTE_TIPOS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "application/pdf": "pdf",
+};
+
+export async function subirPasaporteViajero(
+  travelerId: string,
+  formData: FormData,
+): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createCommercialClient();
+  const archivo = formData.get("pasaporte") as File | null;
+  if (!archivo || archivo.size === 0) return { error: "No llegó ningún archivo." };
+  const ext = PASAPORTE_TIPOS[archivo.type];
+  if (!ext) return { error: "El pasaporte debe ser una imagen (JPG, PNG, WebP) o un PDF." };
+  if (archivo.size > PASAPORTE_MAX_BYTES) return { error: "El archivo supera 12 MB." };
+
+  const { data: t } = await supabase
+    .from("quote_travelers")
+    .select("id,quote_id,full_name")
+    .eq("id", travelerId)
+    .maybeSingle();
+  if (!t) return { error: "No encontré el viajero." };
+
+  const { data: q } = await supabase.from("quotes").select("code").eq("id", t.quote_id).maybeSingle();
+  const code = String(q?.code || t.quote_id);
+
+  // `rutaPasaporte` ya lleva marca de tiempo: subir uno nuevo no pisa el anterior.
+  const ruta = rutaPasaporte(code, ext);
+  const buffer = Buffer.from(await archivo.arrayBuffer());
+  const { error: upErr } = await supabase.storage
+    .from("comercial-passports")
+    .upload(sinBucket(ruta), buffer, { contentType: archivo.type, upsert: true, cacheControl: "no-cache" });
+  if (upErr) return { error: mensajeError(upErr, "No se pudo guardar el pasaporte.") };
+
+  const { error } = await supabase
+    .from("quote_travelers")
+    .update({ passport_path: ruta, updated_at: new Date().toISOString() })
+    .eq("id", travelerId);
+  if (error) return { error: mensajeError(error) };
+
+  revalidatePath(`/seguimiento/${t.quote_id}`);
+  return { ok: true };
+}
+
+/**
+ * Desvincula el pasaporte de un viajero. El archivo NO se borra de Storage a propósito: si
+ * el viajero ya firmó, ese archivo es parte de la evidencia de su firma
+ * (`contracts.passport_path` sigue apuntándole).
+ */
+export async function quitarPasaporteViajero(travelerId: string): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: t } = await supabase
+    .from("quote_travelers")
+    .select("id,quote_id")
+    .eq("id", travelerId)
+    .maybeSingle();
+  if (!t) return { error: "No encontré el viajero." };
+  const { error } = await supabase
+    .from("quote_travelers")
+    .update({ passport_path: null, updated_at: new Date().toISOString() })
+    .eq("id", travelerId);
+  if (error) return { error: mensajeError(error) };
+  revalidatePath(`/seguimiento/${t.quote_id}`);
+  return { ok: true };
+}
+
+// =============================================================
+// Contrato de empresa
+// =============================================================
+
+/**
+ * Crea el contrato único de la empresa. Idempotente: si ya existe, no hace nada (el índice
+ * parcial `contracts_empresa_unica` lo garantiza también en la base).
+ */
+export async function createCompanyContract(
+  quoteId: string,
+  shared: ContractVariables,
+  plan: PaymentPlan,
+): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createCommercialClient();
+
+  const { data: quote } = await supabase.from("quotes").select("company_id").eq("id", quoteId).maybeSingle();
+  if (!quote?.company_id) {
+    return { error: "Esta cotización no tiene empresa contratante. Agrégala en «Editar cotización»." };
+  }
+
+  const choque = await contratoDeOtraModalidad(supabase, quoteId, "empresa");
+  if (choque) return { error: choque };
+
+  const { data: existing } = await supabase
+    .from("contracts")
+    .select("id")
+    .eq("quote_id", quoteId)
+    .eq("kind", "empresa")
+    .maybeSingle();
+  if (existing) return { ok: true };
+
+  const viajeros = await buildTravelersAnexo(supabase, quoteId);
+  if (viajeros.length === 0) {
+    return { error: "Carga primero los viajeros: son el Anexo No. 2 del contrato." };
+  }
+
+  // Sin representante legal el contrato sale con líneas en blanco justo donde va quien
+  // obliga a la empresa, y quien lo firme no queda identificado. Mejor no dejarlo nacer.
+  const { data: emp } = await supabase
+    .from("companies")
+    .select("legal_name,nit,rep_name,rep_document_number,email,address")
+    .eq("id", quote.company_id)
+    .maybeSingle();
+  const faltan = [
+    !emp?.rep_name && "el nombre del representante legal",
+    !emp?.rep_document_number && "su número de documento",
+    !emp?.email && "el correo de notificaciones",
+    !emp?.address && "la dirección de notificaciones",
+  ].filter(Boolean) as string[];
+  if (faltan.length > 0) {
+    return {
+      error:
+        `Faltan datos de la empresa para el contrato: ${faltan.join(", ")}. ` +
+        `Complétalos en «Editar cotización» → «Contrata una empresa». ` +
+        `El representante legal y su cédula salen del certificado de existencia y representación legal, no del RUT.`,
+    };
+  }
+
+  // Las variables de la empresa mandan sobre lo que traiga el formulario: si alguien las
+  // editó en la cotización después de abrir la tarjeta, gana la cotización.
+  const defaults = await buildDefaultVariables(supabase, quoteId);
+  const variables: ContractVariables = defaults.ok
+    ? { ...shared, ...datosEmpresaDe(defaults.variables) }
+    : shared;
+
+  const firmante = await getFirmante(supabase, FIRMANTE_POR_DEFECTO.slug);
+  Object.assign(variables, {
+    org_nombre: firmante.nombre,
+    org_tipo_documento: firmante.documento_tipo,
+    org_documento: firmante.documento,
+  });
+
+  const { error } = await supabase.from("contracts").insert({
+    quote_id: quoteId,
+    kind: "empresa",
+    org_signer: firmante.slug,
+    company_id: quote.company_id,
+    traveler_id: null,
+    variables_json: variables,
+    payment_plan_json: plan,
+    travelers_json: viajeros,
+    status: "borrador",
+  });
+  if (error) return { error: mensajeError(error, "No se pudo crear el contrato de empresa.") };
+
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+/** Solo las claves de empresa de un juego de variables. */
+function datosEmpresaDe(v: ContractVariables): Partial<ContractVariables> {
+  return {
+    contratante_tipo: v.contratante_tipo,
+    empresa_razon_social: v.empresa_razon_social,
+    empresa_nit: v.empresa_nit,
+    empresa_direccion: v.empresa_direccion,
+    empresa_ciudad: v.empresa_ciudad,
+    empresa_email: v.empresa_email,
+    empresa_telefono: v.empresa_telefono,
+    rep_nombre: v.rep_nombre,
+    rep_tipo_documento: v.rep_tipo_documento,
+    rep_documento: v.rep_documento,
+  };
+}
+
+/**
+ * Vuelve a congelar la relación de viajeros del anexo desde `quote_travelers`.
+ *
+ * Hace falta porque la lista se completa DESPUÉS de crear el contrato (los pasaportes van
+ * llegando). Un contrato firmado no se toca: su anexo es parte de lo que se firmó.
+ */
+export async function refreshCompanyTravelers(
+  contractId: string,
+): Promise<{ ok?: true; viajeros?: number; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: c } = await supabase
+    .from("contracts")
+    .select("id,kind,status,quote_id")
+    .eq("id", contractId)
+    .maybeSingle();
+  if (!c) return { error: "El contrato no existe." };
+  if (c.kind !== "empresa") return { error: "Solo el contrato de empresa lleva anexo de viajeros." };
+  if (c.status === "firmado") {
+    return { error: "El contrato ya está firmado: su anexo no puede cambiar." };
+  }
+
+  const viajeros = await buildTravelersAnexo(supabase, c.quote_id as string);
+  const { error } = await supabase.from("contracts").update({ travelers_json: viajeros }).eq("id", c.id);
+  if (error) return { error: mensajeError(error) };
+
+  revalidatePath(`/seguimiento/${c.quote_id}`);
+  return { ok: true, viajeros: viajeros.length };
+}
+
 // =============================================================
 // Contratos
 // =============================================================
@@ -218,6 +725,9 @@ export async function createContractForTraveler(
 ): Promise<{ ok?: true; error?: string }> {
   const supabase = await createCommercialClient();
 
+  const choque = await contratoDeOtraModalidad(supabase, quoteId, "viajero");
+  if (choque) return { error: choque };
+
   const { data: existing } = await supabase
     .from("contracts")
     .select("id")
@@ -246,7 +756,9 @@ export async function createContractForTraveler(
 
   const { error } = await supabase.from("contracts").insert({
     quote_id: quoteId,
+    kind: "viajero",
     traveler_id: travelerId,
+    company_id: null,
     variables_json: variables,
     payment_plan_json: plan,
     status: "borrador",
@@ -292,7 +804,7 @@ export async function saveContract(
   const supabase = await createCommercialClient();
   const { data: c } = await supabase
     .from("contracts")
-    .select("id,status,quote_id,traveler_id")
+    .select("id,status,quote_id,traveler_id,kind,company_id")
     .eq("id", contractId)
     .maybeSingle();
   if (!c) return { error: "El contrato no existe todavía." };
@@ -303,6 +815,14 @@ export async function saveContract(
     .update({ variables_json: variables, payment_plan_json: plan })
     .eq("id", c.id);
   if (error) return { error: mensajeError(error) };
+
+  // En el contrato de empresa lo editado vuelve a la ficha de la empresa, que es el
+  // equivalente de lo que abajo se hace con el viajero y el cliente.
+  if (c.kind === "empresa") {
+    if (c.company_id) await persistirDatosEmpresa(supabase, c.company_id as string, variables);
+    revalidatePath(`/seguimiento/${c.quote_id}`);
+    return { ok: true };
+  }
 
   // El nombre/documento editados aquí también actualizan la ficha del viajero,
   // que es de donde salen los datos del correo a Pilgrim.
@@ -316,12 +836,12 @@ export async function saveContract(
       document_number: variables.viajero_documento || null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", c.traveler_id);
+    .eq("id", c.traveler_id as string);
 
   const { data: t } = await supabase
     .from("quote_travelers")
     .select("is_holder")
-    .eq("id", c.traveler_id)
+    .eq("id", c.traveler_id as string)
     .maybeSingle();
   if (t?.is_holder) await persistirDatosCliente(supabase, c.quote_id as string, variables);
 
@@ -339,7 +859,7 @@ export async function applySharedToAll(
   const supabase = await createCommercialClient();
   const { data: contratos } = await supabase
     .from("contracts")
-    .select("id,status,variables_json")
+    .select("id,status,variables_json,kind")
     .eq("quote_id", quoteId);
   if (!contratos?.length) return { ok: true, actualizados: 0, omitidos: 0 };
 
@@ -348,6 +868,9 @@ export async function applySharedToAll(
   for (const c of contratos) {
     if (c.status === "firmado") { omitidos++; continue; }
     const previas = c.variables_json as ContractVariables;
+    // Se refresca lo común del viaje y se conservan los datos del firmante. Los de la
+    // empresa NO se conservan a propósito: su verdad es la cotización, así que corregir
+    // ahí un NIT y darle a "Recargar desde cotización" + "Aplicar" tiene que arreglarlo.
     const merged: ContractVariables = {
       ...shared,
       viajero_nombre: previas.viajero_nombre,
@@ -394,11 +917,13 @@ export async function generateContractPdf(
   const supabase = await createCommercialClient();
   const { data: c } = await supabase
     .from("contracts")
-    .select("id,status,quote_id,traveler_id,variables_json,payment_plan_json,pdf_path")
+    .select("id,status,quote_id,traveler_id,kind,travelers_json,variables_json,payment_plan_json,pdf_path")
     .eq("id", contractId)
     .maybeSingle();
   if (!c) return { error: "El contrato no existe todavía." };
   if (c.status === "firmado") return { error: "El contrato ya está firmado; descarga el firmado." };
+
+  const empresa = c.kind === "empresa";
 
   let buffer: Buffer;
   try {
@@ -406,6 +931,10 @@ export async function generateContractPdf(
       c.variables_json as ContractVariables,
       c.payment_plan_json as PaymentPlan,
       null,
+      null,
+      // El anexo sale del snapshot congelado, no de `quote_travelers`: el PDF tiene que
+      // decir lo mismo que dirá el que se firme.
+      empresa ? ((c.travelers_json as ViajeroAnexo[]) ?? []) : null,
     );
   } catch (e) {
     console.error("[generateContractPdf] render falló:", e);
@@ -414,14 +943,13 @@ export async function generateContractPdf(
 
   // La posición del viajero entra en el nombre del archivo: si no, los contratos
   // de un mismo grupo se pisarían entre ellos en Storage.
-  const { data: t } = await supabase
-    .from("quote_travelers")
-    .select("position")
-    .eq("id", c.traveler_id)
-    .maybeSingle();
+  const { data: t } = c.traveler_id
+    ? await supabase.from("quote_travelers").select("position").eq("id", c.traveler_id).maybeSingle()
+    : { data: null };
 
   const vars = c.variables_json as ContractVariables;
-  const pdfPath = rutaContrato(vars.codigo_cotizacion || String(c.quote_id), false, t?.position ?? null);
+  const code = vars.codigo_cotizacion || String(c.quote_id);
+  const pdfPath = empresa ? rutaContratoEmpresa(code, false) : rutaContrato(code, false, t?.position ?? null);
   const filePath = sinBucket(pdfPath);
   const { error: upErr } = await supabase.storage
     .from("comercial-contracts")
@@ -463,7 +991,7 @@ export async function sendContractLink(
   const supabase = await createCommercialClient();
   const { data: c } = await supabase
     .from("contracts")
-    .select("id,status,token,quote_id,variables_json,payment_plan_json,pdf_path")
+    .select("id,status,token,quote_id,kind,travelers_json,variables_json,payment_plan_json,pdf_path")
     .eq("id", contractId)
     .maybeSingle();
   if (!c) return { error: "El contrato no existe todavía. Guárdalo primero." };
@@ -508,10 +1036,21 @@ export async function sendContractLink(
   let errorEmail: string | undefined;
   if (opts.email) {
     const vars = c.variables_json as ContractVariables;
-    const destino = opts.pruebaEmail || vars.viajero_email;
+    const empresa = esEmpresa(vars);
+    // Quién recibe: el viajero, o la empresa por su correo de notificaciones.
+    const { email: correoParte, nombre: nombreParte } = destinatarioContrato(vars);
+    const destino = opts.pruebaEmail || correoParte;
     if (!destino) {
-      return { ok: true, url, emailEnviado: false, error: `${vars.viajero_nombre} no tiene correo.` };
+      return {
+        ok: true,
+        url,
+        emailEnviado: false,
+        error: empresa
+          ? `${nombreParte || "La empresa"} no tiene correo de notificaciones. Agrégalo en «Editar cotización».`
+          : `${nombreParte} no tiene correo.`,
+      };
     }
+    const viajerosAnexo = ((c.travelers_json as ViajeroAnexo[]) ?? []).length;
     // Enlace firmado al PDF de preview para que el viajero pueda leerlo desde el correo.
     let pdfUrl: string | null = null;
     const { data: fresh } = await supabase.from("contracts").select("pdf_path").eq("id", c.id).maybeSingle();
@@ -522,47 +1061,68 @@ export async function sendContractLink(
       pdfUrl = signed?.signedUrl ?? null;
     }
     const prefijo = esPrueba ? "[PRUEBA] " : "";
+    const cuerpoEmpresa = [
+      `Hola ${saludoContrato(vars) || "buen día"},`,
+      ``,
+      `Adjuntamos el Acuerdo de Prestación de Servicios Turísticos No. ${vars.codigo_cotizacion}, a nombre de ${vars.empresa_razon_social || "la empresa"}${vars.empresa_nit ? ` (NIT ${vars.empresa_nit})` : ""}, para el ${vars.ruta_nombre}${viajerosAnexo ? ` de ${viajerosAnexo} viajero(s)` : ""}.`,
+      ``,
+      `La relación de viajeros beneficiarios va en el Anexo No. 2 del propio contrato. Vale la pena revisarla antes de firmar: es la que usamos para las reservas.`,
+      ``,
+      `En este enlace puede revisar el documento completo y firmarlo digitalmente el representante legal:`,
+      ``,
+      url,
+      ``,
+      `El enlace vence en ${TOKEN_TTL_DAYS} días. Al firmar les llegará una copia del contrato a este correo.`,
+      ``,
+      `Los pasaportes de los viajeros pueden enviarlos por respuesta a este mismo correo; nosotros los cargamos.`,
+      ``,
+      `Quedamos atentos a cualquier duda.`,
+      ``,
+      `Buen Camino,`,
+      `Camino Sacro · reservas@caminosacro.com`,
+    ];
+    const cuerpoViajero = [
+      `Hola ${saludoContrato(vars)},`,
+      ``,
+      `¡Buenas noticias! Tu reserva del ${vars.ruta_nombre} está lista para el último paso: la firma del contrato de servicios.`,
+      ``,
+      `En este enlace puedes revisar el contrato, firmarlo digitalmente y subir la foto de tu pasaporte (la necesitamos para gestionar tus reservas):`,
+      ``,
+      url,
+      ``,
+      `El enlace es personal y vence en ${TOKEN_TTL_DAYS} días. Al firmar te llegará una copia del contrato a este correo.`,
+      ``,
+      `Si tienes cualquier duda, respóndenos por aquí.`,
+      ``,
+      `Buen Camino,`,
+      `Camino Sacro · reservas@caminosacro.com`,
+    ];
     const envio = await enviarCorreoContrato({
       code: vars.codigo_cotizacion,
-      nombre: vars.viajero_nombre,
+      nombre: nombreParte,
       email: destino,
-      telefono: vars.viajero_telefono,
+      telefono: empresa ? vars.empresa_telefono || null : vars.viajero_telefono,
       ruta: vars.ruta_nombre,
       fecha_inicio: vars.fecha_inicio,
       personas: Number(vars.num_personas) || 1,
       alojamiento: vars.modalidad,
       total_eur: null,
       pdf_url: pdfUrl,
-      subject: `${prefijo}${vars.viajero_nombre} - Contrato para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
+      subject: `${prefijo}${nombreParte} - Contrato para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
       body: [
-        ...(esPrueba
-          ? [`(Correo de PRUEBA. El destinatario real sería ${vars.viajero_email || "—"}.)`, ``]
-          : []),
-        `Hola ${vars.viajero_nombre.split(/\s+/)[0] || ""},`,
-        ``,
-        `¡Buenas noticias! Tu reserva del ${vars.ruta_nombre} está lista para el último paso: la firma del contrato de servicios.`,
-        ``,
-        `En este enlace puedes revisar el contrato, firmarlo digitalmente y subir la foto de tu pasaporte (la necesitamos para gestionar tus reservas):`,
-        ``,
-        url,
-        ``,
-        `El enlace es personal y vence en ${TOKEN_TTL_DAYS} días. Al firmar te llegará una copia del contrato a este correo.`,
-        ``,
-        `Si tienes cualquier duda, respóndenos por aquí.`,
-        ``,
-        `Buen Camino,`,
-        `Camino Sacro · reservas@caminosacro.com`,
+        ...(esPrueba ? [`(Correo de PRUEBA. El destinatario real sería ${correoParte || "—"}.)`, ``] : []),
+        ...(empresa ? cuerpoEmpresa : cuerpoViajero),
       ].join("\n"),
-      attachment_name: `Contrato-${vars.codigo_cotizacion}.pdf`,
+      attachment_name: `Contrato-${vars.codigo_cotizacion}${empresa ? "-empresa" : ""}.pdf`,
       // Sin aviso interno: lo dispara alguien del equipo desde el CRM. El aviso de
       // verdad llega cuando el cliente firma, que es lo que nadie está mirando.
       aviso: false,
-      aviso_subject: `${prefijo}${vars.viajero_nombre} - Contrato enviado para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
+      aviso_subject: `${prefijo}${nombreParte} - Contrato enviado para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
       aviso_body: [
         esPrueba ? `PRUEBA: se envió a ${destino} en vez del viajero.` : `Se envió un contrato para firma.`,
         ``,
-        `Contrato: ${vars.codigo_cotizacion}`,
-        `Cliente: ${vars.viajero_nombre}`,
+        `Contrato: ${vars.codigo_cotizacion}${empresa ? " (empresa)" : ""}`,
+        `Cliente: ${nombreParte}`,
         `Ruta: ${vars.ruta_nombre || "-"}`,
         ``,
         `Cuando el cliente firme, te llegará el aviso de "Contrato firmado".`,
@@ -616,7 +1176,7 @@ export async function sendAllContractLinks(
     const vars = c.variables_json as ContractVariables;
     const r = await sendContractLink(c.id as string, { email: true, pruebaEmail: opts.pruebaEmail });
     if (r.error || !r.emailEnviado) {
-      fallos.push(`${vars.viajero_nombre}: ${r.error ?? "el servicio de correo no aceptó el envío"}`);
+      fallos.push(`${destinatarioContrato(vars).nombre}: ${r.error ?? "el servicio de correo no aceptó el envío"}`);
       continue;
     }
     enviados++;

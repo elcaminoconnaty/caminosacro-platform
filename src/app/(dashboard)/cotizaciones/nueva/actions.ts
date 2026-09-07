@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
+import { upsertCompany, companyDeFormData } from "@/lib/quotes/company";
 import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 
 const str = (v: FormDataEntryValue | null) => {
@@ -66,6 +67,13 @@ export async function createQuote(formData: FormData) {
     }
   }
 
+  // Empresa contratante (opcional). Deduplicada por NIT; sin razón social y NIT no se
+  // guarda nada y la cotización queda de persona natural, como siempre.
+  let companyId: string | null = null;
+  const empresa = await upsertCompany(supabase, companyDeFormData(formData));
+  if (empresa && "error" in empresa) return { error: empresa.error };
+  if (empresa) companyId = empresa.id;
+
   // Código auto
   const { data: code, error: codeErr } = await supabase.rpc("next_quote_code");
   if (codeErr) return { error: mensajeError(codeErr, "No se pudo generar el código de la cotización.") };
@@ -98,6 +106,7 @@ export async function createQuote(formData: FormData) {
     .insert({
       code,
       client_id: clientId,
+      company_id: companyId,
       client_name: fullName,
       client_phone: phone,
       client_email: email,

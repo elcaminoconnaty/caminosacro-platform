@@ -5,42 +5,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { firmarContrato, type ResultadoFirma } from "./actions";
-
-// Las fotos de pasaporte que llegan del celular pesan 3-8 MB y hacían que el envío
-// superara el límite de la Server Action (por ahí se cayó la primera firma real).
-// Reducirlas aquí, antes de enviarlas, deja el pasaporte en cientos de KB sin perder
-// legibilidad y hace la subida viable en datos móviles.
-const PASAPORTE_LADO_MAX = 1600;
-const PASAPORTE_CALIDAD = 0.82;
-
-async function comprimeImagen(archivo: File): Promise<File> {
-  if (!archivo.type.startsWith("image/")) return archivo; // los PDF viajan enteros
-  try {
-    const bitmap = await createImageBitmap(archivo);
-    const escala = Math.min(1, PASAPORTE_LADO_MAX / Math.max(bitmap.width, bitmap.height));
-    const ancho = Math.round(bitmap.width * escala);
-    const alto = Math.round(bitmap.height * escala);
-
-    const lienzo = document.createElement("canvas");
-    lienzo.width = ancho;
-    lienzo.height = alto;
-    const ctx = lienzo.getContext("2d");
-    if (!ctx) return archivo;
-    ctx.drawImage(bitmap, 0, 0, ancho, alto);
-    bitmap.close();
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      lienzo.toBlob(resolve, "image/jpeg", PASAPORTE_CALIDAD),
-    );
-    // Si comprimir no ayudó (imagen ya pequeña), nos quedamos con el original.
-    if (!blob || blob.size >= archivo.size) return archivo;
-    return new File([blob], "Pasaporte.jpg", { type: "image/jpeg" });
-  } catch {
-    // Formato que el navegador no sabe decodificar (p. ej. HEIC en algún Android):
-    // seguimos con el original — comprimir nunca debe impedir firmar.
-    return archivo;
-  }
-}
+import { comprimeImagen } from "@/lib/comprimeImagen";
 
 // Tipos de archivo que acepta el servidor (ver PASSPORT_TYPES en actions.ts). Se validan
 // también acá para poder decirle al viajero qué pasa sin esperar el viaje al servidor.
@@ -141,12 +106,17 @@ export default function SignForm({
   defaultDocument,
   docType,
   financiado, // = el paquete incluye el pagaré (ver `llevaPagare`), no solo que el plan sea a cuotas
+  empresa = false,
+  razonSocial = null,
 }: {
   token: string;
   defaultName: string;
   defaultDocument: string;
   docType: string;
   financiado: boolean;
+  /** Contrato de empresa: firma el representante legal y NO se sube pasaporte acá. */
+  empresa?: boolean;
+  razonSocial?: string | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [preparando, setPreparando] = useState(false);
@@ -178,8 +148,12 @@ export default function SignForm({
     // En el orden en que se ven en pantalla, para poder llevarlo al primero que falta.
     const faltas: { campo: string; texto: string }[] = [];
     if (nombre.length < 5) faltas.push({ campo: "signer_name", texto: "tu nombre completo" });
-    if (documento.length < 4) faltas.push({ campo: "signer_document", texto: "tu número de pasaporte" });
-    if (!archivo) faltas.push({ campo: "passport", texto: "la foto de tu pasaporte" });
+    if (documento.length < 4) {
+      faltas.push({ campo: "signer_document", texto: empresa ? "el número de documento del representante legal" : "tu número de pasaporte" });
+    }
+    // En el contrato de empresa nadie sube pasaporte acá: los de los viajeros los carga el
+    // equipo desde el CRM (la empresa los manda por correo).
+    if (!empresa && !archivo) faltas.push({ campo: "passport", texto: "la foto de tu pasaporte" });
     if (!signature) faltas.push({ campo: "signature", texto: "tu firma (dibújala en el recuadro)" });
     if (!fd.get("accept")) faltas.push({ campo: "accept", texto: "aceptar la declaración del final" });
 
@@ -274,33 +248,47 @@ export default function SignForm({
     >
       <div>
         <p className="text-xs uppercase tracking-[0.18em] text-dorado-oscuro">Último paso</p>
-        <h2 className="font-display text-xl text-bosque mt-1">Firma del contrato</h2>
+        <h2 className="font-display text-xl text-bosque mt-1">
+          {empresa ? "Firma del representante legal" : "Firma del contrato"}
+        </h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <label className="text-xs">
-          <span className="text-muted">Nombre completo (como firmante)</span>
+          <span className="text-muted">
+            {empresa ? "Nombre del representante legal" : "Nombre completo (como firmante)"}
+          </span>
           <input name="signer_name" defaultValue={defaultName} className={claseCampo("signer_name")} />
         </label>
         <label className="text-xs">
           <span className="text-muted">
-            Número de pasaporte
-            {docType !== "Pasaporte" && <span className="text-dorado-oscuro"> · nos falta este dato</span>}
+            {empresa ? docType || "Documento del representante legal" : "Número de pasaporte"}
+            {!empresa && docType !== "Pasaporte" && (
+              <span className="text-dorado-oscuro"> · nos falta este dato</span>
+            )}
           </span>
           <input
             name="signer_document"
-            defaultValue={docType === "Pasaporte" ? defaultDocument : ""}
-            placeholder="Ej: AS748091"
+            defaultValue={empresa || docType === "Pasaporte" ? defaultDocument : ""}
+            placeholder={empresa ? "Ej: 79.123.456" : "Ej: AS748091"}
             className={claseCampo("signer_document")}
           />
           <span className="block text-[11px] text-muted mt-1">
-            {docType === "Pasaporte"
-              ? "Verifica que coincida con tu pasaporte: este número queda dentro del contrato firmado."
-              : `Tu cotización quedó con tu ${docType.toLowerCase()}, pero el contrato necesita el pasaporte con el que vas a viajar. Cópialo tal como aparece, sin espacios.`}
+            {empresa
+              ? "Este número queda dentro del contrato firmado, junto a tu nombre y al NIT de la empresa."
+              : docType === "Pasaporte"
+                ? "Verifica que coincida con tu pasaporte: este número queda dentro del contrato firmado."
+                : `Tu cotización quedó con tu ${docType.toLowerCase()}, pero el contrato necesita el pasaporte con el que vas a viajar. Cópialo tal como aparece, sin espacios.`}
           </span>
         </label>
       </div>
 
+      {empresa ? (
+        <p className="text-[11px] text-muted bg-crema border border-border rounded-md px-3 py-2">
+          Los pasaportes de los viajeros no se suben aquí: envíalos a reservas@caminosacro.com y nosotros los
+          cargamos. Los necesitamos para gestionar las reservas, pero no hacen falta para firmar.
+        </p>
+      ) : (
       <label className="text-xs block">
         <span className="text-muted">
           Foto o escaneo de tu pasaporte (página de datos) — debe coincidir con el número de arriba
@@ -317,6 +305,7 @@ export default function SignForm({
           Tómala con el celular; la reducimos sola antes de enviarla, así que no importa que la foto sea grande.
         </span>
       </label>
+      )}
 
       <div>
         <p className="text-xs text-muted mb-1.5">Tu firma</p>
@@ -336,12 +325,25 @@ export default function SignForm({
         }`}
       >
         <input type="checkbox" name="accept" className="mt-0.5" />
-        <span>
-          Declaro que leí y comprendí íntegramente el contrato{financiado ? ", incluido el pagaré en blanco con su carta de instrucciones (Anexo No. 2)," : ""}{" "}
-          y sus anexos; que los datos que suministro son veraces; que autorizo el tratamiento de mis datos personales
-          — incluida la imagen de mi pasaporte y su transmisión al operador del viaje en España — conforme a la Ley
-          1581 de 2012; y que firmo electrónicamente con plena validez legal (Ley 527 de 1999).
-        </span>
+        {empresa ? (
+          <span>
+            Declaro que obro como representante legal de {razonSocial || "la empresa"}, con facultades suficientes para
+            obligarla; que leí y comprendí íntegramente el contrato
+            {financiado ? ", incluido el pagaré en blanco con su carta de instrucciones (Anexo No. 3)," : ""} y sus
+            anexos, incluida la relación de viajeros del Anexo No. 2; que los datos suministrados son veraces; que la
+            empresa cuenta con la autorización previa, expresa e informada de cada viajero para entregar sus datos
+            personales y la imagen de su documento de viaje y transmitirlos al operador del viaje en España, conforme a
+            la Ley 1581 de 2012; y que firmo electrónicamente con plena validez legal (Ley 527 de 1999).
+          </span>
+        ) : (
+          <span>
+            Declaro que leí y comprendí íntegramente el contrato
+            {financiado ? ", incluido el pagaré en blanco con su carta de instrucciones (Anexo No. 2)," : ""} y sus
+            anexos; que los datos que suministro son veraces; que autorizo el tratamiento de mis datos personales —
+            incluida la imagen de mi pasaporte y su transmisión al operador del viaje en España — conforme a la Ley
+            1581 de 2012; y que firmo electrónicamente con plena validez legal (Ley 527 de 1999).
+          </span>
+        )}
       </label>
 
       {error && (

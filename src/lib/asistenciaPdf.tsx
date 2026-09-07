@@ -85,7 +85,7 @@ export function AsistenciaPDF({ texts }: { texts: AsistenciaTexts }) {
       <Page size="A4" style={s.coverPage}>
         <View style={s.coverTop}>
           <Text style={s.coverBrand}>Camino Sacro</Text>
-          <Text style={s.coverBrandSub}>Agencia del Camino de Santiago</Text>
+          <Text style={s.coverBrandSub}>Viajes y peregrinaciones al Camino de Santiago</Text>
         </View>
 
         <View style={s.coverContent}>
