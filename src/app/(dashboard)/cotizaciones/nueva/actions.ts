@@ -130,6 +130,9 @@ export async function createQuote(formData: FormData) {
       notes: str(formData.get("notes")),
       rooms_json: roomsJson,
       price_blocks: priceBlocks,
+      // Nota interna de "precio POR PERSONA puesto a mano" (migración 0038). Vacía = el
+      // precio salió del catálogo tal cual.
+      manual_price_note: str(formData.get("manual_price_note")),
     })
     .select("id")
     .single();

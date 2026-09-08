@@ -30,7 +30,7 @@ export async function resolverCotizacion(supabase: ComercialClient, idOCodigo: s
 export async function estadoCotizacion(supabase: ComercialClient, quoteId: string) {
   const { data: quote } = await supabase
     .from("quotes")
-    .select("id,code,client_name,client_email,client_phone,route_id,route_name,start_date,end_date,valid_until,people,modality,status,base_eur,season_supplement_eur,total_eur,cost_eur,pdf_path,email_sent_at,pilgrim_email_sent_at,notes,source,parent_quote_id")
+    .select("id,code,client_name,client_email,client_phone,route_id,route_name,start_date,end_date,valid_until,people,modality,status,base_eur,season_supplement_eur,total_eur,cost_eur,pdf_path,email_sent_at,pilgrim_email_sent_at,notes,manual_price_note,source,parent_quote_id")
     .eq("id", quoteId)
     .maybeSingle();
   if (!quote) return null;
@@ -103,8 +103,13 @@ export async function estadoCotizacion(supabase: ComercialClient, quoteId: strin
     estado: quote.status,
     origen: quote.source,
     notas: quote.notes,
+    // La nota interna de "precio POR PERSONA puesto a mano" (migración 0038): BayMax la
+    // repite tal cual para que quien pregunte por la cotización sepa que la cifra que se
+    // tecleó es por pasajero, igual que hace Pilgrim en las suyas. null = del catálogo.
+    nota_precio_por_persona: quote.manual_price_note ?? null,
     dinero: {
       base_eur: Number(quote.base_eur) || 0,
+      base_por_persona_eur: Math.round(((Number(quote.base_eur) || 0) / Math.max(1, personas)) * 100) / 100,
       suplemento_eur: Number(quote.season_supplement_eur) || 0,
       total_eur: Number(quote.total_eur) || 0,
       costo_pilgrim_eur: Number(quote.cost_eur) || 0,

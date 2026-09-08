@@ -393,6 +393,32 @@ where key = 'token_pricing';
 2. Editá, guardá
 3. Si `npm run dev` está corriendo, recargá en el navegador (cambios casi instantáneos con Turbopack)
 
+### El precio que se teclea a mano es POR PERSONA (migración 0038)
+Pilgrim cotiza por pasajero y Nico pone su precio por pasajero. En el asistente
+(`/cotizaciones/nueva`) y en el editor del expediente (`/seguimiento/[id]`) **ya no hay
+campos de total del grupo que se tecleen**: lo que se escribe es siempre **"Mi precio € /
+persona"** y **"Costo Pilgrim € / persona"**, por cada habitación del reparto (doble e
+individual), y la base del grupo y el costo Pilgrim se calculan solos (personas de cada
+habitación × precio). `base_eur` y `cost_base_eur` siguen guardando el total del grupo, pero
+se derivan; nunca se escriben a mano.
+
+Tres modos, la misma regla:
+- **Pensión / Hotel** (reparto automático): un precio por persona por habitación. El tipo
+  no cobrado solo lleva "Mi precio", que es la tarjeta comparativa del PDF.
+- **Habitaciones a medida**: cada fila con su precio por persona (ya era así).
+- **Alojamiento libre** ("Doble + Triple", "Personalizada"): un precio por persona para todo
+  el grupo, multiplicado por las personas.
+
+Cuando el precio **no salió del catálogo tal cual** (se tecleó, se corrigió, es ruta
+personalizada, a medida o libre), la cotización guarda en `quotes.manual_price_note` una
+**nota interna** que dice en palabras el precio por persona y cómo se llegó a la base
+("PRECIO PUESTO A MANO, POR PERSONA — no sale del catálogo 2027. Pensión doble: 520,00
+€/persona (Pilgrim 450,00 €/persona) × 4 personas. Base del grupo 2.080,00 € …"). Sale
+resaltada en "Datos de la cotización" y BayMax la devuelve como `nota_precio_por_persona`.
+No va al PDF ni a ningún correo. Si BayMax vuelve a tarifar desde el catálogo, se borra.
+El costo Pilgrim por persona de cada habitación queda en `rooms_json.pilgrim_doble` /
+`pilgrim_single`, al lado de `tarifa_doble` / `tarifa_single`. Código: `src/lib/quotes/precioPorPersona.ts`.
+
 ### Las tarjetas de precio del PDF (pensión / hotel)
 Las tarjetas grandes de la página 2 salen de **`comercial.quotes.price_blocks`** (migración
 0016): un mapa `modalidad → precio de venta por persona`.

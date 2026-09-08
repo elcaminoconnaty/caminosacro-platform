@@ -217,6 +217,12 @@ export async function actualizarCotizacion(
       patch.price_blocks = null;
       avisos.push("Se soltaron los precios del PDF tecleados a mano: ahora salen del catálogo.");
     }
+    // La nota de "precio por persona puesto a mano" ya no describe esta cotización: el
+    // precio acaba de salir del catálogo (migración 0038).
+    if (quote.manual_price_note) {
+      patch.manual_price_note = null;
+      avisos.push("Se quitó la nota de precio puesto a mano: la cotización volvió al precio del catálogo.");
+    }
     // Un reparto a medida (dobles + triples, cada habitación con su precio) no sobrevive a
     // una re-tarifación: `rooms_json` acaba de quedar pisado por el reparto automático. Se
     // avisa porque la cotización pasa a cobrar otra cosa, no porque falle nada.

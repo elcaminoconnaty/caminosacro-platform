@@ -125,7 +125,7 @@ export async function updateQuote(id: string, formData: FormData) {
   // Cómo está ahora, para saber después si de verdad cambió algo (ver más abajo).
   const { data: antesRaw } = await supabase
     .from("quotes")
-    .select("client_name,client_phone,client_email,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,valid_until,notes,price_blocks,rooms_json,pdf_path")
+    .select("client_name,client_phone,client_email,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,valid_until,notes,price_blocks,rooms_json,manual_price_note,pdf_path")
     .eq("id", id)
     .maybeSingle();
   const antes = (antesRaw ?? null) as Record<string, unknown> | null;
@@ -172,6 +172,9 @@ export async function updateQuote(id: string, formData: FormData) {
     notes: str(formData.get("notes")),
     price_blocks: priceBlocks,
     ...(roomsRaw != null ? { rooms_json: roomsJson } : {}),
+    // Nota interna de "precio POR PERSONA puesto a mano" (migración 0038). El editor la
+    // manda siempre: vacía cuando el precio salió del catálogo.
+    manual_price_note: str(formData.get("manual_price_note")),
   };
   const { error } = await supabase.from("quotes").update(patch).eq("id", id);
   if (error) return { error: mensajeError(error) };
@@ -213,7 +216,8 @@ export async function updateQuote(id: string, formData: FormData) {
   const cambiaElPdf =
     !antes?.pdf_path ||
     (Object.keys(patch) as Array<keyof typeof patch>).some(
-      (k) => k !== "status" && !mismoValor(antes[k], patch[k]),
+      // `manual_price_note` tampoco: es interna y no se dibuja en el documento.
+      (k) => k !== "status" && k !== "manual_price_note" && !mismoValor(antes[k], patch[k]),
     );
 
   const pdf = cambiaElPdf ? await renderAndStoreQuotePdf(supabase, id) : null;

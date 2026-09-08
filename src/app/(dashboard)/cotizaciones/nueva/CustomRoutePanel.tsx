@@ -166,7 +166,10 @@ export default function CustomRoutePanel({
       </div>
 
       <div>
-        <p className="text-xs text-muted mb-1.5">Tarifas por persona (opcional) — con las del tipo elegido, el total se calcula solo con el reparto de habitaciones.</p>
+        <p className="text-xs text-muted mb-1.5">
+          Tarifas <strong className="text-fg">por persona</strong> (Pilgrim te las da así): quedan en el catálogo de esta ruta y
+          se precargan abajo en el bloque de precios, donde el total del grupo se calcula solo con el reparto de habitaciones.
+        </p>
         <div className="bg-white border border-border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-taupe/30 text-muted text-xs uppercase tracking-wider">
