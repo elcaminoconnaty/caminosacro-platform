@@ -667,7 +667,7 @@ function PageHeader() {
     <View style={s.pageHeader} fixed>
       <View style={s.hLeft}>
         <Text style={s.hBrand}>Camino Sacro</Text>
-        <Text style={s.hSub}>Agencia de peregrinaciones · Respaldado por El Camino con Naty</Text>
+        <Text style={s.hSub}>Viajes y peregrinaciones al Camino de Santiago · Respaldado por El Camino con Naty</Text>
       </View>
       <Text
         style={s.hPage}

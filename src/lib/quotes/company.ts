@@ -36,10 +36,18 @@ export function normalizaNit(nit: string): string {
  *
  * Devuelve `null` sin tocar nada cuando no llegan los dos datos mínimos (razón social y
  * NIT): una empresa a medias en el contrato es peor que ninguna.
+ *
+ * `formularioPrecargado` dice si quien llama le mostró al usuario los datos que ya tenía la
+ * empresa. Solo entonces una casilla vacía significa «bórralo». Desde el asistente de
+ * cotización nueva, que no precarga nada, vacío significa «no lo escribí»: la cotización
+ * del año siguiente para el mismo NIT llegaba con la razón social y el NIT a secas y le
+ * borraba a la empresa el representante legal, la dirección y el correo — y después
+ * `createCompanyContract` se negaba por «faltan datos» sin que se entendiera por qué.
  */
 export async function upsertCompany(
   supabase: AnyClient,
   datos: CompanyInput,
+  { formularioPrecargado = false }: { formularioPrecargado?: boolean } = {},
 ): Promise<{ id: string } | { error: string } | null> {
   const legalName = (datos.legal_name || "").trim();
   const nit = (datos.nit || "").trim();
@@ -67,7 +75,10 @@ export async function upsertCompany(
   const ya = (existentes || []).find((c: { id: string; nit: string }) => normalizaNit(c.nit) === objetivo);
 
   if (ya) {
-    const { error } = await supabase.from("companies").update(patch).eq("id", ya.id);
+    const cambios = formularioPrecargado
+      ? patch
+      : Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== null && v !== ""));
+    const { error } = await supabase.from("companies").update(cambios).eq("id", ya.id);
     if (error) return { error: error.message };
     return { id: ya.id as string };
   }

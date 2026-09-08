@@ -336,17 +336,27 @@ export default function ContractCard({
     const anexo = c.travelers_json?.length ?? 0;
     // Comparar solo la CANTIDAD no alcanza: renombrar a un viajero o cargarle el pasaporte
     // deja el anexo desactualizado sin cambiar cuántos son, y eso es justo lo que se
-    // imprime en el contrato. Se compara el contenido que sale en el Anexo No. 2.
-    const huella = (filas: { position: number; nombre: string; documento: string; autoriza_imagen: boolean | null }[]) =>
+    // imprime en el contrato. La huella lleva EXACTAMENTE los campos que dibuja
+    // `AnexoViajeros` — el tipo de documento incluido, que sale impreso junto al número
+    // ("Pasaporte 123") y cambia solo cuando el viajero responde su ficha.
+    type FilaAnexo = {
+      position: number;
+      nombre: string;
+      documento_tipo: string;
+      documento: string;
+      autoriza_imagen: boolean | null;
+    };
+    const huella = (filas: FilaAnexo[]) =>
       filas
         .slice()
         .sort((a, b) => a.position - b.position)
-        .map((f) => `${f.position}|${f.nombre}|${f.documento}|${f.autoriza_imagen}`)
+        .map((f) => `${f.position}|${f.nombre}|${f.documento_tipo}|${f.documento}|${f.autoriza_imagen}`)
         .join("~");
     const actual = huella(
       travelers.map((t) => ({
         position: t.position,
         nombre: t.full_name,
+        documento_tipo: t.document_type ?? "Pasaporte",
         documento: t.document_number ?? "",
         autoriza_imagen: t.autoriza_imagen,
       })),
@@ -355,6 +365,7 @@ export default function ContractCard({
       (c.travelers_json ?? []).map((t) => ({
         position: t.position,
         nombre: t.nombre,
+        documento_tipo: t.documento_tipo || "Pasaporte",
         documento: t.documento,
         autoriza_imagen: t.autoriza_imagen,
       })),
@@ -847,6 +858,13 @@ export default function ContractCard({
                           `Firmante cambiado en ${r.actualizados} contrato(s).` +
                             (r.omitidos ? ` ${r.omitidos} ya estaban firmados y no se tocaron.` : ""),
                         );
+                      } else {
+                        // Sin contratos todavía no hay nada que actualizar, pero la
+                        // elección no se pierde: viaja a las acciones de creación.
+                        setInfo(
+                          `Firmará ${firmantes.find((f) => f.slug === slug)?.nombre ?? slug}. ` +
+                            `Se aplicará a los contratos que crees.`,
+                        );
                       }
                     });
                   }}
@@ -862,7 +880,7 @@ export default function ContractCard({
                 </select>
                 <span className="text-[11px] text-muted">
                   Quien elijas queda como EL ORGANIZADOR en el contrato y es su firma la que sale en el PDF. Se aplica
-                  a los contratos que aún no estén firmados.
+                  a los contratos que aún no estén firmados y a los que crees después.
                 </span>
               </div>
             </fieldset>
@@ -911,7 +929,7 @@ export default function ContractCard({
           <div className="flex flex-wrap gap-2">
             {modoEmpresa && !contratoEmpresa && (
               <button
-                onClick={() => run(() => createCompanyContract(quoteId, vars, plan), "Contrato de empresa creado.")}
+                onClick={() => run(() => createCompanyContract(quoteId, vars, plan, firmanteActual), "Contrato de empresa creado.")}
                 disabled={pending || travelers.length === 0}
                 className="text-xs px-3.5 py-1.5 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50 font-medium"
               >
@@ -938,7 +956,7 @@ export default function ContractCard({
               <button
                 onClick={() =>
                   run(async () => {
-                    const r = await createAllContracts(quoteId, vars, plan);
+                    const r = await createAllContracts(quoteId, vars, plan, firmanteActual);
                     if (r.error) return r;
                     setInfo(`Listos ${r.creados} contrato(s), uno por viajero.`);
                   })
@@ -1038,7 +1056,7 @@ export default function ContractCard({
                 <div className="flex flex-wrap gap-1.5">
                   {!c && (
                     <button
-                      onClick={() => run(() => createContractForTraveler(quoteId, t.id, vars, plan), "Contrato creado.")}
+                      onClick={() => run(() => createContractForTraveler(quoteId, t.id, vars, plan, firmanteActual), "Contrato creado.")}
                       disabled={pending}
                       className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
                     >

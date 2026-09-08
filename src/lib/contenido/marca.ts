@@ -99,7 +99,10 @@ export const FONDO_SIN_FOTO = `linear-gradient(135deg, ${PALETA.bosque} 0%, ${PA
 // Datos fijos de marca que aparecen en las piezas.
 export const MARCA = {
   nombre: "Camino Sacro",
-  bajada: "Agencia de peregrinaciones",
+  // «Agencia» es un título de categoría regulada (RNT); «peregrinaciones» describe la
+  // actividad. Misma decisión que el membrete de los PDF y del contrato, en corto: la
+  // cabecera de las piezas es una línea en versalitas y no le cabe la frase completa.
+  bajada: "Viajes y peregrinaciones",
   web: "caminosacro.com",
   handle: "@caminosacro.agencia",
   lema: "Deja de investigar. Empieza a caminar.",

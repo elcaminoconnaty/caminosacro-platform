@@ -29,6 +29,7 @@ import {
   esEmpresa,
   FIRMANTE_POR_DEFECTO,
   destinatarioContrato,
+  refClausula,
   saludoContrato,
   type ContractVariables,
   type PaymentPlan,
@@ -124,6 +125,26 @@ async function contratoDeOtraModalidad(
     : "Esta cotización ya tiene contratos por viajero. Anúlalos antes de crear el contrato de empresa.";
 }
 
+/**
+ * Sella en las variables quién firma por Camino Sacro, leyéndolo de `contracts.org_signer`.
+ *
+ * La columna manda, NO lo que llegue del formulario. La tarjeta manda el juego completo de
+ * variables en cada guardado, y «Recargar desde cotización» las rearma desde cero — sin
+ * `org_*`, porque la cotización no sabe quién firma. Sin esto, guardar o aplicar a todos
+ * borraba el nombre del firmante y el PDF se iba al de por defecto, mientras `org_signer`
+ * seguía diciendo Nathalia: su firma dibujada bajo el nombre de Nico. Es el mismo daño que
+ * ya se corrigió en `getOrgSignature`, entrando por la otra puerta.
+ */
+async function conFirmante(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  slug: string | null | undefined,
+  v: ContractVariables,
+): Promise<ContractVariables> {
+  const f = await getFirmante(supabase, slug);
+  return { ...v, org_nombre: f.nombre, org_tipo_documento: f.documento_tipo, org_documento: f.documento };
+}
+
 async function persistirDatosEmpresa(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
@@ -184,8 +205,8 @@ export async function saveTravelers(
 
   // Con contrato de empresa NINGÚN viajero tiene contrato propio, así que la guarda de
   // arriba no protege a nadie — y la lista está dentro de un anexo firmado. Firmado el
-  // contrato, la relación de viajeros queda cerrada: se cambia con una sustitución
-  // (cláusula décima sexta), no borrando la fila.
+  // contrato, la relación de viajeros queda cerrada: se cambia con una sustitución (el
+  // parágrafo de la cláusula de cesión), no borrando la fila.
   const empresaFirmada = (conContrato || []).some((c) => c.kind === "empresa" && c.status === "firmado");
 
   const conservados = new Set(limpias.map((f) => f.id).filter(Boolean) as string[]);
@@ -201,7 +222,7 @@ export async function saveTravelers(
     return {
       error:
         "El contrato de empresa ya está firmado y esta es la lista de su Anexo No. 2. " +
-        "Para cambiar a alguien hay que tramitar una sustitución (cláusula décima sexta), no editar la lista.",
+        `Para cambiar a alguien hay que tramitar una sustitución (${refClausula(true, "cesion")}), no editar la lista.`,
     };
   }
   const bloqueados = aBorrar.filter((id) => protegidos.has(id));
@@ -566,6 +587,7 @@ export async function createCompanyContract(
   quoteId: string,
   shared: ContractVariables,
   plan: PaymentPlan,
+  signerSlug?: string | null,
 ): Promise<{ ok?: true; error?: string }> {
   const supabase = await createCommercialClient();
 
@@ -619,7 +641,10 @@ export async function createCompanyContract(
     ? { ...shared, ...datosEmpresaDe(defaults.variables) }
     : shared;
 
-  const firmante = await getFirmante(supabase, FIRMANTE_POR_DEFECTO.slug);
+  // El firmante lo elige la tarjeta ANTES de que exista el contrato. Si aquí se quemara el
+  // de por defecto, elegir a Nathalia y darle a «Crear» dejaba el contrato a nombre de Nico
+  // con la pantalla diciendo lo contrario.
+  const firmante = await getFirmante(supabase, signerSlug || FIRMANTE_POR_DEFECTO.slug);
   Object.assign(variables, {
     org_nombre: firmante.nombre,
     org_tipo_documento: firmante.documento_tipo,
@@ -722,6 +747,7 @@ export async function createContractForTraveler(
   travelerId: string,
   shared: ContractVariables,
   plan: PaymentPlan,
+  signerSlug?: string | null,
 ): Promise<{ ok?: true; error?: string }> {
   const supabase = await createCommercialClient();
 
@@ -742,8 +768,12 @@ export async function createContractForTraveler(
     .maybeSingle();
   if (!t) return { error: "No encontré el viajero." };
 
+  const firmante = await getFirmante(supabase, signerSlug || FIRMANTE_POR_DEFECTO.slug);
   const variables: ContractVariables = {
     ...shared,
+    org_nombre: firmante.nombre,
+    org_tipo_documento: firmante.documento_tipo,
+    org_documento: firmante.documento,
     viajero_nombre: t.full_name,
     viajero_email: t.email || "",
     viajero_telefono: t.phone || "",
@@ -757,6 +787,7 @@ export async function createContractForTraveler(
   const { error } = await supabase.from("contracts").insert({
     quote_id: quoteId,
     kind: "viajero",
+    org_signer: firmante.slug,
     traveler_id: travelerId,
     company_id: null,
     variables_json: variables,
@@ -776,6 +807,7 @@ export async function createAllContracts(
   quoteId: string,
   shared: ContractVariables,
   plan: PaymentPlan,
+  signerSlug?: string | null,
 ): Promise<{ ok?: true; creados?: number; error?: string }> {
   const supabase = await createCommercialClient();
   const { data: travelers } = await supabase
@@ -787,7 +819,7 @@ export async function createAllContracts(
 
   let creados = 0;
   for (const t of travelers) {
-    const r = await createContractForTraveler(quoteId, t.id as string, shared, plan);
+    const r = await createContractForTraveler(quoteId, t.id as string, shared, plan, signerSlug);
     if (r.error) return { error: r.error };
     creados++;
   }
@@ -804,22 +836,23 @@ export async function saveContract(
   const supabase = await createCommercialClient();
   const { data: c } = await supabase
     .from("contracts")
-    .select("id,status,quote_id,traveler_id,kind,company_id")
+    .select("id,status,quote_id,traveler_id,kind,company_id,org_signer")
     .eq("id", contractId)
     .maybeSingle();
   if (!c) return { error: "El contrato no existe todavía." };
   if (c.status === "firmado") return { error: "El contrato ya está firmado y no puede modificarse." };
 
+  const selladas = await conFirmante(supabase, c.org_signer as string | null, variables);
   const { error } = await supabase
     .from("contracts")
-    .update({ variables_json: variables, payment_plan_json: plan })
+    .update({ variables_json: selladas, payment_plan_json: plan })
     .eq("id", c.id);
   if (error) return { error: mensajeError(error) };
 
   // En el contrato de empresa lo editado vuelve a la ficha de la empresa, que es el
   // equivalente de lo que abajo se hace con el viajero y el cliente.
   if (c.kind === "empresa") {
-    if (c.company_id) await persistirDatosEmpresa(supabase, c.company_id as string, variables);
+    if (c.company_id) await persistirDatosEmpresa(supabase, c.company_id as string, selladas);
     revalidatePath(`/seguimiento/${c.quote_id}`);
     return { ok: true };
   }
@@ -859,7 +892,7 @@ export async function applySharedToAll(
   const supabase = await createCommercialClient();
   const { data: contratos } = await supabase
     .from("contracts")
-    .select("id,status,variables_json,kind")
+    .select("id,status,variables_json,kind,org_signer")
     .eq("quote_id", quoteId);
   if (!contratos?.length) return { ok: true, actualizados: 0, omitidos: 0 };
 
@@ -882,7 +915,10 @@ export async function applySharedToAll(
     };
     const { error } = await supabase
       .from("contracts")
-      .update({ variables_json: merged, payment_plan_json: plan })
+      .update({
+        variables_json: await conFirmante(supabase, c.org_signer as string | null, merged),
+        payment_plan_json: plan,
+      })
       .eq("id", c.id);
     if (error) return { error: mensajeError(error) };
     actualizados++;

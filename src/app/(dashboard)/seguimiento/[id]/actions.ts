@@ -181,7 +181,9 @@ export async function updateQuote(id: string, formData: FormData) {
   // Meterla ahí regeneraría el PDF que el cliente ya tiene en su correo sin motivo.
   let avisoEmpresa: string | null = null;
   if (formData.has("company_legal_name") || formData.has("company_nit")) {
-    const r = await upsertCompany(supabase, companyDeFormData(formData));
+    // El editor sí muestra los datos que ya tiene la empresa, así que acá una casilla
+    // vacía es una orden de borrar y se respeta.
+    const r = await upsertCompany(supabase, companyDeFormData(formData), { formularioPrecargado: true });
     if (r && "error" in r) {
       avisoEmpresa = r.error;
     } else {
