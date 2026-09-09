@@ -319,11 +319,17 @@ type ClaveClausula =
   | "fuerza_mayor" | "datos" | "confidencialidad" | "origen_fondos" | "cesion"
   | "vigencia" | "notificaciones" | "controversias" | "firma";
 
-/** Orden de las cláusulas. Las de empresa solo entran en esa modalidad. */
+/**
+ * Orden de las cláusulas. Confidencialidad y origen de fondos solo entran en empresa.
+ * Retracto y reversión del pago solo entran en persona natural: son derechos del consumidor
+ * en venta a distancia (arts. 47 y 51 de la Ley 1480), y el abogado pidió sacarlos del
+ * contrato de empresa junto con las demás remisiones al Estatuto del Consumidor (sep-2026).
+ */
 function ordenClausulas(empresa: boolean): ClaveClausula[] {
   return [
     "objeto", "alcance", "valor", "pago", "modificaciones", "cancelacion",
-    "retracto", "reversion", "garantia", "responsabilidad", "seguro",
+    ...(empresa ? [] : (["retracto", "reversion"] as ClaveClausula[])),
+    "garantia", "responsabilidad", "seguro",
     "obligaciones_organizador", "obligaciones_contratante", "responsabilidad_exclusiva",
     "fuerza_mayor", "datos",
     ...(empresa ? (["confidencialidad", "origen_fondos"] as ClaveClausula[]) : []),
@@ -377,7 +383,7 @@ export function contractIntro(v: ContractVariables): string[] {
   return [
     organizador,
     contratante,
-    `Ambas partes se reconocen mutuamente la capacidad legal necesaria y acuerdan celebrar el presente contrato de prestación de servicios turísticos (en adelante, “el Contrato”), asociado a la cotización No. ${v.codigo_cotizacion}, el cual se regirá por las cláusulas aquí establecidas y, en lo no previsto, por las normas civiles y comerciales de la República de Colombia y por la Ley 1480 de 2011.`,
+    `Ambas partes se reconocen mutuamente la capacidad legal necesaria y acuerdan celebrar el presente contrato de prestación de servicios turísticos (en adelante, “el Contrato”), asociado a la cotización No. ${v.codigo_cotizacion}, el cual se regirá por las cláusulas aquí establecidas y, en lo no previsto, por las normas civiles y comerciales de la República de Colombia${esEmpresa(v) ? "" : " y por la Ley 1480 de 2011"}.`,
   ];
 }
 
@@ -386,7 +392,7 @@ export function contractConsideraciones(v: ContractVariables): string[] {
   const empresa = esEmpresa(v);
   return [
     `1. EL ORGANIZADOR presta servicios de agenciamiento de viajes bajo el nombre comercial CAMINO SACRO: organiza, coordina, gestiona y comercializa planes para recorrer las rutas del Camino de Santiago (España), integrando en un solo producto, con un precio global, una combinación de servicios de carácter turístico prestados por terceros: alojamiento, traslado de equipaje entre etapas, asistencia en ruta, seguro de viaje y servicios complementarios.`,
-    `2. La ejecución material de los servicios en destino está a cargo de un operador mayorista habilitado como agencia de viajes en España y de su red de proveedores locales (alojamientos, transportistas y aseguradoras), con quienes EL ORGANIZADOR contrata para conformar el plan.`,
+    `2. La ejecución material de los servicios en destino está a cargo de un operador mayorista habilitado como agencia de viajes en España y de su red de proveedores locales (alojamientos, transportistas y aseguradoras), con quienes EL ORGANIZADOR contrata, en calidad de agencia intermediaria, para conformar el plan.`,
     empresa
       ? `3. La experiencia contratada es autoguiada: cada viajero recorre las etapas a su propio ritmo, sin grupo cerrado ni acompañamiento presencial permanente, con el respaldo logístico y la asistencia contratados.`
       : `3. La experiencia contratada es autoguiada: EL VIAJERO recorre las etapas a su propio ritmo, sin grupo cerrado ni acompañamiento presencial permanente, con el respaldo logístico y la asistencia contratados.`,
@@ -472,13 +478,22 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
         `PARÁGRAFO. — El plan está dirigido exclusivamente a personas mayores de edad. EL ORGANIZADOR no acepta viajeros menores de dieciocho (18) años, y ${P} declara que ${empresa ? "todos los viajeros relacionados en el Anexo No. 2 son mayores de edad" : "es mayor de edad"}.`,
       ],
     },
+    // Aquí vive el rol de intermediario. El abogado pidió (sep-2026) límites claros del
+    // servicio sin cerrar la puerta al cliente: qué hace y qué no hace EL ORGANIZADOR, y un
+    // solo interlocutor que gestiona los reclamos. Sin "intermediario puro" ni remitir al
+    // cliente a reclamar en España (eso era cláusula abusiva, art. 43 Ley 1480).
     alcance: {
       titulo: "ALCANCE Y NATURALEZA DEL SERVICIO",
       parrafos: [
-        `El servicio de agenciamiento comprende: seleccionar, contratar y coordinar con los proveedores los servicios que componen el plan, y acompañar a ${empresa ? "los viajeros" : "EL VIAJERO"} en la preparación del viaje y durante su ejecución a través de los canales de asistencia informados. La ejecución material de los servicios en destino (alojamientos, traslado de equipaje, asistencia en ruta) corresponde al operador mayorista habilitado como agencia de viajes en España y a sus proveedores.`,
+        `EL ORGANIZADOR actúa como agencia intermediaria: diseña el plan, selecciona y contrata en nombre propio con el operador mayorista habilitado como agencia de viajes en España y con sus proveedores los servicios que lo componen, cobra su precio a ${P} y coordina su ejecución. EL ORGANIZADOR no es propietario, operador ni prestador directo de los alojamientos, los transportes, los seguros ni los demás servicios en destino, que son ejecutados materialmente por dicho operador y sus proveedores bajo sus propias condiciones de prestación. ${P} declara conocer y aceptar esta estructura del servicio.`,
         ...parags([
+          `El servicio de EL ORGANIZADOR comprende: (a) el diseño del plan y la cotización que obra como Anexo No. 1; (b) la reserva y contratación, ante el operador y los proveedores, de los servicios señalados como incluidos, en las fechas y condiciones pactadas; (c) la entrega de la documentación del viaje y de la información necesaria para prepararlo; (d) un canal de asistencia a distancia durante el recorrido, en los medios y horarios informados; (e) la gestión, ante el operador y los proveedores, de las incidencias y reclamaciones que ${P} le reporte, y la información escrita de su resultado; y (f) la información veraz, suficiente y oportuna sobre el plan y sus condiciones.`,
           `El plan comprende los servicios expresamente señalados como incluidos en el Anexo No. 1: ${v.incluye}. No comprende, entre otros, los señalados como no incluidos: ${v.no_incluye}. Los servicios opcionales (${v.opcionales || "ninguno"}) solo harán parte del plan si fueron contratados y pagados expresamente.`,
-          `EL ORGANIZADOR no presta ni organiza el transporte aéreo ni ningún trayecto desde o hacia el país de origen de ${empresa ? "los viajeros" : "EL VIAJERO"}, ni el desplazamiento hasta el punto de inicio del recorrido, los cuales son de exclusiva cuenta y responsabilidad de ${P}.`,
+          empresa
+            ? `No hacen parte del servicio de EL ORGANIZADOR y, por tanto, no son de su cargo: (a) el transporte aéreo y cualquier trayecto desde o hacia el país de origen de los viajeros, así como el desplazamiento hasta el punto de inicio del recorrido y desde su punto final; (b) la ejecución material de los servicios en destino, que corresponde al operador y a sus proveedores; (c) el acompañamiento presencial o de guía durante las etapas, por tratarse de una experiencia autoguiada; (d) los trámites migratorios, sanitarios o de documentación de los viajeros; (e) los servicios que los viajeros contraten directamente con terceros, incluso durante el viaje; y (f) cualquier servicio no señalado como incluido en el Anexo No. 1.`
+            : `No hacen parte del servicio de EL ORGANIZADOR y, por tanto, no son de su cargo: (a) el transporte aéreo y cualquier trayecto desde o hacia el país de origen de EL VIAJERO, así como el desplazamiento hasta el punto de inicio del recorrido y desde su punto final; (b) la ejecución material de los servicios en destino, que corresponde al operador y a sus proveedores; (c) el acompañamiento presencial o de guía durante las etapas, por tratarse de una experiencia autoguiada; (d) los trámites migratorios, sanitarios o de documentación de EL VIAJERO; (e) los servicios que EL VIAJERO contrate directamente con terceros, incluso durante el viaje; y (f) cualquier servicio no señalado como incluido en el Anexo No. 1.`,
+          `Los servicios en destino se prestan conforme a las condiciones propias de cada proveedor (horarios de entrada y salida de los alojamientos, políticas de equipaje, coberturas y exclusiones de la póliza, entre otras), que EL ORGANIZADOR informará a ${P} antes del inicio del viaje y que ${empresa ? "los viajeros se obligan" : "EL VIAJERO se obliga"} a observar.`,
+          `Sin perjuicio de lo anterior, EL ORGANIZADOR es el interlocutor único de ${P} para todo lo relativo al plan: recibe sus solicitudes y reclamaciones, las tramita ante el operador y los proveedores, exige la corrección del servicio o la compensación que corresponda y responde por sus propios deberes en los términos de la ${ref("responsabilidad")}. ${P} no está obligado a reclamar directamente ante el operador ni ante proveedor alguno en el exterior.`,
         ]),
       ],
     },
@@ -512,13 +527,13 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
     garantia: {
       titulo: "GARANTÍA",
       parrafos: [
-        `EL ORGANIZADOR responde por la calidad e idoneidad del servicio de agenciamiento ofrecido, en los términos de los artículos 7 y siguientes de la Ley 1480 de 2011. Las reclamaciones se presentarán a través de los canales de la ${ref("notificaciones")}, indicando de forma clara los hechos y el incumplimiento concreto frente a las condiciones expresamente pactadas. EL ORGANIZADOR responderá dentro de los quince (15) días hábiles siguientes.`,
+        `EL ORGANIZADOR responde por la calidad e idoneidad del servicio de agenciamiento ofrecido${empresa ? "" : ", en los términos de los artículos 7 y siguientes de la Ley 1480 de 2011"}. Las reclamaciones se presentarán a través de los canales de la ${ref("notificaciones")}, indicando de forma clara los hechos y el incumplimiento concreto frente a las condiciones expresamente pactadas. EL ORGANIZADOR responderá dentro de los quince (15) días hábiles siguientes.`,
       ],
     },
     responsabilidad: {
       titulo: "RESPONSABILIDAD",
       parrafos: [
-        `EL ORGANIZADOR responde por el cumplimiento de sus deberes de organización, coordinación e información, y por los perjuicios que cause por su propio dolo o culpa grave, responsabilidad que no se entiende excluida ni limitada por ninguna estipulación de este Contrato.`,
+        `EL ORGANIZADOR responde por el cumplimiento de sus deberes de organización, coordinación e información, dentro del alcance definido en la ${ref("alcance")}, y por los perjuicios que cause por su propio dolo o culpa grave, responsabilidad que no se entiende excluida ni limitada por ninguna estipulación de este Contrato.`,
         `Tratándose de los servicios que ejecutan materialmente el operador en destino y sus proveedores, EL ORGANIZADOR responde por la diligencia en su selección y contratación, por la veracidad de la información que traslada a ${P} y por la gestión de las reclamaciones que este le presente, obligándose a exigir del proveedor la corrección del servicio o la compensación que corresponda y a informar por escrito el resultado de su gestión. No responde por el hecho exclusivo de un tercero ni por la culpa exclusiva de ${empresa ? "un viajero" : "EL VIAJERO"} —sin que ello lo libere del deber de gestión antes descrito—, ni por los eventos de fuerza mayor o caso fortuito de la ${ref("fuerza_mayor")}.`,
         `PARÁGRAFO. — ${P} conoce y acepta los riesgos inherentes a la actividad de caminata de larga distancia, que ${empresa ? "cada viajero asume" : "asume"} voluntariamente: lesiones, enfermedades, accidentes o pérdidas ocurridos durante el recorrido que no sean imputables a EL ORGANIZADOR. Toda reclamación se tramitará a través de EL ORGANIZADOR, quien la canalizará ante el proveedor correspondiente.`,
       ],
@@ -613,7 +628,7 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
       titulo: "SOLUCIÓN DE CONTROVERSIAS Y LEY APLICABLE",
       parrafos: [
         `Toda diferencia derivada de este Contrato se intentará resolver primero por arreglo directo. Cualquiera de las partes podrá convocar a la otra por escrito a los canales de la ${ref("notificaciones")}; la etapa de arreglo directo durará treinta (30) días calendario contados desde la convocatoria, prorrogables de común acuerdo. Agotada sin acuerdo, o vencido el plazo sin respuesta, las partes quedan en libertad de acudir a la jurisdicción ordinaria.`,
-        `Este Contrato se rige por la ley colombiana y cualquier controversia será conocida por las autoridades y jueces de la República de Colombia, sin que ninguna estipulación pueda entenderse como renuncia de ${P} a los derechos que le reconoce el Estatuto del Consumidor.`,
+        `Este Contrato se rige por la ley colombiana y cualquier controversia será conocida por las autoridades y jueces de la República de Colombia${empresa ? "" : `, sin que ninguna estipulación pueda entenderse como renuncia de ${P} a los derechos que le reconoce el Estatuto del Consumidor`}.`,
       ],
     },
     firma: {
