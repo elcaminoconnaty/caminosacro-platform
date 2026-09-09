@@ -14,6 +14,7 @@ import {
   llevaPagare,
   esEmpresa,
   saludoContrato,
+  destinatarioContrato,
   viajerosAnexoIntro,
   VIAJEROS_ANEXO_TITULO,
   type ContractVariables,
@@ -178,6 +179,7 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
             financiado={conPagare}
             empresa={empresa}
             razonSocial={v.empresa_razon_social ?? null}
+            correoContrato={destinatarioContrato(v).email}
           />
         </div>
 

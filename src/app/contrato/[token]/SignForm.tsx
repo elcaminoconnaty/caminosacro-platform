@@ -1,11 +1,16 @@
 "use client";
 
-// Formulario de firma: identidad declarada, firma dibujada en canvas,
-// foto del pasaporte y aceptación expresa. Envía todo a firmarContrato().
+// Formulario de firma en tres pasos: (1) identidad declarada, pasaporte, firma dibujada y
+// aceptación expresa; (2) código de un solo uso al correo del contrato; (3) el código y
+// la firma. Envía todo a firmarContrato(), que es quien valida de verdad.
+//
+// La ubicación aproximada se pide al firmar, con permiso del navegador: si el viajero la
+// niega o el celular no la tiene, se firma igual. Es el mismo dato que trae ZapSign.
 
 import { useRef, useState, useTransition } from "react";
-import { firmarContrato, type ResultadoFirma } from "./actions";
+import { firmarContrato, pedirCodigo, type ResultadoFirma } from "./actions";
 import { comprimeImagen } from "@/lib/comprimeImagen";
+import { textoConsentimiento } from "@/lib/contracts/consentimiento";
 
 // Tipos de archivo que acepta el servidor (ver PASSPORT_TYPES en actions.ts). Se validan
 // también acá para poder decirle al viajero qué pasa sin esperar el viaje al servidor.
@@ -27,7 +32,35 @@ function mensajeFaltantes(faltas: { campo: string; texto: string }[]): string {
   return `Antes de firmar te falta ${textos.slice(0, -1).join(", ")} y ${ultimo}.`;
 }
 
-function SignatureCanvas({ onChange, invalido }: { onChange: (dataUrl: string | null) => void; invalido?: boolean }) {
+/**
+ * La ubicación aproximada, si el firmante la concede. Nunca bloquea la firma: si el
+ * navegador no la tiene, la niega o tarda más de seis segundos, se firma sin ella.
+ */
+function ubicacionAproximada(): Promise<string | null> {
+  return new Promise((resolver) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return resolver(null);
+    let resuelto = false;
+    const listo = (v: string | null) => {
+      if (resuelto) return;
+      resuelto = true;
+      resolver(v);
+    };
+    const reloj = setTimeout(() => listo(null), 6500);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        clearTimeout(reloj);
+        listo(`${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`);
+      },
+      () => {
+        clearTimeout(reloj);
+        listo(null);
+      },
+      { timeout: 6000, maximumAge: 600_000, enableHighAccuracy: false },
+    );
+  });
+}
+
+function SignatureCanvas({ onChange, invalido, disabled }: { onChange: (dataUrl: string | null) => void; invalido?: boolean; disabled?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const hasInk = useRef(false);
@@ -39,6 +72,7 @@ function SignatureCanvas({ onChange, invalido }: { onChange: (dataUrl: string | 
   }
 
   function down(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (disabled) return;
     e.preventDefault();
     const c = canvasRef.current!;
     c.setPointerCapture(e.pointerId);
@@ -86,15 +120,17 @@ function SignatureCanvas({ onChange, invalido }: { onChange: (dataUrl: string | 
         onPointerMove={move}
         onPointerUp={up}
         onPointerLeave={up}
-        className={`w-full h-36 border border-dashed rounded-lg touch-none cursor-crosshair ${
+        className={`w-full h-36 border border-dashed rounded-lg touch-none ${disabled ? "cursor-not-allowed opacity-70" : "cursor-crosshair"} ${
           invalido ? "border-red-400 bg-red-50/40" : "border-border bg-crema/50"
         }`}
       />
       <div className="flex justify-between items-center mt-1">
         <p className="text-[11px] text-muted">Dibuja tu firma con el dedo o el mouse.</p>
-        <button type="button" onClick={clear} className="text-[11px] text-muted underline hover:text-fg">
-          Borrar y volver a firmar
-        </button>
+        {!disabled && (
+          <button type="button" onClick={clear} className="text-[11px] text-muted underline hover:text-fg">
+            Borrar y volver a firmar
+          </button>
+        )}
       </div>
     </div>
   );
@@ -108,6 +144,7 @@ export default function SignForm({
   financiado, // = el paquete incluye el pagaré (ver `llevaPagare`), no solo que el plan sea a cuotas
   empresa = false,
   razonSocial = null,
+  correoContrato = "",
 }: {
   token: string;
   defaultName: string;
@@ -117,28 +154,36 @@ export default function SignForm({
   /** Contrato de empresa: firma el representante legal y NO se sube pasaporte acá. */
   empresa?: boolean;
   razonSocial?: string | null;
+  /** Correo de notificaciones del contrato: ahí llega el código. */
+  correoContrato?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [preparando, setPreparando] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
   const [done, setDone] = useState<ResultadoFirma | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  // El código se pide después de completar el paso 1: a partir de ahí los datos quedan
+  // fijos (el código va atado a este contrato y a lo que se va a firmar).
+  const [codigoPedido, setCodigoPedido] = useState<string | null>(null);
+  const [codigo, setCodigo] = useState("");
   // Campos señalados en rojo. La validación es nuestra (el form va con noValidate) para
   // que el viajero SIEMPRE vea en español qué le falta: el aviso del navegador es seco,
   // sale en un globito fácil de perder en el celular y no dice todo lo que falta de una.
   const [faltantes, setFaltantes] = useState<Record<string, boolean>>({});
   const enviando = pending || preparando;
+  const formRef = useRef<HTMLFormElement>(null);
 
   const claseCampo = (campo: string) =>
     `mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white ${
       faltantes[campo] ? "border-red-400 ring-1 ring-red-200" : "border-border"
     }`;
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    setError(null);
+  const consentimiento = textoConsentimiento({ empresa, financiado, razonSocial });
 
+  /** Revisa el paso 1 completo y señala lo que falta. Devuelve el FormData listo, o null. */
+  function validarPasoUno(): FormData | null {
+    const form = formRef.current!;
     const fd = new FormData(form);
     const nombre = String(fd.get("signer_name") || "").trim();
     const documento = String(fd.get("signer_document") || "").trim();
@@ -155,7 +200,7 @@ export default function SignForm({
     // equipo desde el CRM (la empresa los manda por correo).
     if (!empresa && !archivo) faltas.push({ campo: "passport", texto: "la foto de tu pasaporte" });
     if (!signature) faltas.push({ campo: "signature", texto: "tu firma (dibújala en el recuadro)" });
-    if (!fd.get("accept")) faltas.push({ campo: "accept", texto: "aceptar la declaración del final" });
+    if (!fd.get("accept")) faltas.push({ campo: "accept", texto: "aceptar la declaración" });
 
     // Problemas del archivo: mensaje propio en vez de un rechazo del servidor.
     if (archivo && !PASAPORTE_TIPOS.includes(archivo.type)) {
@@ -179,12 +224,49 @@ export default function SignForm({
           : (form.elements.namedItem(primero) as HTMLElement | null);
       destino?.scrollIntoView({ behavior: "smooth", block: "center" });
       if (destino instanceof HTMLInputElement && destino.type !== "file") destino.focus({ preventScroll: true });
+      return null;
+    }
+    setFaltantes({});
+    return fd;
+  }
+
+  function pedir() {
+    setError(null);
+    setAviso(null);
+    if (!validarPasoUno()) return;
+    startTransition(async () => {
+      try {
+        const r = await pedirCodigo(token);
+        if (r.ok) {
+          setCodigoPedido(r.correo);
+          setAviso(`Te enviamos un código de seis dígitos a ${r.correo}. Puede tardar un minuto en llegar; revisa también el correo no deseado.`);
+        } else {
+          setError(r.error);
+        }
+      } catch (e) {
+        console.error("[firma] pedir código falló:", e);
+        setError("No pudimos enviar el código. Revisa tu conexión e inténtalo de nuevo.");
+      }
+    });
+  }
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    if (!codigoPedido) return pedir();
+
+    const fd = validarPasoUno();
+    if (!fd) return;
+    if (codigo.replace(/\D/g, "").length !== 6) {
+      setFaltantes({ codigo: true });
+      setError("Escribe el código de seis dígitos que te llegó al correo.");
       return;
     }
-
-    setFaltantes({});
     fd.set("signature", signature!);
+    fd.set("codigo", codigo.replace(/\D/g, ""));
 
+    const pasaporte = fd.get("passport");
+    const archivo = pasaporte instanceof File && pasaporte.size > 0 ? pasaporte : null;
     if (archivo) {
       setPreparando(true);
       let listo: File;
@@ -205,6 +287,9 @@ export default function SignForm({
 
     startTransition(async () => {
       try {
+        // Se pide justo antes de enviar, cuando el viajero ya decidió firmar.
+        const geo = await ubicacionAproximada();
+        if (geo) fd.set("geo", geo);
         const r = await firmarContrato(token, fd);
         if (r.ok) setDone(r);
         else setError(r.error);
@@ -228,14 +313,25 @@ export default function SignForm({
           {done.emailEnviado
             ? "Te enviamos la copia firmada a tu correo. "
             : "La copia firmada quedó registrada; te la haremos llegar por correo. "}
+          Al final del documento encontrarás el Informe de Firmas con todos los datos de la firma.
           Nuestro equipo continúa ahora con la gestión de tus reservas. ¡Buen Camino, peregrino! 🥾
         </p>
+        <div className="mt-6 max-w-md mx-auto text-left bg-crema border border-border rounded-md px-4 py-3">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-dorado-oscuro">Huella SHA-256 del documento</p>
+          <code className="block mt-1 text-[11px] break-all text-fg">{done.huella}</code>
+          <a href={done.urlVerificacion} target="_blank" rel="noreferrer" className="block mt-2 text-xs underline text-bosque">
+            Comprobar la autenticidad del documento
+          </a>
+        </div>
       </div>
     );
   }
 
+  const bloqueado = enviando || !!codigoPedido;
+
   return (
     <form
+      ref={formRef}
       onSubmit={onSubmit}
       noValidate
       // En cuanto corrige algo, se quitan los rojos y el aviso: si sigue faltando algo,
@@ -253,99 +349,122 @@ export default function SignForm({
         </h2>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <label className="text-xs">
-          <span className="text-muted">
-            {empresa ? "Nombre del representante legal" : "Nombre completo (como firmante)"}
-          </span>
-          <input name="signer_name" defaultValue={defaultName} className={claseCampo("signer_name")} />
-        </label>
-        <label className="text-xs">
-          <span className="text-muted">
-            {empresa ? docType || "Documento del representante legal" : "Número de pasaporte"}
-            {!empresa && docType !== "Pasaporte" && (
-              <span className="text-dorado-oscuro"> · nos falta este dato</span>
-            )}
-          </span>
-          <input
-            name="signer_document"
-            defaultValue={empresa || docType === "Pasaporte" ? defaultDocument : ""}
-            placeholder={empresa ? "Ej: 79.123.456" : "Ej: AS748091"}
-            className={claseCampo("signer_document")}
-          />
-          <span className="block text-[11px] text-muted mt-1">
-            {empresa
-              ? "Este número queda dentro del contrato firmado, junto a tu nombre y al NIT de la empresa."
-              : docType === "Pasaporte"
-                ? "Verifica que coincida con tu pasaporte: este número queda dentro del contrato firmado."
-                : `Tu cotización quedó con tu ${docType.toLowerCase()}, pero el contrato necesita el pasaporte con el que vas a viajar. Cópialo tal como aparece, sin espacios.`}
-          </span>
-        </label>
-      </div>
+      <fieldset disabled={bloqueado} className="space-y-5 disabled:opacity-80">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label className="text-xs">
+            <span className="text-muted">
+              {empresa ? "Nombre del representante legal" : "Nombre completo (como firmante)"}
+            </span>
+            <input name="signer_name" defaultValue={defaultName} className={claseCampo("signer_name")} />
+          </label>
+          <label className="text-xs">
+            <span className="text-muted">
+              {empresa ? docType || "Documento del representante legal" : "Número de pasaporte"}
+              {!empresa && docType !== "Pasaporte" && (
+                <span className="text-dorado-oscuro"> · nos falta este dato</span>
+              )}
+            </span>
+            <input
+              name="signer_document"
+              defaultValue={empresa || docType === "Pasaporte" ? defaultDocument : ""}
+              placeholder={empresa ? "Ej: 79.123.456" : "Ej: AS748091"}
+              className={claseCampo("signer_document")}
+            />
+            <span className="block text-[11px] text-muted mt-1">
+              {empresa
+                ? "Este número queda dentro del contrato firmado, junto a tu nombre y al NIT de la empresa."
+                : docType === "Pasaporte"
+                  ? "Verifica que coincida con tu pasaporte: este número queda dentro del contrato firmado."
+                  : `Tu cotización quedó con tu ${docType.toLowerCase()}, pero el contrato necesita el pasaporte con el que vas a viajar. Cópialo tal como aparece, sin espacios.`}
+            </span>
+          </label>
+        </div>
 
-      {empresa ? (
-        <p className="text-[11px] text-muted bg-crema border border-border rounded-md px-3 py-2">
-          Los pasaportes de los viajeros no se suben aquí: envíalos a reservas@caminosacro.com y nosotros los
-          cargamos. Los necesitamos para gestionar las reservas, pero no hacen falta para firmar.
-        </p>
-      ) : (
-      <label className="text-xs block">
-        <span className="text-muted">
-          Foto o escaneo de tu pasaporte (página de datos) — debe coincidir con el número de arriba
-        </span>
-        <input
-          name="passport"
-          type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
-          className={`mt-1.5 block w-full text-xs rounded-md file:mr-3 file:px-3 file:py-2 file:rounded-md file:border-0 file:bg-bosque file:text-white file:cursor-pointer hover:file:bg-bosque-medio ${
-            faltantes.passport ? "ring-1 ring-red-300 p-1" : ""
-          }`}
-        />
-        <span className="block text-[11px] text-muted mt-1">
-          Tómala con el celular; la reducimos sola antes de enviarla, así que no importa que la foto sea grande.
-        </span>
-      </label>
-      )}
-
-      <div>
-        <p className="text-xs text-muted mb-1.5">Tu firma</p>
-        <SignatureCanvas
-          onChange={(dataUrl) => {
-            setSignature(dataUrl);
-            // El canvas no dispara onChange del form: hay que limpiar su rojo aparte.
-            if (dataUrl) setFaltantes((f) => ({ ...f, signature: false }));
-          }}
-          invalido={!!faltantes.signature}
-        />
-      </div>
-
-      <label
-        className={`flex items-start gap-2.5 text-xs text-fg rounded-md ${
-          faltantes.accept ? "bg-red-50 ring-1 ring-red-300 p-2 -m-2" : ""
-        }`}
-      >
-        <input type="checkbox" name="accept" className="mt-0.5" />
         {empresa ? (
-          <span>
-            Declaro que obro como representante legal de {razonSocial || "la empresa"}, con facultades suficientes para
-            obligarla; que leí y comprendí íntegramente el contrato
-            {financiado ? ", incluido el pagaré en blanco con su carta de instrucciones (Anexo No. 3)," : ""} y sus
-            anexos, incluida la relación de viajeros del Anexo No. 2; que los datos suministrados son veraces; que la
-            empresa cuenta con la autorización previa, expresa e informada de cada viajero para entregar sus datos
-            personales y la imagen de su documento de viaje y transmitirlos al operador del viaje en España, conforme a
-            la Ley 1581 de 2012; y que firmo electrónicamente con plena validez legal (Ley 527 de 1999).
-          </span>
+          <p className="text-[11px] text-muted bg-crema border border-border rounded-md px-3 py-2">
+            Los pasaportes de los viajeros no se suben aquí: envíalos a reservas@caminosacro.com y nosotros los
+            cargamos. Los necesitamos para gestionar las reservas, pero no hacen falta para firmar.
+          </p>
         ) : (
-          <span>
-            Declaro que leí y comprendí íntegramente el contrato
-            {financiado ? ", incluido el pagaré en blanco con su carta de instrucciones (Anexo No. 2)," : ""} y sus
-            anexos; que los datos que suministro son veraces; que autorizo el tratamiento de mis datos personales —
-            incluida la imagen de mi pasaporte y su transmisión al operador del viaje en España — conforme a la Ley
-            1581 de 2012; y que firmo electrónicamente con plena validez legal (Ley 527 de 1999).
-          </span>
+          <label className="text-xs block">
+            <span className="text-muted">
+              Foto o escaneo de tu pasaporte (página de datos) — debe coincidir con el número de arriba
+            </span>
+            <input
+              name="passport"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+              className={`mt-1.5 block w-full text-xs rounded-md file:mr-3 file:px-3 file:py-2 file:rounded-md file:border-0 file:bg-bosque file:text-white file:cursor-pointer hover:file:bg-bosque-medio ${
+                faltantes.passport ? "ring-1 ring-red-300 p-1" : ""
+              }`}
+            />
+            <span className="block text-[11px] text-muted mt-1">
+              Tómala con el celular; la reducimos sola antes de enviarla, así que no importa que la foto sea grande.
+            </span>
+          </label>
         )}
-      </label>
 
+        <div>
+          <p className="text-xs text-muted mb-1.5">Tu firma</p>
+          <SignatureCanvas
+            disabled={bloqueado}
+            onChange={(dataUrl) => {
+              setSignature(dataUrl);
+              // El canvas no dispara onChange del form: hay que limpiar su rojo aparte.
+              if (dataUrl) setFaltantes((f) => ({ ...f, signature: false }));
+            }}
+            invalido={!!faltantes.signature}
+          />
+        </div>
+
+        <label
+          className={`flex items-start gap-2.5 text-xs text-fg rounded-md ${
+            faltantes.accept ? "bg-red-50 ring-1 ring-red-300 p-2 -m-2" : ""
+          }`}
+        >
+          <input type="checkbox" name="accept" className="mt-0.5" />
+          <span>{consentimiento}</span>
+        </label>
+      </fieldset>
+
+      {/* Paso 2/3: el código al correo. Es lo que confirma que quien firma controla el
+          correo del contrato — el "nivel de seguridad" del Informe de Firmas. */}
+      <div className="bg-crema border border-border rounded-md px-4 py-4 space-y-3">
+        <p className="text-xs uppercase tracking-[0.18em] text-dorado-oscuro">Confirmación por correo</p>
+        {!codigoPedido ? (
+          <p className="text-sm text-fg">
+            Para firmar te enviaremos un código de seis dígitos a{" "}
+            <strong>{correoContrato || "tu correo"}</strong>. Es lo que confirma que eres tú quien firma.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-fg">
+              Escribe el código que te llegó a <strong>{codigoPedido}</strong>:
+            </p>
+            <input
+              name="codigo"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={codigo}
+              onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))}
+              placeholder="______"
+              className={`block w-56 text-center text-2xl tracking-[0.5em] border rounded-md px-3 py-2 bg-white ${
+                faltantes.codigo ? "border-red-400 ring-1 ring-red-200" : "border-border"
+              }`}
+            />
+            <button type="button" onClick={pedir} disabled={enviando} className="text-[11px] text-muted underline hover:text-fg">
+              No me llegó: enviar otro código
+            </button>
+          </>
+        )}
+      </div>
+
+      {aviso && (
+        <div role="status" className="text-sm text-bosque bg-crema border border-border rounded-md px-3 py-2.5">
+          {aviso}
+        </div>
+      )}
       {error && (
         <div
           role="alert"
@@ -361,8 +480,16 @@ export default function SignForm({
         disabled={enviando}
         className="w-full py-3.5 rounded-full bg-bosque text-white font-medium hover:bg-bosque-medio transition disabled:opacity-50"
       >
-        {preparando ? "Preparando tu pasaporte…" : pending ? "Firmando…" : "Firmar contrato y enviar"}
+        {preparando
+          ? "Preparando tu pasaporte…"
+          : pending
+            ? codigoPedido ? "Firmando…" : "Enviando el código…"
+            : codigoPedido ? "Firmar contrato y enviar" : "Enviarme el código para firmar"}
       </button>
+      <p className="text-[11px] text-muted text-center">
+        Al firmar, el navegador puede pedirte permiso para compartir tu ubicación aproximada. Es opcional: si
+        dices que no, la firma es igual de válida.
+      </p>
     </form>
   );
 }

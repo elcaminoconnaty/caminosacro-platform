@@ -395,13 +395,26 @@ export default function ContractCard({
 
         <div className="flex flex-wrap gap-1.5">
           {c.status === "firmado" ? (
-            <button
-              onClick={() => abrirArchivo(c.signed_pdf_path)}
-              disabled={pending || !c.signed_pdf_path}
-              className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
-            >
-              Contrato firmado
-            </button>
+            <>
+              <button
+                onClick={() => abrirArchivo(c.signed_pdf_path)}
+                disabled={pending || !c.signed_pdf_path}
+                className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+              >
+                Contrato firmado
+              </button>
+              {c.doc_hash && (
+                <a
+                  href={`/verificar/${c.doc_hash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Comprobación pública de integridad: la misma que ve el cliente"
+                  className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition"
+                >
+                  Verificar
+                </a>
+              )}
+            </>
           ) : (
             <>
               <button
@@ -1080,6 +1093,17 @@ export default function ContractCard({
                       >
                         {c.passport_path ? "Pasaporte" : "Sin pasaporte"}
                       </button>
+                      {c.doc_hash && (
+                        <a
+                          href={`/verificar/${c.doc_hash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Comprobación pública de integridad: la misma que ve el cliente"
+                          className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition"
+                        >
+                          Verificar
+                        </a>
+                      )}
                     </>
                   )}
 

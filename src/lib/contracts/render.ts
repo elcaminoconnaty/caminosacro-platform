@@ -13,6 +13,7 @@ import {
   DEFAULT_NO_INCLUYE,
 } from "./template";
 import type { ContractSignature } from "./contractPdf";
+import type { InformeFirmasProps } from "./informeFirmas";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyClient = SupabaseClient<any, any, any>;
@@ -188,13 +189,20 @@ export async function buildTravelersAnexo(supabase: AnyClient, quoteId: string):
   }));
 }
 
-/** Renderiza el PDF del contrato (sin firmar o firmado) y devuelve el buffer. */
+/**
+ * Renderiza el PDF del contrato (sin firmar o firmado) y devuelve el buffer.
+ *
+ * `informe` es el Informe de Firmas que va como última página del PDF sellado; `numero` es
+ * el identificador del documento para el pie de todas las páginas. Los dos van solo al
+ * firmar: el PDF de vista previa sigue saliendo igual que siempre.
+ */
 export async function renderContractPdfBuffer(
   variables: ContractVariables,
   plan: PaymentPlan,
   signature?: ContractSignature | null,
   orgSignature?: string | null,
   travelers?: ViajeroAnexo[] | null,
+  extras?: { informe?: InformeFirmasProps | null; numero?: string | null },
 ): Promise<Buffer> {
   const React = await import("react");
   const { renderToBuffer } = await import("@react-pdf/renderer");
@@ -205,9 +213,22 @@ export async function renderContractPdfBuffer(
     signature: signature ?? null,
     orgSignature: orgSignature ?? null,
     travelers: travelers ?? [],
+    informe: extras?.informe ?? null,
+    numero: extras?.numero ?? null,
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return renderToBuffer(element as any);
+}
+
+/**
+ * Cuenta las páginas del PDF leyendo su catálogo. Hace falta porque el Informe de Firmas
+ * dice de cuántas páginas consta el documento y ese número tiene que salir del archivo
+ * real, no de una estimación.
+ */
+export function contarPaginas(pdf: Buffer): number {
+  const texto = pdf.toString("latin1");
+  const paginas = (texto.match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+  return paginas || 1;
 }
 
 /**

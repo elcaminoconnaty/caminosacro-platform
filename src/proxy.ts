@@ -19,9 +19,11 @@ import { createServerClient } from "@supabase/ssr";
 // contrato — en la modalidad de empresa lo firma el representante legal.
 // /correo es la versión web de un correo enviado ("¿No ves bien este correo? Ábrelo
 // aquí"): mismo patrón de token, y lo abre el mismo cliente sin sesión.
+// /verificar es la comprobación pública de integridad de un contrato firmado: la llave
+// es la propia huella SHA-256 del documento (ver src/app/verificar/[hash]).
 const PUBLIC_PATHS = [
   "/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato",
-  "/api/cron", "/api/agente", "/documentacion", "/correo", "/viajero",
+  "/api/cron", "/api/agente", "/documentacion", "/correo", "/viajero", "/verificar",
 ];
 
 export async function proxy(request: NextRequest) {

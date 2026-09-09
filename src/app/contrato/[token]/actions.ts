@@ -1,27 +1,42 @@
 "use server";
 
 // Firma pública del contrato. Seguridad: token único de 64 hex con expiración,
-// validación de archivos, rate limit por token (y por IP con tope holgado), y
-// trazabilidad completa de la firma (IP, user-agent, timestamp, hash SHA-256 del
-// PDF firmado) — Ley 527/Dec. 2364.
+// código de un solo uso al correo del firmante (OTP), validación de archivos, rate
+// limit por token (y por IP con tope holgado), y trazabilidad completa de la firma:
+// IP, user-agent, ubicación aproximada, momento, texto aceptado, hash SHA-256 del
+// documento original y del firmado — Ley 527/1999 y Decreto 2364/2012.
+//
+// El PDF firmado cierra con un Informe de Firmas (la misma hoja que ZapSign): por eso se
+// renderiza dos veces. La primera, sin informe, es el documento tal como se presentó al
+// firmante y su huella es la que se imprime; la segunda lleva el informe y es la que se
+// guarda, se envía y se puede comprobar en /verificar.
 
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { renderContractPdfBuffer, sha256Hex, getOrgSignature } from "@/lib/contracts/render";
+import { renderContractPdfBuffer, sha256Hex, getOrgSignature, getFirmante, contarPaginas } from "@/lib/contracts/render";
 import {
   esEmpresa,
   destinatarioContrato,
-  saludoContrato,
+  llevaPagare,
   type ContractVariables,
   type PaymentPlan,
   type ViajeroAnexo,
 } from "@/lib/contracts/template";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
 import { rutaContrato, rutaContratoEmpresa, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
+import {
+  hashCodigo, huellaLegible, mismoHash, nuevoCodigo, trazoValido, ubicacionPlausible,
+  OTP_MAX_INTENTOS, OTP_MAX_POR_HORA, OTP_VIGENCIA_MIN,
+} from "@/lib/contracts/firma";
+import { textoConsentimiento } from "@/lib/contracts/consentimiento";
+import type { FirmanteInforme, InformeFirmasProps } from "@/lib/contracts/informeFirmas";
+import { baseUrlApp } from "@/lib/email/versionWeb";
 
 export type ResultadoFirma =
-  | { ok: true; emailEnviado: boolean }
+  | { ok: true; emailEnviado: boolean; huella: string; urlVerificacion: string }
   | { ok: false; error: string };
+
+export type ResultadoCodigo = { ok: true; correo: string } | { ok: false; error: string };
 
 const PASSPORT_MAX_BYTES = 12 * 1024 * 1024;
 const PASSPORT_TYPES: Record<string, string> = {
@@ -35,7 +50,6 @@ const PASSPORT_TYPES: Record<string, string> = {
   "image/heif": "heif",
   "application/pdf": "pdf",
 };
-const SIGNATURE_MAX_CHARS = 400_000; // data URL PNG del canvas (~300 KB reales)
 const SIGNED_COPY_TTL = 60 * 60 * 24 * 30; // 30 días para el enlace del correo
 
 // Rate limit en memoria (mismo enfoque que /cotizar): corta el abuso obvio.
@@ -55,18 +69,153 @@ function superaLimite(clave: string, regla: { max: number; windowMs: number }): 
   return previos.length > regla.max;
 }
 
+type Huella = { ip: string | null; userAgent: string | null };
+
+/** IP y dispositivo se leen acá, en el servidor: un dato de evidencia que el firmante puede escribir no vale nada. */
+async function huellaDelPedido(): Promise<Huella> {
+  const h = await headers();
+  const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || h.get("x-real-ip") || null;
+  return { ip, userAgent: h.get("user-agent") };
+}
+
+type Admin = ReturnType<typeof createAdminClient>;
+
+/** Deja constancia en la bitácora. Nunca tumba una firma por no poder anotar. */
+async function anotar(supabase: Admin, contractId: string, event: string, huella?: Huella, detail?: unknown) {
+  try {
+    await supabase.from("contract_events").insert({
+      contract_id: contractId,
+      event,
+      ip: huella?.ip ?? null,
+      user_agent: huella?.userAgent ?? null,
+      detail: detail ?? null,
+    });
+  } catch (e) {
+    console.error("[firma] no pude anotar el evento", event, e);
+  }
+}
+
+const zonaBogota = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota", dateStyle: "long", timeStyle: "medium",
+});
+const enBogota = (d: Date | string) => zonaBogota.format(typeof d === "string" ? new Date(d) : d);
+
+/** El contrato que hay detrás de un token, si está habilitado para firmar. */
+async function contratoFirmable(supabase: Admin, token: string) {
+  const { data: c } = await supabase
+    .from("contracts")
+    .select("id,quote_id,traveler_id,company_id,status,token_expires_at,variables_json,payment_plan_json,kind,travelers_json,org_signer,created_at,sent_at")
+    .eq("token", token)
+    .maybeSingle();
+  if (!c) return { error: "Este enlace de firma no existe o fue anulado." };
+  if (c.status === "firmado") return { error: "Este contrato ya fue firmado." };
+  if (c.status !== "enviado") return { error: "Este contrato no está habilitado para firma." };
+  if (c.token_expires_at && new Date(c.token_expires_at).getTime() < Date.now()) {
+    return { error: "El enlace venció. Escríbenos a reservas@caminosacro.com y te enviamos uno nuevo." };
+  }
+  return { c, error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Paso 1: el código al correo
+// ---------------------------------------------------------------------------
+
+export async function pedirCodigo(token: string): Promise<ResultadoCodigo> {
+  if (!token || token.length < 32) return { ok: false, error: "Enlace no válido." };
+  const huella = await huellaDelPedido();
+  if (superaLimite(`otp:${token}`, RATE_TOKEN)) {
+    return { ok: false, error: "Pediste muchos códigos seguidos. Espera un momento y vuelve a intentarlo." };
+  }
+
+  const supabase = createAdminClient("comercial");
+  const r = await contratoFirmable(supabase, token);
+  if (r.error || !r.c) return { ok: false, error: r.error ?? "Enlace no válido." };
+  const c = r.c;
+
+  const vars = c.variables_json as ContractVariables;
+  const { email, nombre } = destinatarioContrato(vars);
+  if (!email) {
+    return { ok: false, error: "Este contrato no tiene un correo de notificaciones. Escríbenos a reservas@caminosacro.com." };
+  }
+
+  // Freno por contrato, en la base: sobrevive a un reinicio del servidor.
+  const haceUnaHora = new Date(Date.now() - 3600_000).toISOString();
+  const { count } = await supabase
+    .from("contract_otps")
+    .select("id", { count: "exact", head: true })
+    .eq("contract_id", c.id)
+    .gte("created_at", haceUnaHora);
+  if ((count ?? 0) >= OTP_MAX_POR_HORA) {
+    return { ok: false, error: "Pediste muchos códigos en la última hora. Espera un rato y vuelve a intentarlo." };
+  }
+
+  const codigo = nuevoCodigo();
+  const { error: errOtp } = await supabase.from("contract_otps").insert({
+    contract_id: c.id,
+    code_hash: hashCodigo(codigo, c.id),
+    expires_at: new Date(Date.now() + OTP_VIGENCIA_MIN * 60_000).toISOString(),
+  });
+  if (errOtp) {
+    console.error("[firma] no pude guardar el código:", errOtp);
+    return { ok: false, error: "No pudimos generar el código. Inténtalo de nuevo." };
+  }
+
+  const code = vars.codigo_cotizacion || c.quote_id;
+  const primerNombre = (esEmpresa(vars) ? vars.rep_nombre || nombre : nombre).trim().split(/\s+/)[0] || "";
+  const envio = await enviarCorreoContrato(
+    {
+      code,
+      nombre: nombre || primerNombre,
+      email,
+      telefono: (esEmpresa(vars) ? vars.empresa_telefono : vars.viajero_telefono) || null,
+      ruta: vars.ruta_nombre || null,
+      fecha_inicio: vars.fecha_inicio || null,
+      personas: Number(vars.num_personas) || 1,
+      alojamiento: vars.modalidad || null,
+      total_eur: null,
+      pdf_url: null,
+      subject: `${codigo} es tu código para firmar el contrato ${code}`,
+      body: [
+        `Hola ${primerNombre || "peregrino"},`,
+        ``,
+        `Este es tu código para firmar el contrato ${code}:`,
+        ``,
+        `    ${codigo}`,
+        ``,
+        `Vence en ${OTP_VIGENCIA_MIN} minutos. Escríbelo en la página donde estás firmando.`,
+        ``,
+        `Si no fuiste tú quien lo pidió, ignora este correo: sin el código nadie puede firmar por ti.`,
+        `Nunca te lo vamos a pedir por WhatsApp ni por teléfono.`,
+        ``,
+        `Camino Sacro · reservas@caminosacro.com`,
+      ].join("\n"),
+      // Un código de un solo uso no es un evento del negocio: no avisa a reservas@.
+      aviso: false,
+    },
+    { supabase, quoteId: c.quote_id },
+  );
+
+  await anotar(supabase, c.id, envio.ok ? "otp_enviado" : "otp_fallido", huella, envio.ok ? { correo: email } : { error: envio.error });
+  if (!envio.ok) {
+    console.error("[firma] el código no salió:", envio.error);
+    return { ok: false, error: "No pudimos enviar el código a tu correo. Inténtalo de nuevo en un momento." };
+  }
+  return { ok: true, correo: email };
+}
+
+// ---------------------------------------------------------------------------
+// Paso 2: la firma
+// ---------------------------------------------------------------------------
+
 export async function firmarContrato(token: string, formData: FormData): Promise<ResultadoFirma> {
   if (!token || token.length < 32) return { ok: false, error: "Enlace no válido." };
 
-  const cabeceras = await headers();
-  // Sin cabecera de IP no metemos a todo el mundo en un mismo cubo: sería un cupo
-  // compartido por toda la plataforma. El límite por token ya cubre ese caso.
-  const ipCliente = (cabeceras.get("x-forwarded-for") ?? "").split(",")[0].trim() || null;
-  const ip = ipCliente ?? "desconocida";
-  const userAgent = cabeceras.get("user-agent") ?? null;
+  const huella = await huellaDelPedido();
+  const ip = huella.ip ?? "desconocida";
+  const userAgent = huella.userAgent;
   // Los dos se evalúan siempre para que ninguno de los dos contadores se quede corto.
   const excedeToken = superaLimite(`token:${token}`, RATE_TOKEN);
-  const excedeIp = ipCliente ? superaLimite(`ip:${ipCliente}`, RATE_IP) : false;
+  const excedeIp = huella.ip ? superaLimite(`ip:${huella.ip}`, RATE_IP) : false;
   if (excedeToken || excedeIp) {
     return {
       ok: false,
@@ -76,38 +225,33 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   }
 
   const supabase = createAdminClient("comercial");
-  const { data: c } = await supabase
-    .from("contracts")
-    .select("id,quote_id,traveler_id,company_id,status,token_expires_at,variables_json,payment_plan_json,kind,travelers_json,org_signer")
-    .eq("token", token)
-    .maybeSingle();
-
-  if (!c) return { ok: false, error: "Este enlace de firma no existe o fue anulado." };
-  if (c.status === "firmado") return { ok: false, error: "Este contrato ya fue firmado." };
-  if (c.status !== "enviado") return { ok: false, error: "Este contrato no está habilitado para firma." };
-  if (c.token_expires_at && new Date(c.token_expires_at).getTime() < Date.now()) {
-    return { ok: false, error: "El enlace venció. Escríbenos a reservas@caminosacro.com y te enviamos uno nuevo." };
-  }
+  const r = await contratoFirmable(supabase, token);
+  if (r.error || !r.c) return { ok: false, error: r.error ?? "Enlace no válido." };
+  const c = r.c;
 
   // ---- Entradas del formulario ----
   const signerName = String(formData.get("signer_name") || "").trim();
   const signerDocument = String(formData.get("signer_document") || "").trim();
   const accept = formData.get("accept");
   const signature = String(formData.get("signature") || "");
+  const codigo = String(formData.get("codigo") || "").replace(/\D/g, "");
+  const geoCrudo = String(formData.get("geo") || "");
   const passport = formData.get("passport") as File | null;
 
   const varsBase = c.variables_json as ContractVariables;
   // Contrato de empresa: firma el representante legal y NO sube pasaporte — los de los
-  // viajeros los carga el equipo desde el CRM. Todo lo demás (firma, hash, trazabilidad,
-  // guarda contra doble firma) es idéntico en las dos modalidades.
+  // viajeros los carga el equipo desde el CRM. Todo lo demás (código, firma, hash,
+  // trazabilidad, guarda contra doble firma) es idéntico en las dos modalidades.
   const empresa = c.kind === "empresa" || esEmpresa(varsBase);
 
   if (!accept) return { ok: false, error: "Debes aceptar la declaración para firmar." };
   if (signerName.length < 5) return { ok: false, error: "Escribe tu nombre completo." };
   if (signerDocument.length < 4) return { ok: false, error: "Escribe tu número de documento." };
-  if (!signature.startsWith("data:image/png;base64,") || signature.length > SIGNATURE_MAX_CHARS) {
-    return { ok: false, error: "La firma no es válida. Dibújala de nuevo." };
-  }
+  const trazo = trazoValido(signature);
+  if (!trazo.ok) return { ok: false, error: trazo.error };
+  if (codigo.length !== 6) return { ok: false, error: "Escribe el código de seis dígitos que te llegó al correo." };
+  // Viene del navegador: solo se guarda si tiene forma de coordenada.
+  const geo = ubicacionPlausible(geoCrudo) ? geoCrudo : null;
 
   let ext = "";
   if (!empresa) {
@@ -117,6 +261,30 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     if (passport.size > PASSPORT_MAX_BYTES) return { ok: false, error: "El archivo del pasaporte supera 12 MB." };
   }
 
+  // ---- El código ----
+  const { data: otp } = await supabase
+    .from("contract_otps")
+    .select("id, code_hash, expires_at, attempts, consumed_at")
+    .eq("contract_id", c.id)
+    .is("consumed_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!otp) return { ok: false, error: "Primero pide el código a tu correo." };
+  if (new Date(otp.expires_at) < new Date()) return { ok: false, error: "El código venció. Pide uno nuevo." };
+  if (otp.attempts >= OTP_MAX_INTENTOS) return { ok: false, error: "Demasiados intentos con ese código. Pide uno nuevo." };
+  if (!mismoHash(hashCodigo(codigo, c.id), otp.code_hash)) {
+    await supabase.from("contract_otps").update({ attempts: otp.attempts + 1 }).eq("id", otp.id);
+    await anotar(supabase, c.id, "otp_fallido", huella, { intento: otp.attempts + 1 });
+    const quedan = OTP_MAX_INTENTOS - otp.attempts - 1;
+    return {
+      ok: false,
+      error: quedan > 0 ? `El código no coincide. Te quedan ${quedan} intentos.` : "Se acabaron los intentos. Pide un código nuevo.",
+    };
+  }
+  await supabase.from("contract_otps").update({ consumed_at: new Date().toISOString() }).eq("id", otp.id);
+  await anotar(supabase, c.id, "otp_validado", huella);
+
   // El documento que teclea quien firma queda dentro del contrato: el pasaporte del
   // viajero, o la cédula del representante legal de la empresa.
   const vars: ContractVariables = empresa
@@ -124,7 +292,11 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     : { ...varsBase, viajero_tipo_documento: "Pasaporte", viajero_documento: signerDocument };
   const plan = c.payment_plan_json as PaymentPlan;
   const code = vars.codigo_cotizacion || c.quote_id;
-  const signedAt = new Date().toISOString();
+  const ahora = new Date();
+  const signedAt = ahora.toISOString();
+  const consentimiento = textoConsentimiento({ empresa, financiado: llevaPagare(plan), razonSocial: vars.empresa_razon_social });
+  const telefonoFirmante = (empresa ? vars.empresa_telefono : vars.viajero_telefono) || null;
+  const { email: correoParte, nombre: nombreParte } = destinatarioContrato(vars);
 
   // En un grupo hay un contrato por viajero: sin la posición en el nombre, el PDF
   // firmado de uno pisaría el de otro dentro de la carpeta de la cotización.
@@ -134,7 +306,13 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   const posicion = viajero?.position ?? null;
 
   // ---- 1. Pasaporte al bucket privado (solo contrato por viajero) ----
+  // Si algo falla después, se borra en `limpiarPasaporte`: un pasaporte huérfano en el
+  // bucket es exactamente lo que la auditoría encontró treinta veces.
   let passportPath: string | null = null;
+  const limpiarPasaporte = async () => {
+    if (!passportPath) return;
+    await supabase.storage.from("comercial-passports").remove([sinBucket(passportPath)]).catch(() => {});
+  };
   if (!empresa && passport) {
     passportPath = rutaPasaporte(code, ext);
     const passportBuffer = Buffer.from(await passport.arrayBuffer());
@@ -147,31 +325,76 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     }
   }
 
-  // ---- 2. PDF firmado (con sello de trazabilidad) + hash ----
+  // ---- 2. El PDF firmado, en dos pasadas, con su Informe de Firmas ----
   // Firma guardada de quien firma por Camino Sacro en ESTE contrato (Nico o Nathalia); si
   // aún no la capturó, el PDF usa su firma mecánica en cursiva (igualmente válida bajo la
   // Ley 527).
+  const firmanteOrg = await getFirmante(supabase, c.org_signer as string | null);
   const orgSignature = await getOrgSignature(supabase, c.org_signer as string | null);
+  const anexo = empresa ? ((c.travelers_json as ViajeroAnexo[]) ?? []) : null;
+  const firma = {
+    signer_name: signerName,
+    signer_document: signerDocument,
+    signature_image: signature,
+    signed_at: signedAt,
+    signer_ip: ip,
+    signer_user_agent: userAgent,
+    doc_hash: null,
+  };
+  const urlVerificacionBase = `${baseUrlApp()}/verificar`;
+
   let signedPdf: Buffer;
+  let originalHash: string;
   try {
-    signedPdf = await renderContractPdfBuffer(
-      vars,
-      plan,
+    // Primera pasada: el documento tal como se le presentó al firmante, sin informe. Su
+    // huella es la que se imprime en el informe.
+    const original = await renderContractPdfBuffer(vars, plan, firma, orgSignature, anexo, { numero: c.id });
+    originalHash = sha256Hex(original);
+
+    const firmantes: FirmanteInforme[] = [
       {
-        signer_name: signerName,
-        signer_document: signerDocument,
-        signature_image: signature,
-        signed_at: signedAt,
-        signer_ip: ip,
-        signer_user_agent: userAgent,
-        doc_hash: null, // el hash es del propio PDF; se calcula después y queda en la BD
+        rol: "camino_sacro", rolTexto: "Camino Sacro", token: c.id,
+        nombre: firmanteOrg.nombre, documento: `${firmanteOrg.documento_tipo} ${firmanteOrg.documento}`,
+        email: "reservas@caminosacro.com", telefono: null,
+        firmadoEn: enBogota(c.sent_at ?? c.created_at),
+        ip: null, dispositivo: null, ubicacion: null,
+        metodo: "Firmado desde la plataforma al aprobar y enviar, con sesión autenticada",
+        trazo: orgSignature,
       },
-      orgSignature,
-      // El anexo se firma tal como se congeló al crear el contrato.
-      empresa ? ((c.travelers_json as ViajeroAnexo[]) ?? []) : null,
-    );
+      {
+        rol: "contratante", rolTexto: empresa ? "El Contratante · representante legal" : "El Viajero",
+        token: otp.id,
+        nombre: signerName,
+        documento: `${(empresa ? vars.rep_tipo_documento : "Pasaporte") || "Documento"} ${signerDocument}`,
+        email: correoParte || "—", telefono: telefonoFirmante,
+        firmadoEn: enBogota(ahora),
+        ip: huella.ip, dispositivo: userAgent, ubicacion: geo,
+        metodo: "Validado por código único enviado por correo electrónico",
+        trazo: signature,
+      },
+    ];
+    const informe: InformeFirmasProps = {
+      numero: c.id,
+      documento: `Acuerdo de Prestación de Servicios Turísticos · Contrato No. ${code}${empresa ? " (empresa)" : ""}`,
+      creadoEn: enBogota(c.created_at),
+      actualizadoEn: enBogota(ahora),
+      huellaOriginal: huellaLegible(originalHash),
+      urlVerificacion: urlVerificacionBase,
+      firmantes,
+      paginas: contarPaginas(original) + 1,
+    };
+
+    // Segunda pasada: el documento definitivo, con el Informe de Firmas al final. Si el
+    // informe ocupó más de una página, una tercera con el número real.
+    signedPdf = await renderContractPdfBuffer(vars, plan, firma, orgSignature, anexo, { informe, numero: c.id });
+    const paginasReales = contarPaginas(signedPdf);
+    if (paginasReales !== informe.paginas) {
+      informe.paginas = paginasReales;
+      signedPdf = await renderContractPdfBuffer(vars, plan, firma, orgSignature, anexo, { informe, numero: c.id });
+    }
   } catch (e) {
     console.error("[firmar] render del PDF firmado falló:", e);
+    await limpiarPasaporte();
     return { ok: false, error: "No pudimos generar el contrato firmado. Inténtalo de nuevo." };
   }
   const docHash = sha256Hex(signedPdf);
@@ -182,10 +405,13 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     .upload(sinBucket(signedPdfPath), signedPdf, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
   if (pdfErr) {
     console.error("[firmar] subida del PDF firmado falló:", pdfErr);
+    await limpiarPasaporte();
     return { ok: false, error: "No pudimos guardar el contrato firmado. Inténtalo de nuevo." };
   }
 
   // ---- 3. Cierre del contrato (condicionado al estado para evitar doble firma) ----
+  // El token NO se anula: el viajero tiene que poder volver a abrir su enlace y ver que
+  // ya firmó. La página distingue el estado y esta acción revalida `enviado`.
   const { data: updated, error: updErr } = await supabase
     .from("contracts")
     .update({
@@ -195,14 +421,17 @@ export async function firmarContrato(token: string, formData: FormData): Promise
       passport_path: passportPath,
       signer_name: signerName,
       signer_document: signerDocument,
-      signer_email: destinatarioContrato(vars).email || null,
+      signer_email: correoParte || null,
+      signer_phone: telefonoFirmante,
       signature_image: signature,
       signed_at: signedAt,
       signer_ip: ip,
       signer_user_agent: userAgent,
+      signer_geo: geo,
+      signer_auth_method: "otp_email",
+      consent_text: consentimiento,
+      pdf_original_sha256: originalHash,
       doc_hash: docHash,
-      token: null,
-      token_expires_at: null,
     })
     .eq("id", c.id)
     .eq("status", "enviado")
@@ -210,8 +439,12 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     .maybeSingle();
   if (updErr || !updated) {
     console.error("[firmar] update falló:", updErr);
+    await limpiarPasaporte();
     return { ok: false, error: "No pudimos registrar la firma. Inténtalo de nuevo." };
   }
+
+  await anotar(supabase, c.id, "firmado", huella, { sha256: docHash, original: originalHash, geo });
+  await anotar(supabase, c.id, "pdf_sellado", undefined, { ruta: signedPdfPath });
 
   // El nombre y el pasaporte reales quedan en la ficha del viajero: de ahí los toma
   // el correo a Pilgrim, sin tener que abrir el variables_json de cada contrato.
@@ -242,17 +475,18 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   }
 
   // ---- 4. Copia por correo (webhook n8n → Brevo; también avisa a reservas@) ----
+  const urlVerificacion = `${urlVerificacionBase}/${docHash}`;
+  const fechaFirmaTexto = enBogota(ahora);
   let emailEnviado = false;
   const { data: signedUrl } = await supabase.storage
     .from("comercial-contracts")
     .createSignedUrl(sinBucket(signedPdfPath), SIGNED_COPY_TTL);
-  const { email: correoParte, nombre: nombreParte } = destinatarioContrato(vars);
   if (correoParte) {
     const envio = await enviarCorreoContrato({
       code,
       nombre: signerName,
       email: correoParte,
-      telefono: (empresa ? vars.empresa_telefono : vars.viajero_telefono) || null,
+      telefono: telefonoFirmante,
       ruta: vars.ruta_nombre || null,
       fecha_inicio: vars.fecha_inicio || null,
       personas: Number(vars.num_personas) || 1,
@@ -264,10 +498,11 @@ export async function firmarContrato(token: string, formData: FormData): Promise
         ? [
             `Hola ${signerName.split(/\s+/)[0]},`,
             ``,
-            `¡Listo! El contrato de ${vars.empresa_razon_social || "la empresa"} quedó firmado el ${new Date(signedAt).toLocaleString("es-CO", { timeZone: "America/Bogota" })}.`,
+            `¡Listo! El contrato de ${vars.empresa_razon_social || "la empresa"} quedó firmado el ${fechaFirmaTexto}.`,
             ``,
-            `Adjunto encuentras la copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con la relación de viajeros en el Anexo No. 2.`,
+            `Adjunto encuentras la copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con la relación de viajeros en el Anexo No. 2 y el Informe de Firmas en la última página.`,
             `Huella digital del documento (SHA-256): ${docHash}`,
+            `Puedes comprobar su autenticidad en: ${urlVerificacion}`,
             ``,
             `Si aún faltan pasaportes de algún viajero, envíalos a este mismo correo: los necesitamos para confirmar las reservas.`,
             ``,
@@ -277,10 +512,11 @@ export async function firmarContrato(token: string, formData: FormData): Promise
         : [
             `Hola ${signerName.split(/\s+/)[0]},`,
             ``,
-            `¡Listo! Tu contrato quedó firmado el ${new Date(signedAt).toLocaleString("es-CO", { timeZone: "America/Bogota" })}.`,
+            `¡Listo! Tu contrato quedó firmado el ${fechaFirmaTexto}.`,
             ``,
-            `Adjunto encuentras tu copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}.`,
+            `Adjunto encuentras tu copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con el Informe de Firmas en la última página.`,
             `Huella digital del documento (SHA-256): ${docHash}`,
+            `Puedes comprobar su autenticidad en: ${urlVerificacion}`,
             ``,
             `Nuestro equipo continúa con la gestión de tus reservas y te iremos contando cada avance.`,
             ``,
@@ -301,11 +537,14 @@ export async function firmarContrato(token: string, formData: FormData): Promise
         empresa ? `Firmó: ${signerName} · ${vars.rep_tipo_documento || "documento"} ${signerDocument}` : `Pasaporte: ${signerDocument}`,
         ...(empresa ? [`Viajeros en el anexo: ${((c.travelers_json as ViajeroAnexo[]) ?? []).length}`] : []),
         `Ruta: ${vars.ruta_nombre || "-"}`,
-        `Fecha de firma: ${new Date(signedAt).toLocaleString("es-CO", { timeZone: "America/Bogota" })}`,
+        `Fecha de firma: ${fechaFirmaTexto}`,
+        `Verificado por código al correo: ${correoParte}`,
+        `IP: ${huella.ip ?? "—"}${geo ? ` · Ubicación aprox.: ${geo}` : ""}`,
         `Huella SHA-256: ${docHash}`,
+        `Verificación: ${urlVerificacion}`,
         ``,
         `Contrato firmado y pasaporte disponibles en Seguimiento:`,
-        `https://caminosacro-platform-production.up.railway.app/seguimiento`,
+        `${baseUrlApp()}/seguimiento`,
       ].join("\n"),
     }, { supabase, quoteId: c.quote_id });
     emailEnviado = envio.ok;
@@ -316,8 +555,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   }
 
   // Nota: sin revalidatePath aquí — invalidaría el router del navegador del
-  // peregrino y la página se recargaría como "enlace no válido" (el token ya es
-  // null), tapando la pantalla de éxito. Seguimiento es dinámico y verá el
-  // contrato firmado en la próxima carga sin necesidad de revalidar.
-  return { ok: true, emailEnviado };
+  // peregrino y la página se recargaría, tapando la pantalla de éxito. Seguimiento es
+  // dinámico y verá el contrato firmado en la próxima carga sin necesidad de revalidar.
+  return { ok: true, emailEnviado, huella: huellaLegible(docHash), urlVerificacion };
 }

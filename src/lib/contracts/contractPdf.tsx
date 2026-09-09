@@ -15,6 +15,7 @@ import {
   VIAJEROS_ANEXO_TITULO,
   type ViajeroAnexo,
 } from "./template";
+import { PaginaInformeFirmas, type InformeFirmasProps } from "./informeFirmas";
 
 const fontsDir = path.join(process.cwd(), "src/lib/fonts");
 
@@ -90,9 +91,9 @@ const s = StyleSheet.create({
     left: 48,
     right: 48,
     textAlign: "center",
-    fontSize: 6.5,
+    fontSize: 6.3,
     color: COLORS.dorado,
-    letterSpacing: 0.8,
+    letterSpacing: 0.35,
     borderTopWidth: 0.5,
     borderTopColor: COLORS.taupe,
     paddingTop: 6,
@@ -115,7 +116,11 @@ export type ContractSignature = {
   signed_at: string;              // ISO
   signer_ip: string | null;
   signer_user_agent: string | null;
-  doc_hash: string | null;        // hash del documento presentado al firmar
+  /**
+   * Ya no se imprime: el hash del PDF firmado no puede ir dentro del propio PDF. La huella
+   * del documento ORIGINAL va en el Informe de Firmas (`informe.huellaOriginal`).
+   */
+  doc_hash: string | null;
 };
 
 /** "NICOLÁS VILLA POSADA" → "Nicolás Villa Posada", para la firma mecánica en cursiva. */
@@ -134,15 +139,20 @@ function Membrete() {
   );
 }
 
-function Pie() {
+/**
+ * El pie va en todas las páginas y, como en ZapSign, lleva el identificador del documento
+ * cuando ya existe: así cada hoja suelta sigue diciendo de qué contrato es.
+ */
+function Pie({ numero }: { numero?: string | null }) {
   return (
     <Text style={s.pie} fixed>
       CAMINO SACRO · reservas@caminosacro.com · Respaldado por El Camino con Naty
+      {numero ? ` · Documento ${numero}` : ""}
     </Text>
   );
 }
 
-function AnexoViajeros({ v, travelers }: { v: ContractVariables; travelers: ViajeroAnexo[] }) {
+function AnexoViajeros({ v, travelers, numero }: { v: ContractVariables; travelers: ViajeroAnexo[]; numero?: string | null }) {
   return (
     <Page size="A4" style={s.page}>
       <Membrete />
@@ -168,7 +178,7 @@ function AnexoViajeros({ v, travelers }: { v: ContractVariables; travelers: Viaj
         </View>
       ))}
 
-      <Pie />
+      <Pie numero={numero} />
       <Text style={s.pageNum} render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} fixed />
     </Page>
   );
@@ -180,10 +190,16 @@ export function ContractPDF({
   signature,
   orgSignature,
   travelers = [],
+  informe = null,
+  numero = null,
 }: {
   variables: ContractVariables;
   plan: PaymentPlan;
   signature?: ContractSignature | null;
+  /** Cuando el contrato ya está firmado, el Informe de Firmas va como última página. */
+  informe?: InformeFirmasProps | null;
+  /** Identificador del documento para el pie de todas las páginas (el id del contrato). */
+  numero?: string | null;
   // Firma guardada del organizador (data URL PNG). Si no hay, se usa la firma
   // mecánica en cursiva — ambas válidas bajo la Ley 527.
   orgSignature?: string | null;
@@ -304,28 +320,26 @@ export function ContractPDF({
           <View style={s.sello} wrap={false}>
             <Text style={s.selloTitulo}>Constancia de firma electrónica — Ley 527 de 1999 / Decreto 2364 de 2012</Text>
             <Text style={s.selloLinea}>
-              Firmado por: {signature.signer_name} · {firmanteTipoDoc} {signature.signer_document}
+              Firmado por {signature.signer_name} · {firmanteTipoDoc} {signature.signer_document}
               {empresa ? ` · en representación de ${v.empresa_razon_social || "—"} (NIT ${v.empresa_nit || "—"})` : ""}
+              {" · "}
+              {new Date(signature.signed_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })} (America/Bogota).
             </Text>
             <Text style={s.selloLinea}>
-              Fecha y hora: {new Date(signature.signed_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })} (America/Bogota)
+              Los datos completos de cada firma —fecha y hora, dirección IP, dispositivo, ubicación, nivel de
+              seguridad y huella SHA-256 del documento— constan en el Informe de Firmas, última página de este documento.
             </Text>
-            {signature.signer_ip && <Text style={s.selloLinea}>Dirección IP: {signature.signer_ip}</Text>}
-            {signature.signer_user_agent && (
-              <Text style={s.selloLinea}>Dispositivo: {signature.signer_user_agent.slice(0, 160)}</Text>
-            )}
-            {signature.doc_hash && <Text style={s.selloLinea}>Huella SHA-256 del documento aceptado: {signature.doc_hash}</Text>}
           </View>
         )}
 
-        <Pie />
+        <Pie numero={numero} />
         <Text style={s.pageNum} render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} fixed />
       </Page>
 
       {/* Anexo No. 2: la relación de viajeros. Solo en el contrato de empresa, y solo si
           hay viajeros cargados — un anexo vacío en un documento que se firma es peor que
           ninguno. */}
-      {empresa && travelers.length > 0 && <AnexoViajeros v={v} travelers={travelers} />}
+      {empresa && travelers.length > 0 && <AnexoViajeros v={v} travelers={travelers} numero={numero} />}
 
       {/* La hoja del pagaré solo existe si el plan la lleva (ver `llevaPagare`). */}
       {llevaPagare(plan) && (
@@ -358,10 +372,12 @@ export function ContractPDF({
             <View style={s.firmaCol} />
           </View>
 
-          <Pie />
+          <Pie numero={numero} />
           <Text style={s.pageNum} render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} fixed />
         </Page>
       )}
+
+      {informe && <PaginaInformeFirmas {...informe} />}
     </Document>
   );
 }

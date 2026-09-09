@@ -60,6 +60,7 @@ const nextConfig: NextConfig = {
       { source: "/contrato/:token*", headers: cabeceras },
       { source: "/documentacion/:token*", headers: cabeceras },
       { source: "/correo/:token*", headers: cabeceras },
+      { source: "/verificar/:hash*", headers: cabeceras },
     ];
   },
   experimental: {
