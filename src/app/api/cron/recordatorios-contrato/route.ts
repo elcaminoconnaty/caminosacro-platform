@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
+import { adjuntosContrato } from "@/lib/contracts/adjuntos";
 import { destinatarioContrato, saludoContrato, type ContractVariables } from "@/lib/contracts/template";
 import { sinBucket } from "@/lib/storage/paths";
 
@@ -218,6 +219,13 @@ export async function POST(request: Request) {
           .createSignedUrl(sinBucket(String(c.pdf_path)), PDF_URL_TTL);
         pdfUrl = firmada?.signedUrl ?? null;
       }
+      // Y la cotización (Anexo 1) con él, igual que en el envío original.
+      const adjuntos = await adjuntosContrato(
+        supabase,
+        c.quote_id as string | null,
+        { url: pdfUrl, name: `Contrato-${code}.pdf` },
+        code,
+      );
 
       const envio = await enviarCorreoContrato({
         code,
@@ -229,7 +237,8 @@ export async function POST(request: Request) {
         personas: Number(vars.num_personas) || 1,
         alojamiento: vars.modalidad || null,
         total_eur: null,
-        pdf_url: pdfUrl,
+        pdf_url: adjuntos.pdf_url,
+        attachments: adjuntos.attachments,
         subject: `${etiqueta} - Contrato ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
         body: [
           `Hola ${primerNombre},`,
@@ -249,7 +258,7 @@ export async function POST(request: Request) {
           `Buen Camino,`,
           `Camino Sacro · reservas@caminosacro.com`,
         ].join("\n"),
-        attachment_name: `Contrato-${code}.pdf`,
+        attachment_name: adjuntos.attachment_name,
         // Avisan a reservas@ el último de la escalera y los dos de cerca de la salida:
         // los tres piden entrar a llamar. Los intermedios los manda el cron en silencio.
         aviso: esUltimo || hito != null,

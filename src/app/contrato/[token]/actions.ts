@@ -23,6 +23,7 @@ import {
   type ViajeroAnexo,
 } from "@/lib/contracts/template";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
+import { adjuntosContrato } from "@/lib/contracts/adjuntos";
 import { rutaContrato, rutaContratoEmpresa, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
 import {
   hashCodigo, huellaLegible, mismoHash, nuevoCodigo, trazoValido, ubicacionPlausible,
@@ -482,6 +483,14 @@ export async function firmarContrato(token: string, formData: FormData): Promise
     .from("comercial-contracts")
     .createSignedUrl(sinBucket(signedPdfPath), SIGNED_COPY_TTL);
   if (correoParte) {
+    // Contrato firmado + cotización (Anexo 1). Los demás anexos van dentro del PDF.
+    const adjuntos = await adjuntosContrato(
+      supabase,
+      c.quote_id,
+      { url: signedUrl?.signedUrl ?? null, name: `Contrato-${code}${empresa ? "-empresa" : ""}-firmado.pdf` },
+      code,
+    );
+    const anexo1 = adjuntos.conCotizacion ? " y la cotización como Anexo No. 1" : "";
     const envio = await enviarCorreoContrato({
       code,
       nombre: signerName,
@@ -492,7 +501,8 @@ export async function firmarContrato(token: string, formData: FormData): Promise
       personas: Number(vars.num_personas) || 1,
       alojamiento: vars.modalidad || null,
       total_eur: null,
-      pdf_url: signedUrl?.signedUrl ?? null,
+      pdf_url: adjuntos.pdf_url,
+      attachments: adjuntos.attachments,
       subject: `${empresa ? nombreParte : signerName} - Contrato firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
       body: (empresa
         ? [
@@ -500,7 +510,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
             ``,
             `¡Listo! El contrato de ${vars.empresa_razon_social || "la empresa"} quedó firmado el ${fechaFirmaTexto}.`,
             ``,
-            `Adjunto encuentras la copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con la relación de viajeros en el Anexo No. 2 y el Informe de Firmas en la última página.`,
+            `Adjunto encuentras la copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con la relación de viajeros en el Anexo No. 2 y el Informe de Firmas en la última página${anexo1}.`,
             `Huella digital del documento (SHA-256): ${docHash}`,
             `Puedes comprobar su autenticidad en: ${urlVerificacion}`,
             ``,
@@ -514,7 +524,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
             ``,
             `¡Listo! Tu contrato quedó firmado el ${fechaFirmaTexto}.`,
             ``,
-            `Adjunto encuentras tu copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con el Informe de Firmas en la última página.`,
+            `Adjunto encuentras tu copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con el Informe de Firmas en la última página${anexo1}.`,
             `Huella digital del documento (SHA-256): ${docHash}`,
             `Puedes comprobar su autenticidad en: ${urlVerificacion}`,
             ``,
@@ -524,7 +534,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
             `Camino Sacro · reservas@caminosacro.com`,
           ]
       ).join("\n"),
-      attachment_name: `Contrato-${code}${empresa ? "-empresa" : ""}-firmado.pdf`,
+      attachment_name: adjuntos.attachment_name,
       // El correo que le llega a reservas@ (Nico). El asunto describe el evento en
       // voz de adentro y NO repite el del correo del viajero: si fuera el mismo, en
       // la bandeja se verían como un solo correo duplicado.

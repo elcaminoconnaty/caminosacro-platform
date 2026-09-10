@@ -36,6 +36,7 @@ import {
   type ViajeroAnexo,
 } from "@/lib/contracts/template";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
+import { adjuntosContrato } from "@/lib/contracts/adjuntos";
 import { FICHA_TTL_DAYS, newFichaToken } from "@/lib/travelers/ficha";
 import { rutaContrato, rutaContratoEmpresa, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
 
@@ -1096,13 +1097,21 @@ export async function sendContractLink(
         .createSignedUrl(sinBucket(String(fresh.pdf_path)), 60 * 60 * 24 * 7);
       pdfUrl = signed?.signedUrl ?? null;
     }
+    // Contrato + cotización (Anexo 1), para que lea los dos antes de firmar.
+    const adjuntos = await adjuntosContrato(
+      supabase,
+      c.quote_id as string,
+      { url: pdfUrl, name: `Contrato-${vars.codigo_cotizacion}${empresa ? "-empresa" : ""}.pdf` },
+      vars.codigo_cotizacion,
+    );
+    const anexo1 = adjuntos.conCotizacion ? " Adjuntamos también la cotización, que es el Anexo No. 1 del contrato." : "";
     const prefijo = esPrueba ? "[PRUEBA] " : "";
     const cuerpoEmpresa = [
       `Hola ${saludoContrato(vars) || "buen día"},`,
       ``,
       `Adjuntamos el Acuerdo de Prestación de Servicios Turísticos No. ${vars.codigo_cotizacion}, a nombre de ${vars.empresa_razon_social || "la empresa"}${vars.empresa_nit ? ` (NIT ${vars.empresa_nit})` : ""}, para el ${vars.ruta_nombre}${viajerosAnexo ? ` de ${viajerosAnexo} viajero(s)` : ""}.`,
       ``,
-      `La relación de viajeros beneficiarios va en el Anexo No. 2 del propio contrato. Vale la pena revisarla antes de firmar: es la que usamos para las reservas.`,
+      `La relación de viajeros beneficiarios va en el Anexo No. 2 del propio contrato. Vale la pena revisarla antes de firmar: es la que usamos para las reservas.${anexo1}`,
       ``,
       `En este enlace puede revisar el documento completo y firmarlo digitalmente el representante legal:`,
       ``,
@@ -1126,7 +1135,7 @@ export async function sendContractLink(
       ``,
       url,
       ``,
-      `El enlace es personal y vence en ${TOKEN_TTL_DAYS} días. Al firmar te llegará una copia del contrato a este correo.`,
+      `El enlace es personal y vence en ${TOKEN_TTL_DAYS} días. Al firmar te llegará una copia del contrato a este correo.${anexo1}`,
       ``,
       `Si tienes cualquier duda, respóndenos por aquí.`,
       ``,
@@ -1143,13 +1152,14 @@ export async function sendContractLink(
       personas: Number(vars.num_personas) || 1,
       alojamiento: vars.modalidad,
       total_eur: null,
-      pdf_url: pdfUrl,
+      pdf_url: adjuntos.pdf_url,
+      attachments: adjuntos.attachments,
       subject: `${prefijo}${nombreParte} - Contrato para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
       body: [
         ...(esPrueba ? [`(Correo de PRUEBA. El destinatario real sería ${correoParte || "—"}.)`, ``] : []),
         ...(empresa ? cuerpoEmpresa : cuerpoViajero),
       ].join("\n"),
-      attachment_name: `Contrato-${vars.codigo_cotizacion}${empresa ? "-empresa" : ""}.pdf`,
+      attachment_name: adjuntos.attachment_name,
       // Sin aviso interno: lo dispara alguien del equipo desde el CRM. El aviso de
       // verdad llega cuando el cliente firma, que es lo que nadie está mirando.
       aviso: false,
