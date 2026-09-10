@@ -606,12 +606,18 @@ export async function getQuotePdfUrl(quoteId: string) {
   return { url: data.signedUrl };
 }
 
-export async function getSignedUrl(storagePath: string) {
+/**
+ * Enlace firmado (10 min) a un archivo de storage. Con `download` el enlace baja el
+ * archivo con ese nombre en vez de abrirlo en el navegador.
+ */
+export async function getSignedUrl(storagePath: string, opts?: { download?: string }) {
   if (!storagePath) return { url: null };
   const supabase = await createCommercialClient();
   const [bucket, ...rest] = storagePath.split("/");
   const filePath = rest.join("/");
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, 60 * 10);
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(filePath, 60 * 10, opts?.download ? { download: opts.download } : undefined);
   if (error) return { error: mensajeError(error) };
   return { url: data.signedUrl };
 }

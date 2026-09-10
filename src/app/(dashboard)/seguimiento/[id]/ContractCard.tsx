@@ -118,6 +118,7 @@ function BotonPasaporte({
   onSubir,
   onQuitar,
   onVer,
+  onDescargar,
 }: {
   travelerId: string;
   cargado: boolean;
@@ -125,19 +126,32 @@ function BotonPasaporte({
   onSubir: (id: string, archivo: File) => void;
   onQuitar: (id: string) => void;
   onVer: (id: string) => void;
+  onDescargar: (id: string) => void;
 }) {
   return (
     <div className="flex items-center gap-1">
       {cargado ? (
         <>
+          <span className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider bg-bosque text-white">
+            Pasaporte ✓
+          </span>
           <button
             type="button"
             onClick={() => onVer(travelerId)}
             disabled={disabled}
-            className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider bg-bosque text-white disabled:opacity-50"
-            title="Ver el pasaporte cargado"
+            className="text-[10px] px-2 py-0.5 rounded border border-border hover:bg-taupe/40 disabled:opacity-50"
+            title="Abrir la foto del pasaporte en otra pestaña"
           >
-            Pasaporte ✓
+            Ver
+          </button>
+          <button
+            type="button"
+            onClick={() => onDescargar(travelerId)}
+            disabled={disabled}
+            className="text-[10px] px-2 py-0.5 rounded border border-border hover:bg-taupe/40 disabled:opacity-50"
+            title="Descargar la foto del pasaporte"
+          >
+            Descargar
           </button>
           <button
             type="button"
@@ -266,15 +280,25 @@ export default function ContractCard({
     });
   }
 
-  async function abrirArchivo(path: string | null) {
+  // Abre el archivo en otra pestaña. Con `descargarComo` el navegador lo baja con ese
+  // nombre en vez de mostrarlo (Supabase manda el Content-Disposition de descarga).
+  async function abrirArchivo(path: string | null, descargarComo?: string) {
     if (!path) return;
     setError(null);
     startTransition(async () => {
-      const r = await getSignedUrl(path);
+      const r = await getSignedUrl(path, descargarComo ? { download: descargarComo } : undefined);
       if (r.url) window.open(r.url, "_blank");
       else if (r.error) setError(r.error);
     });
   }
+
+  /** Nombre con el que se baja el pasaporte de un viajero: conserva la extensión del archivo. */
+  function nombrePasaporte(t: TravelerRow, path: string | null) {
+    const ext = (path?.match(/\.([a-z0-9]+)$/i)?.[1] ?? "jpg").toLowerCase();
+    const nombre = (t.full_name || `viajero-${t.position}`).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return `Pasaporte-${quoteCode}-${t.position}-${nombre}.${ext}`;
+  }
+  const pasaportesCargados = travelers.filter((t) => !!t.passport_path).length;
 
   // Guarda + genera + abre el PDF en una sola acción. Abrimos la pestaña en blanco
   // de inmediato (gesto del usuario) y luego le fijamos la URL, para que el
@@ -400,8 +424,17 @@ export default function ContractCard({
                 onClick={() => abrirArchivo(c.signed_pdf_path)}
                 disabled={pending || !c.signed_pdf_path}
                 className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+                title="Abrir el contrato firmado en otra pestaña"
               >
-                Contrato firmado
+                Ver contrato firmado
+              </button>
+              <button
+                onClick={() => abrirArchivo(c.signed_pdf_path, `Contrato-${quoteCode}-empresa-firmado.pdf`)}
+                disabled={pending || !c.signed_pdf_path}
+                className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                title="Descargar el PDF firmado"
+              >
+                Descargar
               </button>
               {c.doc_hash && (
                 <a
@@ -558,6 +591,15 @@ export default function ContractCard({
             >
               + Agregar viajero
             </button>
+            {pasaportesCargados > 0 && (
+              <a
+                href={`/api/descargas/pasaportes/${quoteId}`}
+                className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition"
+                title="Baja en un solo .zip todos los pasaportes cargados de este grupo"
+              >
+                Descargar {pasaportesCargados === 1 ? "el pasaporte" : `los ${pasaportesCargados} pasaportes`} (.zip)
+              </a>
+            )}
             {travelers.length > 0 && fichasPendientes > 0 && (
               <button
                 onClick={() =>
@@ -678,6 +720,7 @@ export default function ContractCard({
                     onSubir={subirPasaporte}
                     onQuitar={(id) => run(() => quitarPasaporteViajero(id), "Pasaporte quitado.")}
                     onVer={() => abrirArchivo(t.passport_path)}
+                    onDescargar={() => abrirArchivo(t.passport_path, nombrePasaporte(t, t.passport_path))}
                   />
                 )}
                 {c ? (
@@ -1083,16 +1126,42 @@ export default function ContractCard({
                         onClick={() => abrirArchivo(c.signed_pdf_path)}
                         disabled={pending || !c.signed_pdf_path}
                         className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+                        title="Abrir el contrato firmado en otra pestaña"
                       >
-                        Contrato firmado
+                        Ver contrato
                       </button>
                       <button
-                        onClick={() => abrirArchivo(c.passport_path)}
-                        disabled={pending || !c.passport_path}
+                        onClick={() => abrirArchivo(c.signed_pdf_path, `Contrato-${quoteCode}-${t.position}-firmado.pdf`)}
+                        disabled={pending || !c.signed_pdf_path}
                         className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                        title="Descargar el PDF firmado"
                       >
-                        {c.passport_path ? "Pasaporte" : "Sin pasaporte"}
+                        Descargar contrato
                       </button>
+                      {c.passport_path ? (
+                        <>
+                          <button
+                            onClick={() => abrirArchivo(c.passport_path)}
+                            disabled={pending}
+                            className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                            title="Abrir la foto del pasaporte en otra pestaña"
+                          >
+                            Ver pasaporte
+                          </button>
+                          <button
+                            onClick={() => abrirArchivo(c.passport_path, nombrePasaporte(t, c.passport_path))}
+                            disabled={pending}
+                            className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                            title="Descargar la foto del pasaporte"
+                          >
+                            Descargar pasaporte
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider bg-taupe/60 text-fg">
+                          Sin pasaporte
+                        </span>
+                      )}
                       {c.doc_hash && (
                         <a
                           href={`/verificar/${c.doc_hash}`}
