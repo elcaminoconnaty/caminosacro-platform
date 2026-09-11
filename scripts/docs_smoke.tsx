@@ -27,6 +27,7 @@ async function main() {
         code: "CS-2026-034", client_name: "AMALIA MATALLANA", client_phone: "+57 350 567 0378",
         client_email: "amalia@ejemplo.com", route_name: "Camino Francés — Sarria a Santiago",
         start_date: "2026-09-24", end_date: "2026-09-30", people: 1, modality: "Pensión individual",
+        pilgrim_ref: process.env.SMOKE_PILGRIM_REF ?? "47397",
       },
       nights: [
         { day: 1, night_date: "2026-09-24", stage_label: "Sarria", km: null, city: "Sarria",

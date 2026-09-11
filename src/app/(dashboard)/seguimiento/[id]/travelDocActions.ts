@@ -155,6 +155,23 @@ export async function generateTravelDoc(quoteId: string, services: string[]) {
   return { ok: true };
 }
 
+/**
+ * Guarda la referencia de reserva de Pilgrim en la cotización.
+ *
+ * Va en `quotes.pilgrim_ref` y no en el expediente: es un dato de la reserva con el
+ * operador (ver migración 0040). Vacío = todavía no hay confirmación de Pilgrim, y el
+ * documento sale solo con el código CS. No se valida formato: Pilgrim escribe "47397" y
+ * a veces "A47397", y rechazar el número real sería peor que aceptar uno raro.
+ */
+export async function savePilgrimRef(quoteId: string, ref: string | null) {
+  const supabase = await createCommercialClient();
+  const limpio = (ref || "").trim() || null;
+  const { error } = await supabase.from("quotes").update({ pilgrim_ref: limpio }).eq("id", quoteId);
+  if (error) return { error: mensajeError(error) };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
 /** Guarda qué servicios lleva el viaje sin regenerar el PDF. */
 export async function saveTravelServices(quoteId: string, services: string[]) {
   const supabase = await createCommercialClient();

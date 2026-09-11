@@ -11,6 +11,7 @@
  *   · el hotel (nombre, dirección, contactos, fotos, observaciones fijas) → comercial.hotels
  *   · la noche (fecha, etapa, km, habitación, régimen, observación puntual) → comercial.quote_hotels
  *   · servicios, condiciones y contacto → comercial.settings, clave `travel_doc`
+ *   · la referencia de reserva de Pilgrim → comercial.quotes.pilgrim_ref
  * Este componente solo los dibuja.
  */
 import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
@@ -26,6 +27,12 @@ export type TravelDocQuote = {
   end_date: string | null;
   people: number | null;
   modality: string | null;
+  /**
+   * Referencia de reserva de Pilgrim (comercial.quotes.pilgrim_ref). Es LA referencia del
+   * viajero durante el Camino: la que reconocen alojamientos, transportista y asistencia.
+   * Sin ella, el documento sale solo con el código CS, como antes.
+   */
+  pilgrim_ref?: string | null;
 };
 
 /** Una noche del viaje, ya resuelta: el hotel del catálogo fundido con los datos de la noche. */
@@ -166,6 +173,12 @@ const s = StyleSheet.create({
   coverInfoLabel: { fontFamily: SANS, fontSize: 7, color: "rgba(255,255,255,0.4)", letterSpacing: 1.5, marginBottom: 4 },
   coverInfoValue: { fontFamily: SERIF_BOLD, fontSize: 13, color: C.white },
   coverInfoSub: { fontFamily: SANS, fontSize: 8, color: "rgba(255,255,255,0.55)", marginTop: 3 },
+  // La referencia de Pilgrim va en una caja propia con borde dorado: es lo primero que le
+  // van a pedir al viajero en el Camino y tiene que encontrarse de un vistazo en la portada.
+  coverRefBox: { alignSelf: "flex-start", borderWidth: 1, borderColor: C.oro, borderRadius: 3, paddingVertical: 8, paddingHorizontal: 12, marginBottom: 6 },
+  coverRefLabel: { fontFamily: SANS, fontSize: 7, color: C.oro, letterSpacing: 1.5, marginBottom: 3 },
+  coverRefValue: { fontFamily: SERIF_BOLD, fontSize: 22, color: C.white },
+  coverRefSub: { fontFamily: SANS, fontSize: 7.5, color: "rgba(255,255,255,0.7)", marginTop: 3 },
 
   // ===== ÍNDICE =====
   indexTitle: { fontFamily: SERIF, fontSize: 24, color: C.verde, marginBottom: 4 },
@@ -176,6 +189,14 @@ const s = StyleSheet.create({
   indexNum: { fontFamily: SERIF_BOLD, fontSize: 18, color: C.oroH, marginBottom: 4 },
   indexName: { fontFamily: SANS_BOLD, fontSize: 10, color: C.verde, marginBottom: 5 },
   indexDesc: { fontFamily: SANS, fontSize: 8, color: C.sec, lineHeight: 1.45 },
+  // Caja de la referencia en el índice: la explicación completa de qué número es cuál.
+  refBox: { flexDirection: "row", backgroundColor: C.verde, borderRadius: 3, marginBottom: 20, overflow: "hidden" },
+  refBoxLeft: { width: 150, backgroundColor: C.verdeM, paddingVertical: 12, paddingHorizontal: 14, justifyContent: "center" },
+  refBoxLabel: { fontFamily: SANS, fontSize: 7, color: C.oro, letterSpacing: 1.5, marginBottom: 4 },
+  refBoxValue: { fontFamily: SERIF_BOLD, fontSize: 20, color: C.white },
+  refBoxRight: { flex: 1, paddingVertical: 12, paddingHorizontal: 14 },
+  refBoxTitle: { fontFamily: SANS_BOLD, fontSize: 8.5, color: C.white, marginBottom: 4 },
+  refBoxText: { fontFamily: SANS, fontSize: 8, color: "rgba(255,255,255,0.85)", lineHeight: 1.5 },
 
   // ===== CABECERA DE DATOS =====
   // Las dos columnas llevan ANCHO EXPLÍCITO, no `flex`. Sin él, el nombre de la ruta se pinta en
@@ -378,6 +399,10 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
     .map((clave) => texts.servicios.find((x) => x.clave === clave))
     .filter((x): x is ServicioTexto => !!x);
   const cont = texts.contacto || {};
+  // La referencia que manda en el Camino. `piePagina` es lo que va en el pie de cada
+  // página interior: con Pilgrim delante, para que se lea igual en cualquier hoja suelta.
+  const ref = (quote.pilgrim_ref || "").trim() || null;
+  const piePagina = ref ? `Reserva ${ref} · ${quote.code}` : quote.code;
 
   return (
     <Document
@@ -420,7 +445,14 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
               {quote.client_phone ? <Text style={s.coverInfoSub}>{quote.client_phone}</Text> : null}
             </View>
             <View style={s.coverInfoCol}>
-              <Text style={s.coverInfoLabel}>RESERVA</Text>
+              {ref ? (
+                <View style={s.coverRefBox}>
+                  <Text style={s.coverRefLabel}>REFERENCIA DE RESERVA</Text>
+                  <Text style={s.coverRefValue}>{ref}</Text>
+                  <Text style={s.coverRefSub}>Tu número durante el viaje</Text>
+                </View>
+              ) : null}
+              <Text style={s.coverInfoLabel}>{ref ? "COTIZACIÓN CAMINO SACRO" : "RESERVA"}</Text>
               <Text style={s.coverInfoValue}>{quote.code}</Text>
               <Text style={s.coverInfoSub}>{`${noches} ${noches === 1 ? "noche" : "noches"}`}</Text>
             </View>
@@ -431,10 +463,29 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
       {/* ============ ÍNDICE ============ */}
       <Page size="A4" style={s.page}>
         <PageHeader />
-        <PageFooter referencia={quote.code} />
+        <PageFooter referencia={piePagina} />
         <Text style={s.eyebrow}>ÍNDICE</Text>
         <Text style={s.indexTitle}>Documentación de viaje</Text>
-        <Text style={s.indexSub}>{`Reserva ${quote.code} · ${quote.route_name || "Camino de Santiago"}`}</Text>
+        <Text style={s.indexSub}>
+          {ref
+            ? `Reserva ${ref} · Cotización ${quote.code} · ${quote.route_name || "Camino de Santiago"}`
+            : `Reserva ${quote.code} · ${quote.route_name || "Camino de Santiago"}`}
+        </Text>
+
+        {ref ? (
+          <View style={s.refBox} wrap={false}>
+            <View style={s.refBoxLeft}>
+              <Text style={s.refBoxLabel}>TU REFERENCIA DE RESERVA</Text>
+              <Text style={s.refBoxValue}>{ref}</Text>
+            </View>
+            <View style={s.refBoxRight}>
+              <Text style={s.refBoxTitle}>Durante el viaje, tu reserva es la de Pilgrim.</Text>
+              <Text style={s.refBoxText}>
+                {`Pilgrim es el operador que presta los servicios en España. Este es el número que debes dar en cada alojamiento, al transportista de mochilas, al seguro y cuando llames al teléfono de asistencia: con él te identifican al instante. El código ${quote.code} es tu cotización con Camino Sacro y solo lo usamos nosotros.`}
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={s.indexGrid}>
           <View style={s.indexCell}>
@@ -478,13 +529,14 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
       {/* ============ ITINERARIO ============ */}
       <Page size="A4" style={s.page}>
         <PageHeader />
-        <PageFooter referencia={quote.code} />
+        <PageFooter referencia={piePagina} />
 
         <View style={s.clientBar}>
           <View style={s.clientColLeft}>
             <Text style={s.eyebrow}>{subtituloRuta(quote.route_name)}</Text>
           </View>
           <View style={s.clientCol}>
+            {ref ? <Text style={s.clientLine}>{`Reserva Pilgrim: ${ref}`}</Text> : null}
             <Text style={s.clientLine}>{`Cliente: ${quote.client_name || "—"}`}</Text>
             {quote.client_phone ? <Text style={s.clientLine}>{`Teléfono: ${quote.client_phone}`}</Text> : null}
             {quote.client_email ? <Text style={s.clientLine}>{`Email: ${quote.client_email}`}</Text> : null}
@@ -525,7 +577,7 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
       {/* ============ SERVICIOS INCLUIDOS ============ */}
       <Page size="A4" style={s.page}>
         <PageHeader />
-        <PageFooter referencia={quote.code} />
+        <PageFooter referencia={piePagina} />
 
         <Text style={s.eyebrow}>LO QUE LLEVAS CONTRATADO</Text>
         <Text style={s.h1}>Servicios incluidos</Text>
@@ -575,7 +627,7 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
       {/* ============ CONDICIONES ============ */}
       <Page size="A4" style={s.page}>
         <PageHeader />
-        <PageFooter referencia={quote.code} />
+        <PageFooter referencia={piePagina} />
 
         <Text style={s.eyebrow}>LETRA PEQUEÑA, EN GRANDE</Text>
         <Text style={s.h1}>Condiciones de reserva</Text>
@@ -597,7 +649,7 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
       {/* ============ CONTACTO ============ */}
       <Page size="A4" style={s.page}>
         <PageHeader />
-        <PageFooter referencia={quote.code} />
+        <PageFooter referencia={piePagina} />
 
         <Text style={s.eyebrow}>ESTAMOS AL OTRO LADO</Text>
         <Text style={s.h1}>Contáctanos si necesitas ayuda</Text>
@@ -620,6 +672,15 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
           </View>
         </View>
 
+        {ref ? (
+          <View style={s.callout}>
+            <Text style={s.calloutTitle}>{`Al llamar o escribir, indica tu referencia de reserva: ${ref}`}</Text>
+            <Text style={s.calloutText}>
+              Es la referencia de Pilgrim, el operador en España, y con ella te ubican de inmediato en cualquier alojamiento, con el transportista y en asistencia.
+            </Text>
+          </View>
+        ) : null}
+
         <View style={s.callout}>
           <Text style={s.calloutTitle}>Misas en la Catedral de Santiago</Text>
           <Text style={s.calloutText}>Los horarios se consultan en catedraldesantiago.es/liturgia/</Text>
@@ -634,7 +695,7 @@ export function TravelDocPDF({ quote, nights, texts, services, coverImage, gener
         </View>
 
         <Text style={s.genStamp}>
-          {`Documentación generada el ${fechaLarga(generatedAt.toISOString().slice(0, 10))} · Reserva ${quote.code}`}
+          {`Documentación generada el ${fechaLarga(generatedAt.toISOString().slice(0, 10))} · ${piePagina}`}
         </Text>
       </Page>
     </Document>

@@ -550,6 +550,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           envio={resumenEnvio("documentacion", estadoDocumentacion.sentAt)}
           baseUrl={appBaseUrl}
           asistenciaLista={asistenciaLista}
+          pilgrimRef={(quote.pilgrim_ref as string | null) ?? null}
           // Un viaje de grupo lo compran entre varios y todos necesitan la documentación:
           // la tarjeta ofrece sumarlos al envío de un clic, sin volver a teclear correos.
           travelerEmails={((travelers as TravelerRow[] | null) ?? [])

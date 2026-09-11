@@ -52,7 +52,7 @@ export default async function DocumentacionViaje({ params }: { params: Promise<{
 
   const { data: quote } = await supabase
     .from("quotes")
-    .select("code,client_name,route_name,start_date,end_date")
+    .select("code,client_name,route_name,start_date,end_date,pilgrim_ref")
     .eq("id", doc.quote_id)
     .maybeSingle();
 
@@ -61,6 +61,10 @@ export default async function DocumentacionViaje({ params }: { params: Promise<{
     .from("comercial-docs")
     .list("generico", { search: rutaAsistencia().split("/").pop() });
   const hayAsistencia = (asistencia || []).length > 0;
+
+  // La referencia de Pilgrim es LA referencia del viajero durante el Camino; el código CS
+  // queda como dato secundario. Sin ella, se muestra el código como antes.
+  const ref = ((quote?.pilgrim_ref as string | null) || "").trim() || null;
 
   const rango = [fechaLarga(quote?.start_date ?? null), fechaLarga(quote?.end_date ?? null)]
     .filter(Boolean)
@@ -105,8 +109,14 @@ export default async function DocumentacionViaje({ params }: { params: Promise<{
               <p className="text-[10px] uppercase tracking-[0.15em] text-white/40">Peregrino</p>
               <p className="text-sm mt-1">{quote?.client_name || "—"}</p>
             </div>
+            {ref ? (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-dorado">Referencia de reserva</p>
+                <p className="font-display text-2xl text-white mt-0.5">{ref}</p>
+              </div>
+            ) : null}
             <div>
-              <p className="text-[10px] uppercase tracking-[0.15em] text-white/40">Reserva</p>
+              <p className="text-[10px] uppercase tracking-[0.15em] text-white/40">{ref ? "Cotización Camino Sacro" : "Reserva"}</p>
               <p className="text-sm mt-1">{quote?.code || "—"}</p>
             </div>
           </div>
@@ -114,6 +124,18 @@ export default async function DocumentacionViaje({ params }: { params: Promise<{
       </header>
 
       <section className="mx-auto max-w-2xl px-6 py-10">
+        {ref ? (
+          <div className="mb-6 rounded-xl border border-dorado/60 bg-white px-5 py-4">
+            <p className="text-xs uppercase tracking-[0.15em] text-muted">Durante el viaje, tu reserva es la de Pilgrim</p>
+            <p className="text-sm text-bosque mt-2 leading-relaxed">
+              Tu referencia de reserva es <strong className="font-mono text-base">{ref}</strong>. Pilgrim es el operador
+              que presta los servicios en España: es el número que debes dar en cada alojamiento, al transportista de
+              mochilas, al seguro y en el teléfono de asistencia. El código {quote?.code} es tu cotización con Camino
+              Sacro y solo lo usamos nosotros.
+            </p>
+          </div>
+        ) : null}
+
         {documentos.length === 0 ? (
           <div className="bg-white border border-border rounded-xl px-6 py-10 text-center">
             <p className="text-sm text-muted">

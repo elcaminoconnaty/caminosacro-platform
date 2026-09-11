@@ -67,7 +67,7 @@ export async function enviarCorreoDocumentacionViaje(
 
   const { data: quote, error: qErr } = await supabase
     .from("quotes")
-    .select("id,code,client_name,client_email,client_phone,route_name,start_date,people,modality,total_eur")
+    .select("id,code,client_name,client_email,client_phone,route_name,start_date,people,modality,total_eur,pilgrim_ref")
     .eq("id", quoteId)
     .maybeSingle();
   if (qErr) return { error: mensajeError(qErr) };
@@ -159,6 +159,8 @@ export async function enviarCorreoDocumentacionViaje(
   const datosBase = {
     nombre: String(quote.client_name || "").trim() || "peregrino",
     code: quote.code as string,
+    // La referencia de Pilgrim: la que el viajero debe dar durante el Camino.
+    pilgrimRef: ((quote.pilgrim_ref as string | null) || "").trim() || null,
     ruta: (quote.route_name as string | null) ?? null,
     documentos,
     urlExpediente,

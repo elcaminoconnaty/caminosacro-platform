@@ -203,7 +203,7 @@ export async function renderAndStoreTravelDoc(
   const [{ data: quote }, { data: lineas }] = await Promise.all([
     supabase
       .from("quotes")
-      .select("code,client_name,client_phone,client_email,route_name,start_date,end_date,people,modality")
+      .select("code,client_name,client_phone,client_email,route_name,start_date,end_date,people,modality,pilgrim_ref")
       .eq("id", quoteId)
       .maybeSingle(),
     supabase.from("quote_lines").select("description").eq("quote_id", quoteId).eq("type", "optional"),

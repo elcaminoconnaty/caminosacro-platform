@@ -25,6 +25,8 @@ export type DocumentoEnlace = {
 export type CorreoDocumentacionDatos = {
   nombre: string;
   code: string;
+  /** Referencia de reserva de Pilgrim. Con ella, el correo la destaca como LA referencia del viaje. */
+  pilgrimRef?: string | null;
   ruta: string | null;
   documentos: DocumentoEnlace[];
   /** Enlace a la página con los cuatro documentos, que no caduca. */
@@ -41,7 +43,7 @@ export type CorreoDocumentacionDatos = {
   urlVersionWeb?: string | null;
 };
 
-const { verde: VERDE, verdeM: VERDE_M, crema: CREMA, borde: BORDE, texto: TXT, suave: SEC } = COLORES;
+const { verde: VERDE, verdeM: VERDE_M, oro: ORO, crema: CREMA, borde: BORDE, texto: TXT, suave: SEC } = COLORES;
 
 function bloqueDescarga(d: DocumentoEnlace): string {
   return `
@@ -70,6 +72,23 @@ export function correoDocumentacionHtml(d: CorreoDocumentacionDatos): string {
     ${parrafos(d.intro, P)}
     <p style="${P}">A continuación puedes descargar tu documentación de viaje:</p>
   </td></tr>
+${d.pilgrimRef ? `
+  <!-- Referencia de reserva -->
+  <tr><td class="cs-pad" style="padding:4px 32px 14px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:${VERDE};border-radius:6px;">
+      <tr><td style="padding:16px 18px;">
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${ORO};letter-spacing:1.5px;">TU REFERENCIA DE RESERVA</div>
+        <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#ffffff;margin-top:4px;">${esc(d.pilgrimRef)}</div>
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:rgba(255,255,255,0.85);line-height:1.6;margin-top:8px;">
+          Durante el viaje, tu reserva es la de <strong>Pilgrim</strong>, el operador que presta los servicios en España.
+          Es el número que debes dar en cada alojamiento, al transportista de mochilas, al seguro y en el teléfono de asistencia.
+          El código ${esc(d.code)} es tu cotización con Camino Sacro y solo lo usamos nosotros.
+        </div>
+      </td></tr>
+    </table>
+  </td></tr>
+` : ""}
 
   <!-- Documentos -->
   <tr><td class="cs-pad" style="padding:6px 32px 4px;">
@@ -135,7 +154,9 @@ export function correoDocumentacionHtml(d: CorreoDocumentacionDatos): string {
     eyebrow: "DOCUMENTACIÓN DE VIAJE",
     contenido,
     urlVersionWeb: d.urlVersionWeb ?? null,
-    pie: `Camino Sacro · Reserva ${d.code}${d.ruta ? ` · ${d.ruta}` : ""}`,
+    pie: d.pilgrimRef
+      ? `Camino Sacro · Reserva ${d.pilgrimRef} · Cotización ${d.code}${d.ruta ? ` · ${d.ruta}` : ""}`
+      : `Camino Sacro · Reserva ${d.code}${d.ruta ? ` · ${d.ruta}` : ""}`,
   });
 }
 
@@ -148,6 +169,13 @@ export function correoDocumentacionTexto(d: CorreoDocumentacionDatos): string {
     "",
     "A continuación tienes los enlaces para descargar tu documentación de viaje:",
     "",
+    ...(d.pilgrimRef
+      ? [
+          `TU REFERENCIA DE RESERVA: ${d.pilgrimRef}`,
+          `Durante el viaje, tu reserva es la de Pilgrim, el operador que presta los servicios en España. Es el número que debes dar en cada alojamiento, al transportista de mochilas, al seguro y en el teléfono de asistencia. El código ${d.code} es tu cotización con Camino Sacro y solo lo usamos nosotros.`,
+          "",
+        ]
+      : []),
     ...d.documentos.flatMap((x) => [x.nombre, x.url, ""]),
     `Todos tus documentos, siempre disponibles, en: ${d.urlExpediente}`,
     "",

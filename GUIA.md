@@ -756,13 +756,21 @@ corrige en `/hoteles` y queda bien en todos los viajes, pasados y futuros.
    que usa el prellenado. No hace falta que sea idéntico — «Pedrouzo» empareja con
    «O Pedrouzo (O Pino)» y «Santiago» con «Santiago de Compostela»
    (`src/lib/travelDocs/lugares.ts`).
-2. En el expediente, **Prellenar desde itinerario**: trae día, etapa y km de
+2. Teclear la **referencia de reserva Pilgrim** en el cajón de arriba de la tarjeta (se
+   guarda en `quotes.pilgrim_ref`, migración **0040**). Es el número que Pilgrim pone al
+   confirmar («Reserva: 47397») y el único que reconocen los alojamientos, el transportista
+   y la asistencia en España. Con ella, el documento la saca en la portada con borde
+   dorado, en el índice con la explicación de qué número es cuál, en el pie de cada
+   página, en la barra del itinerario y en la página de contacto; el enlace público y el
+   correo la destacan igual. El código CS queda como «cotización Camino Sacro». Sin ella,
+   todo sale como antes, solo con el código CS, y el cajón se pone en ámbar.
+3. En el expediente, **Prellenar desde itinerario**: trae día, etapa y km de
    `route_stages` y propone el hotel de cada noche. Las que quedan sin hotel se marcan
    en ámbar.
-3. Revisar habitación, régimen y notas puntuales, marcar los **servicios incluidos**
+4. Revisar habitación, régimen y notas puntuales, marcar los **servicios incluidos**
    («Proponer según opcionales» los deduce de las líneas contratadas) y **Generar documento**.
-4. Subir el seguro y la etiqueta cuando lleguen.
-5. **Enviar documentación**. Antes conviene una prueba: la casilla «Enviar a otra
+5. Subir el seguro y la etiqueta cuando lleguen.
+6. **Enviar documentación**. Antes conviene una prueba: la casilla «Enviar a otra
    dirección» no marca el expediente como enviado.
 
 ### El enlace que no caduca

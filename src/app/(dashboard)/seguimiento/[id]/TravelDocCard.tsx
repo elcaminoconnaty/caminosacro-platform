@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import {
-  Check, Copy, FileText, Link2, Plus, RotateCcw, Save, Sparkles, Trash2, Upload, X,
+  Check, Copy, FileText, Hash, Link2, Plus, RotateCcw, Save, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { getSignedUrl } from "./actions";
 import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
@@ -13,6 +13,7 @@ import {
   removeTravelFile,
   revokeTravelDocLink,
   rotateTravelDocToken,
+  savePilgrimRef,
   saveTravelNights,
   saveTravelServices,
   suggestTravelServices,
@@ -79,6 +80,7 @@ export default function TravelDocCard({
   baseUrl,
   asistenciaLista,
   travelerEmails = [],
+  pilgrimRef,
 }: {
   quoteId: string;
   quoteCode: string;
@@ -93,6 +95,8 @@ export default function TravelDocCard({
   envio: EnvioResumen;
   baseUrl: string;
   asistenciaLista: boolean;
+  /** Referencia de reserva de Pilgrim (quotes.pilgrim_ref). Sale en la portada del documento. */
+  pilgrimRef: string | null;
 }) {
   // Las filas necesitan una key estable que sobreviva a reordenar y borrar, y el índice
   // no sirve: borrar la noche 2 haría que React reutilizara el input de la 3 con el valor
@@ -103,6 +107,7 @@ export default function TravelDocCard({
   const [servicios, setServicios] = useState<string[]>(
     estado.services.length > 0 ? estado.services : SERVICIOS.map((s) => s.clave),
   );
+  const [referencia, setReferencia] = useState(pilgrimRef ?? "");
   const [token, setToken] = useState(estado.token);
   const [revocado, setRevocado] = useState(!!estado.revokedAt);
   const [pending, startTransition] = useTransition();
@@ -163,6 +168,8 @@ export default function TravelDocCard({
 
   function guardar() {
     correr(async () => {
+      const p = await savePilgrimRef(quoteId, referencia);
+      if (p?.error) return p;
       const a = await saveTravelNights(quoteId, filas.map(sinKey));
       if (a?.error) return a;
       return saveTravelServices(quoteId, servicios);
@@ -173,11 +180,18 @@ export default function TravelDocCard({
     setError(null);
     setAviso(null);
     startTransition(async () => {
+      // La referencia se guarda ANTES de generar: el render la lee de la cotización.
+      const p = await savePilgrimRef(quoteId, referencia);
+      if (p?.error) { setError(p.error); return; }
       const a = await saveTravelNights(quoteId, filas.map(sinKey));
       if (a?.error) { setError(a.error); return; }
       const r = await generateTravelDoc(quoteId, servicios);
       if (r?.error) { setError(r.error); return; }
-      setAviso("Documento de Viaje generado.");
+      setAviso(
+        referencia.trim()
+          ? "Documento de Viaje generado."
+          : "Documento de Viaje generado sin referencia de Pilgrim: sale solo con el código CS.",
+      );
     });
   }
 
@@ -235,6 +249,26 @@ export default function TravelDocCard({
             <FileText size={13} /> {pending ? "Procesando…" : estado.docPath ? "Regenerar documento" : "Generar documento"}
           </button>
         </div>
+      </div>
+
+      {/* ---------- REFERENCIA DE PILGRIM ---------- */}
+      <div className={`px-5 py-3 border-b border-border flex items-center gap-4 flex-wrap ${referencia.trim() ? "bg-white" : "bg-amber-50/60"}`}>
+        <label className="flex items-center gap-3 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-bosque">
+            <Hash size={14} /> Referencia de reserva Pilgrim
+          </span>
+          <input
+            value={referencia}
+            onChange={(e) => { setReferencia(e.target.value); setAviso(null); }}
+            placeholder="ej. 47397"
+            className={`w-40 px-2.5 py-1.5 rounded-md border bg-white text-sm font-mono tracking-wide ${referencia.trim() ? "border-border" : "border-amber-400"}`}
+          />
+        </label>
+        <p className="text-xs text-muted">
+          {referencia.trim()
+            ? <>Sale en la portada del documento, en el enlace del cliente y en el correo como <strong>la</strong> referencia del viajero durante el viaje. El código {quoteCode} queda como cotización nuestra.</>
+            : <>Falta la referencia que asigna Pilgrim al confirmar. Sin ella, el documento sale solo con el código {quoteCode} y el viajero no tendrá qué dar en los alojamientos.</>}
+        </p>
       </div>
 
       {/* ---------- NOCHES ---------- */}
