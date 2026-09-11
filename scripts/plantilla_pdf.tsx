@@ -3,16 +3,41 @@
 // $PLANTILLA_OUT (o /tmp), con sufijo $PLANTILLA_SUFIJO (por defecto la fecha yyyy-mm).
 //   npx tsx --tsconfig scripts/tsconfig.json scripts/plantilla_pdf.tsx
 //
+// Con PLANTILLA_FIRMANTE=<slug> (p. ej. nathalia) lee ese firmante de `settings.firmantes`
+// (nombre, cédula y firma dibujada) y lo estampa como EL ORGANIZADOR; sin la variable la
+// plantilla sale con Nico y sin firma. PLANTILLA_SOLO=empresa|natural imprime una sola.
+//
 // Igual que informe_smoke.tsx: importa el componente directo, porque fuera de Next el
 // `import()` dinámico de render.ts carga otra copia de @react-pdf y revienta con fuentes.
 import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { config } from "dotenv";
+import { createClient } from "@supabase/supabase-js";
 import React from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { ContractPDF } from "../src/lib/contracts/contractPdf";
-import type { ContractVariables, PaymentPlan, ViajeroAnexo } from "../src/lib/contracts/template";
+import type { ContractVariables, Firmante, PaymentPlan, ViajeroAnexo } from "../src/lib/contracts/template";
+
+config({ path: path.resolve(process.cwd(), ".env.local") });
 
 const OUT = process.env.PLANTILLA_OUT || "/tmp";
 const SUFIJO = process.env.PLANTILLA_SUFIJO || new Date().toISOString().slice(0, 7);
+const FIRMANTE = process.env.PLANTILLA_FIRMANTE || null;
+const SOLO = process.env.PLANTILLA_SOLO || null;
+
+/** Firmante de `settings.firmantes` con su firma dibujada; es lo mismo que lee getFirmante(). */
+async function cargarFirmante(slug: string): Promise<Firmante> {
+  const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    db: { schema: "comercial" },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data, error } = await sb.from("settings").select("value").eq("key", "firmantes").maybeSingle();
+  if (error) throw error;
+  const f = ((data?.value as Firmante[] | null) ?? []).find((x) => x.slug === slug);
+  if (!f) throw new Error(`No hay firmante "${slug}" en settings.firmantes`);
+  if (!f.data_url) throw new Error(`El firmante "${slug}" no tiene firma capturada en Configuración`);
+  return f;
+}
 
 const base: ContractVariables = {
   codigo_cotizacion: "[No. DE COTIZACIÓN]",
@@ -51,19 +76,26 @@ const travelers: ViajeroAnexo[] = [
   { position: 2, nombre: "[VIAJERO 2]", documento_tipo: "Pasaporte", documento: "[NÚMERO]", autoriza_imagen: null },
 ];
 
-async function render(v: ContractVariables, t: ViajeroAnexo[]): Promise<Buffer> {
+async function render(v: ContractVariables, t: ViajeroAnexo[], firmante: Firmante | null): Promise<Buffer> {
+  const vars: ContractVariables = firmante
+    ? { ...v, org_nombre: firmante.nombre, org_tipo_documento: firmante.documento_tipo, org_documento: firmante.documento }
+    : v;
   return renderToBuffer(React.createElement(ContractPDF as never, {
-    variables: v, plan, signature: null, orgSignature: null, travelers: t, informe: null, numero: null,
+    variables: vars, plan, signature: null, orgSignature: firmante?.data_url ?? null, travelers: t, informe: null, numero: null,
   }) as never);
 }
 
 async function main() {
+  const firmante = FIRMANTE ? await cargarFirmante(FIRMANTE) : null;
+  if (firmante) console.log("Firma por Camino Sacro:", firmante.nombre, "·", firmante.documento);
   const salidas: Array<[string, ContractVariables, ViajeroAnexo[]]> = [
     [`Camino Sacro - Contrato plantilla - Empresa (${SUFIJO}).pdf`, empresa, travelers],
     [`Camino Sacro - Contrato plantilla - Persona natural (${SUFIJO}).pdf`, base, []],
   ];
   for (const [nombre, v, t] of salidas) {
-    const pdf = await render(v, t);
+    if (SOLO === "empresa" && v !== empresa) continue;
+    if (SOLO === "natural" && v !== base) continue;
+    const pdf = await render(v, t, firmante);
     writeFileSync(`${OUT}/${nombre}`, pdf);
     console.log(nombre, "·", pdf.length, "bytes");
   }

@@ -297,13 +297,16 @@ export function ContractPDF({
             </View>
           </View>
           <View style={s.firmaCol}>
-            {signature ? (
-              orgSignature ? (
-                // eslint-disable-next-line jsx-a11y/alt-text
-                <Image src={orgSignature} style={s.firmaImg} />
-              ) : (
-                <Text style={s.firmaMecanica}>{tituloCase(org.nombre)}</Text>
-              )
+            {/* La firma dibujada del organizador se estampa siempre que venga: en producción
+                solo llega junto con la del cliente (al firmar), y la plantilla impresa con
+                `scripts/plantilla_pdf.tsx` la trae sola para que el modelo salga firmado
+                por Camino Sacro. Sin trazo, la mecánica en cursiva solo cuando ya firmó el
+                cliente; antes, el espacio en blanco. */}
+            {orgSignature ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image src={orgSignature} style={s.firmaImg} />
+            ) : signature ? (
+              <Text style={s.firmaMecanica}>{tituloCase(org.nombre)}</Text>
             ) : (
               <View style={s.firmaEspacio} />
             )}
