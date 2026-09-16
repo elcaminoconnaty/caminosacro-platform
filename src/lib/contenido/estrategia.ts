@@ -33,7 +33,7 @@ export const MARCA = {
   nombre: "Camino Sacro",
   instagram: "@caminosacro.agencia",
   web: "www.caminosacro.com",
-  whatsapp: "+57 304 663 7964",
+  whatsapp: "+57 304 663 7909",
   asistente: "Clara", // responde por WhatsApp/DM; en 4 preguntas dice cuál es tu Camino
   lema: "Deja de investigar. Empieza a caminar.",
   promesa: "El Camino de Santiago, organizado a tu medida desde Latinoamérica.",

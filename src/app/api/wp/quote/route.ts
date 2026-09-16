@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { crearCotizacionWordPress } from "@/lib/quotes/webQuote";
 import { autorizado, noAutorizado } from "../auth";
+import { enviarEventoMeta } from "@/lib/marketing/metaCapi";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,13 @@ const solicitudSchema = z.object({
   marketing_optin: z.boolean().default(false),
   visitor_ip: z.string().trim().max(60).optional(),
   honeypot: z.string().max(0).optional(),
+  // Señales de marketing: viajan desde el navegador del visitante para que la
+  // Conversions API de Meta pueda emparejar el evento con una persona real.
+  country: z.string().trim().max(60).optional(),
+  user_agent: z.string().trim().max(400).optional(),
+  page_url: z.string().trim().max(500).optional(),
+  fbp: z.string().trim().max(120).optional(),
+  fbc: z.string().trim().max(255).optional(),
 });
 
 // Techo global laxo por IP del visitante (el límite fino de 5/hora ya lo aplica
@@ -67,6 +75,36 @@ export async function POST(request: Request) {
       return Response.json({ ok: false, error: resultado.error }, { status: resultado.status });
     }
     const { ok, code, pdf_url, email_sent, breakdown } = resultado;
+
+    // Conversions API: mismo event_id que el píxel del navegador (el código de la
+    // cotización), así Meta deduplica y se queda con la versión que trae los datos
+    // de contacto hasheados.
+    //
+    // SIN await a propósito. El visitante ya tiene su cotización: hacerle esperar a
+    // que responda Meta sería anteponer un evento de marketing a la persona. La
+    // plataforma corre en un proceso Node persistente (Railway, no serverless), así
+    // que la promesa sobrevive a la respuesta. enviarEventoMeta nunca lanza, pero el
+    // catch queda como red por si algo cambia dentro.
+    void enviarEventoMeta({
+      eventName: "Lead",
+      eventId: code,
+      eventSourceUrl: datos.page_url ?? null,
+      value: breakdown.total_eur,
+      currency: "EUR",
+      contentName: datos.route_slug,
+      contentCategory: "cotizador",
+      user: {
+        email: datos.email,
+        phone: datos.phone,
+        firstName: datos.full_name.split(" ")[0] ?? null,
+        country: datos.country ?? null,
+        ip: datos.visitor_ip ?? null,
+        userAgent: datos.user_agent ?? null,
+        fbp: datos.fbp ?? null,
+        fbc: datos.fbc ?? null,
+      },
+    }).catch((e) => console.error("[wp-quote] CAPI:", code, e));
+
     return Response.json({ ok, code, pdf_url, email_sent, breakdown });
   } catch (e) {
     console.error("[wp-quote] error inesperado:", e);
