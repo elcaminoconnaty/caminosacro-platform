@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Caladea } from "next/font/google";
 import "./globals.css";
 
@@ -18,6 +18,10 @@ const display = Caladea({
 export const metadata: Metadata = {
   title: "Camino Sacro · Plataforma Comercial",
   description: "Cotizaciones, seguimiento y conversaciones de Camino Sacro.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#1a3a2a", // bosque: la barra del navegador es cabecera de marca
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
