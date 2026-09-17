@@ -9,7 +9,8 @@ import { miniatura } from "@/lib/contenido/miniatura";
 import { FORMATOS } from "@/lib/contenido/formatos";
 import { duplicarPieza, borrarPieza } from "./actions";
 import { cambiarEstadoPieza } from "./actions";
-import { ESTADOS_PIEZA, ESTADO, type EstadoPiezaId } from "@/lib/contenido/estados";
+import { ESTADOS_MANUALES, ESTADO, type EstadoPiezaId } from "@/lib/contenido/estados";
+import { textoCorto } from "@/lib/contenido/fechas";
 
 export type FilaPieza = {
   id: string;
@@ -20,6 +21,8 @@ export type FilaPieza = {
   actualizado: string;
   /** URL pública del primer JPG exportado, si la pieza ya se exportó alguna vez. */
   miniatura: string | null;
+  programada_para: string | null;
+  publicacion_error: string | null;
 };
 
 /** Quita tildes y baja a minúsculas: buscar "frances" tiene que encontrar "Francés". */
@@ -27,7 +30,7 @@ function normalizar(t: string): string {
   return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-const ESTADOS = ["todas", "borrador", "listo", "publicado"] as const;
+const ESTADOS = ["todas", "borrador", "listo", "programado", "publicado"] as const;
 type FiltroEstado = (typeof ESTADOS)[number];
 
 export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
@@ -82,7 +85,7 @@ export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
                 estado === e ? "bg-bosque text-white" : "border border-border text-muted hover:bg-taupe/40",
               )}
             >
-              {e === "todas" ? "Todas" : e}
+              {e === "todas" ? "Todas" : ESTADO[e].etiqueta}
             </button>
           ))}
         </div>
@@ -144,6 +147,14 @@ export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
                     <span>{f?.etiqueta ?? p.formato}</span>
                     <span>· {p.n_slides} {p.n_slides === 1 ? "slide" : "slides"}</span>
                   </span>
+                  {(p.estado === "programado" || p.estado === "publicando") && p.programada_para && (
+                    <span className="mt-1 block text-[11px] text-bosque-medio">Sale {textoCorto(p.programada_para)}</span>
+                  )}
+                  {p.publicacion_error && (
+                    <span className="mt-1 block text-[11px] text-red-700 leading-snug line-clamp-2" title={p.publicacion_error}>
+                      {p.publicacion_error}
+                    </span>
+                  )}
                 </div>
               </Link>
 
@@ -161,7 +172,12 @@ export default function PiezasGrid({ filas }: { filas: FilaPieza[] }) {
                   }
                   className="px-1.5 py-1 rounded border border-border bg-bg-card text-[11px] text-muted"
                 >
-                  {ESTADOS_PIEZA.map((e) => (
+                  {/* Los automáticos (programado, publicando) no se eligen a mano; si la pieza
+                      está en uno, aparece como opción actual para que el select no mienta. */}
+                  {!ESTADOS_MANUALES.includes(p.estado as EstadoPiezaId) && ESTADO[p.estado as EstadoPiezaId] && (
+                    <option value={p.estado}>{ESTADO[p.estado as EstadoPiezaId].etiqueta}</option>
+                  )}
+                  {ESTADOS_MANUALES.map((e) => (
                     <option key={e} value={e}>
                       {ESTADO[e].etiqueta}
                     </option>

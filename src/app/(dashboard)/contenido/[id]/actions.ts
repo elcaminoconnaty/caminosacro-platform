@@ -5,6 +5,7 @@ import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { SlidesSchema, type Slide } from "@/lib/contenido/tipos";
 import { esFormatoId, type FormatoId } from "@/lib/contenido/formatos";
+import { ESTADOS_MANUALES, esEstadoPieza } from "@/lib/contenido/estados";
 
 /**
  * Guarda los slides de una pieza. La llama el autoguardado del editor cada vez que se
@@ -50,11 +51,15 @@ export async function cambiarFormato(id: string, formato: string) {
 
 
 export async function cambiarEstado(id: string, estado: string) {
-  if (!["borrador", "listo", "publicado", "archivado"].includes(estado)) {
-    return { error: "Ese estado no existe." };
+  if (!esEstadoPieza(estado) || !ESTADOS_MANUALES.includes(estado)) {
+    return { error: "Ese estado no se pone a mano." };
   }
   const supabase = await createPublicSchemaClient();
-  const { error } = await supabase.from("contenido_piezas").update({ estado }).eq("id", id);
+  // Al salir de "programado" a mano se suelta la fecha: si no, el cron la tomaría igual.
+  const { error } = await supabase
+    .from("contenido_piezas")
+    .update({ estado, programada_para: null, publicando_desde: null })
+    .eq("id", id);
   if (error) return { error: mensajeError(error) };
   revalidatePath("/contenido");
   revalidatePath(`/contenido/${id}`);

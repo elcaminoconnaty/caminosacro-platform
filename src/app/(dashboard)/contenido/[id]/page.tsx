@@ -19,7 +19,7 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
   // Un solo viaje para todo lo que necesita la pantalla, como en seguimiento/[id].
   const supabase = await createPublicSchemaClient();
   const [{ data: pieza }, banco, subidas, rutas, worker] = await Promise.all([
-    supabase.from("contenido_piezas").select("id,titulo,formato,slides,caption,hashtags,estado").eq("id", id).maybeSingle(),
+    supabase.from("contenido_piezas").select("id,titulo,formato,slides,caption,hashtags,estado,programada_para,publicacion_error,permalink").eq("id", id).maybeSingle(),
     listarBanco(),
     listarSubidas(),
     listarRutas(),
@@ -61,6 +61,9 @@ export default async function PiezaPage({ params }: { params: Promise<{ id: stri
       subidas={subidas}
       rutas={rutas}
       estadoInicial={esEstadoPieza(pieza.estado) ? pieza.estado : "borrador"}
+      programadaPara={pieza.programada_para ?? null}
+      publicacionError={pieza.publicacion_error ?? null}
+      permalink={pieza.permalink ?? null}
       />
       <div className="max-w-3xl">
         <BarraCopy

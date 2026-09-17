@@ -17,6 +17,7 @@ import TiraSlides from "./TiraSlides";
 import SelectorFoto from "./SelectorFoto";
 import PanelAjustes from "./PanelAjustes";
 import Exportar from "./Exportar";
+import Programar from "./Programar";
 import SelectorEstado from "./SelectorEstado";
 import type { EstadoPiezaId } from "@/lib/contenido/estados";
 
@@ -32,6 +33,9 @@ export type EditorProps = {
   subidas: FotoSubida[];
   rutas: RutaLista[];
   estadoInicial: EstadoPiezaId;
+  programadaPara: string | null;
+  publicacionError: string | null;
+  permalink: string | null;
 };
 
 // El guardado ya no está en el camino del preview, así que puede esperar tranquilo.
@@ -48,6 +52,9 @@ export default function Editor({
   subidas,
   rutas,
   estadoInicial,
+  programadaPara,
+  publicacionError,
+  permalink,
 }: EditorProps) {
   const [slides, setSlides] = useState<Slide[]>(slidesIniciales);
   const [formato, setFormato] = useState<FormatoId>(formatoInicial);
@@ -287,12 +294,25 @@ export default function Editor({
               </option>
             ))}
           </select>
-          <SelectorEstado piezaId={piezaId} estadoInicial={estadoInicial} />
+          {/* `key`: tras programar o publicar, router.refresh() trae el estado nuevo y el
+              selector se remonta con él; sin la key se quedaría con el inicial. */}
+          <SelectorEstado key={estadoInicial} piezaId={piezaId} estadoInicial={estadoInicial} />
           <Exportar
             piezaId={piezaId}
             titulo={titulo}
             formato={formato}
             slides={slides}
+            hayPendiente={guardando || sinGuardar}
+          />
+          <Programar
+            piezaId={piezaId}
+            titulo={titulo}
+            formato={formato}
+            slides={slides}
+            estado={estadoInicial}
+            programadaPara={programadaPara}
+            publicacionError={publicacionError}
+            permalink={permalink}
             hayPendiente={guardando || sinGuardar}
           />
         </div>

@@ -6,6 +6,8 @@ import NuevaPieza from "./NuevaPieza";
 import IdeasPanel, { type FilaIdea } from "./IdeasPanel";
 import ResumenMetricas from "./ResumenMetricas";
 import { estadoDelWorker } from "@/lib/contenido/cola";
+import Link from "next/link";
+import { CalendarDays } from "lucide-react";
 
 // La bandeja se mira después de guardar en el editor: nunca puede venir cacheada.
 export const dynamic = "force-dynamic";
@@ -16,7 +18,7 @@ export default async function ContenidoPage() {
   const [{ data, error }, { data: ideasData }, worker] = await Promise.all([
     supabase
       .from("contenido_piezas")
-      .select("id,titulo,formato,estado,slides,updated_at,export_paths,exportado_at")
+      .select("id,titulo,formato,estado,slides,updated_at,export_paths,exportado_at,programada_para,publicacion_error")
       .neq("estado", "archivado")
       .order("updated_at", { ascending: false })
       // 27 rutas + bicis + lo que se cree a mano: 60 se quedaba corto y cortaba la lista
@@ -52,6 +54,8 @@ export default async function ContenidoPage() {
       miniatura: rutas[0]
         ? `${base}${rutas[0]}${p.exportado_at ? `?v=${Date.parse(p.exportado_at)}` : ""}`
         : null,
+      programada_para: p.programada_para ?? null,
+      publicacion_error: p.publicacion_error ?? null,
     };
   });
 
@@ -66,7 +70,15 @@ export default async function ContenidoPage() {
           </p>
         </div>
 
-        <NuevaPieza />
+        <div className="flex items-center gap-2">
+          <Link
+            href="/contenido/calendario"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-md border border-border bg-bg-card text-xs text-bosque hover:bg-taupe/40 transition"
+          >
+            <CalendarDays size={14} /> Calendario
+          </Link>
+          <NuevaPieza />
+        </div>
       </div>
 
       {error && (

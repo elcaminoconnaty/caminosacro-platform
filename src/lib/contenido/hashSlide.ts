@@ -20,3 +20,12 @@ function djb2(texto: string): string {
 export function hashSlide(slide: Slide | null | undefined, formato: string): string {
   return djb2(JSON.stringify({ slide: slide ?? null, formato }));
 }
+
+/**
+ * Huella de la pieza entera (todos los slides + formato). Se guarda como `export_hash` al
+ * exportar y se compara al publicar: si no coincide, los JPG del bucket no son lo que se
+ * ve en pantalla y NO se publica. Mismo djb2, mismas dos puntas (navegador y servidor).
+ */
+export function hashPieza(slides: Slide[], formato: string): string {
+  return djb2(JSON.stringify({ slides, formato }));
+}

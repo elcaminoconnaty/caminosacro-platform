@@ -7,7 +7,7 @@ import { mensajeError } from "@/lib/errors";
 import { FORMATO_POR_DEFECTO, esFormatoId } from "@/lib/contenido/formatos";
 import { valoresPorDefecto, plantilla } from "@/lib/contenido/plantillas/registry";
 import type { Slide } from "@/lib/contenido/tipos";
-import { esEstadoPieza } from "@/lib/contenido/estados";
+import { ESTADOS_MANUALES, esEstadoPieza } from "@/lib/contenido/estados";
 import { ARRANQUES, type ArranqueId } from "@/lib/contenido/arranques";
 
 function slidesDeArranque(id: ArranqueId): Slide[] {
@@ -98,10 +98,16 @@ export async function renombrarPieza(id: string, titulo: string) {
  * publicadas después de subirlas a Instagram.
  */
 export async function cambiarEstadoPieza(id: string, estado: string) {
-  if (!esEstadoPieza(estado)) return { error: "Ese estado no existe." };
+  if (!esEstadoPieza(estado) || !ESTADOS_MANUALES.includes(estado)) {
+    return { error: "Ese estado no se pone a mano." };
+  }
 
   const supabase = await createPublicSchemaClient();
-  const { error } = await supabase.from("contenido_piezas").update({ estado }).eq("id", id);
+  // Al salir de "programado" a mano se suelta la fecha: si no, el cron la tomaría igual.
+  const { error } = await supabase
+    .from("contenido_piezas")
+    .update({ estado, programada_para: null, publicando_desde: null })
+    .eq("id", id);
   if (error) return { error: mensajeError(error) };
 
   revalidatePath("/contenido");

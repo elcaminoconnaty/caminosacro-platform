@@ -45,11 +45,13 @@ export async function archivarSlide(piezaId: string, indice: number, jpegBase64:
  * Deja constancia de la exportación en la pieza. `export_paths` guarda las rutas CON el
  * bucket adelante, que es la convención del repo (ver src/lib/storage/paths.ts).
  */
-export async function registrarExport(id: string, rutas: string[]) {
+export async function registrarExport(id: string, rutas: string[], exportHash?: string) {
   const supabase = await createPublicSchemaClient();
+  // `export_hash` es la huella de lo exportado: al publicar se compara con lo guardado
+  // para no mandar a Instagram unos JPG que ya no son lo que se ve en pantalla.
   const { error } = await supabase
     .from("contenido_piezas")
-    .update({ export_paths: rutas, exportado_at: new Date().toISOString() })
+    .update({ export_paths: rutas, exportado_at: new Date().toISOString(), export_hash: exportHash ?? null })
     .eq("id", id);
 
   if (error) return { error: mensajeError(error) };

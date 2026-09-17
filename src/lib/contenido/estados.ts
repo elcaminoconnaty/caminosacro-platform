@@ -5,8 +5,15 @@
  * `"use server"` solo puede exportar funciones async — exportar una constante desde ahí ya
  * tumbó esta pantalla una vez (ver `src/lib/contenido/arranques.ts`).
  */
-export const ESTADOS_PIEZA = ["borrador", "listo", "publicado", "archivado"] as const;
+export const ESTADOS_PIEZA = ["borrador", "listo", "programado", "publicando", "publicado", "archivado"] as const;
 export type EstadoPiezaId = (typeof ESTADOS_PIEZA)[number];
+
+/**
+ * Los que una persona puede poner a mano desde la bandeja o el editor. `programado` y
+ * `publicando` los ponen las acciones de programar y el cron: marcar "programado" a
+ * dedo dejaría una pieza sin fecha que el cron nunca tomaría.
+ */
+export const ESTADOS_MANUALES: readonly EstadoPiezaId[] = ["borrador", "listo", "publicado", "archivado"];
 
 export const ESTADO: Record<EstadoPiezaId, { etiqueta: string; ayuda: string; clase: string }> = {
   borrador: {
@@ -18,6 +25,16 @@ export const ESTADO: Record<EstadoPiezaId, { etiqueta: string; ayuda: string; cl
     etiqueta: "Listo para publicar",
     ayuda: "Terminado y revisado, esperando su turno.",
     clase: "bg-dorado text-bosque",
+  },
+  programado: {
+    etiqueta: "Programado",
+    ayuda: "Tiene fecha y hora. El cron la publica sola cuando llegue.",
+    clase: "bg-bosque-medio text-white",
+  },
+  publicando: {
+    etiqueta: "Publicando…",
+    ayuda: "Hablando con Instagram en este momento.",
+    clase: "bg-dorado-oscuro text-bosque",
   },
   publicado: {
     etiqueta: "Publicado",

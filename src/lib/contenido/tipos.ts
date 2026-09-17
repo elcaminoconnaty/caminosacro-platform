@@ -88,7 +88,7 @@ export type Slide = z.infer<typeof SlideSchema>;
 
 export const SlidesSchema = z.array(SlideSchema);
 
-export const EstadoPieza = z.enum(["borrador", "listo", "publicado", "archivado"]);
+export const EstadoPieza = z.enum(["borrador", "listo", "programado", "publicando", "publicado", "archivado"]);
 export type EstadoPieza = z.infer<typeof EstadoPieza>;
 
 /** Espejo de la fila de public.contenido_piezas (la tabla se crea en la Etapa 2). */
@@ -104,7 +104,14 @@ export const PiezaSchema = z.object({
   idea_id: z.number().nullable().default(null),
   export_paths: z.array(z.string()).default([]),
   exportado_at: z.string().nullable().default(null),
+  export_hash: z.string().nullable().default(null),
   estado: EstadoPieza.default("borrador"),
+  programada_para: z.string().nullable().default(null),
+  publicado_at: z.string().nullable().default(null),
+  permalink: z.string().nullable().default(null),
+  ig_media_id: z.string().nullable().default(null),
+  publicacion_intentos: z.number().default(0),
+  publicacion_error: z.string().nullable().default(null),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
