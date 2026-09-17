@@ -1350,7 +1350,14 @@ programar_cron_publicaciones.sh` (job creado en producción), `src/lib/contenido
 
 **Verificado:** `tsc`, lint del módulo y `next build` limpios; token vivo (`@caminosacro.agencia`,
 cuota 0/100); ruta del cron 401 sin secreto y 202 con él en local; job
-`camino-sacro-publicar-contenido` activo cada 5 min en Supabase.
+`camino-sacro-publicar-contenido` activo cada 5 min en Supabase **y respondido con 202 desde
+producción** (visto en `net._http_response`), o sea que el CRON_SECRET de Railway coincide.
+
+**Trampa que costó tres ticks:** la primera versión del script leía `APP_BASE_URL` de
+`.env.local`, que ahí apunta a la IP del portátil (`192.168.1.101`), y el cron se pasó quince
+minutos intentando conectar con esa IP desde Supabase (timeout de handshake). Ahora la URL de
+producción va fija en el script. Para depurar el cron, `net._http_response` guarda el código y
+el cuerpo de cada respuesta unas horas.
 
 **Sin verificar todavía (hace falta una persona):** una publicación real de punta a punta
 —abrir una pieza 4x5, «Ahora», y ver el carrusel en la cuenta y la fila en `posts_log`—.

@@ -5,8 +5,13 @@
 # Va en un script y no en la migración 0041 porque el secreto no puede viajar en git.
 # Lee CRON_SECRET y la conexión de app/.env.local (los mismos que usa scripts/migrar.sh).
 #
-#   ./scripts/programar_cron_publicaciones.sh          crea o reemplaza el job
-#   ./scripts/programar_cron_publicaciones.sh --quitar  lo elimina
+#   ./scripts/programar_cron_publicaciones.sh              crea o reemplaza el job
+#   ./scripts/programar_cron_publicaciones.sh --quitar      lo elimina
+#   ./scripts/programar_cron_publicaciones.sh --url https://otra.app   otra base (pruebas)
+#
+# La URL de producción va FIJA aquí y NO se lee de APP_BASE_URL: en .env.local esa
+# variable apunta a la IP del portátil (desarrollo), y la primera versión de este script
+# dejó el cron pegándole a 192.168.1.101 desde Supabase, con timeouts cada 5 minutos.
 #
 # Nota: el secreto tiene que ser el MISMO que tiene Railway en CRON_SECRET, si no el
 # endpoint responde 401 y nada se publica. Comprobación sin exponerlo:
@@ -21,9 +26,15 @@ leer() { grep -m1 "^$1=" .env.local | cut -d= -f2- | sed 's/^["'\'']//; s/["'\''
 DB_URL="$(leer SUPABASE_DB_URL)"
 DB_PASSWORD="$(leer SUPABASE_DB_PASSWORD)"
 SECRETO="$(leer CRON_SECRET)"
-BASE="$(leer APP_BASE_URL)"
-BASE="${BASE:-https://caminosacro-platform-production.up.railway.app}"
-BASE="${BASE%/}"
+BASE="https://caminosacro-platform-production.up.railway.app"
+if [ "${1:-}" = "--url" ]; then
+  [ -n "${2:-}" ] || { echo "Uso: --url https://..." >&2; exit 1; }
+  BASE="${2%/}"
+fi
+case "$BASE" in
+  https://*) ;;
+  *) echo "La URL del cron tiene que ser https pública, no '$BASE'." >&2; exit 1;;
+esac
 
 [ -n "$DB_URL" ] || { echo "Falta SUPABASE_DB_URL en .env.local (ver scripts/migrar.sh)." >&2; exit 1; }
 [ -n "$DB_PASSWORD" ] && export PGPASSWORD="$DB_PASSWORD"
