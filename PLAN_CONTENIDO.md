@@ -166,7 +166,7 @@ Bloque verde sólido en el tercio inferior. Cajas r=24, pills r=40. Separadores 
       sin haber tocado esa página** (loguear en `public.token_usage` con `bot:'contenido'`, dentro
       de `try/catch` que nunca haga fallar la acción del usuario).
 
-- [ ] **Etapa 8 — Fase 2: publicar a Instagram**
+- [x] **Etapa 8 — Fase 2: publicar a Instagram** *(hecha el 2026-09-17, con calendario; ver la nota al final)*
       Archivos: migración `0026_contenido_publicacion.sql`, `src/lib/contenido/instagram.ts`,
       acción `publicarPieza`, botón en la pieza.
       Reusar `_shared/instagram.ts` del otro repo (contenedor por slide → contenedor `CAROUSEL` →
@@ -1297,3 +1297,62 @@ pantalla: la pestaña nueva con los filtros de la vieja, y "foto rota" sobre una
 no había fallado.
 
 Lint del módulo: **0 errores, 0 avisos**.
+
+### 2026-09-17 · Etapa 8 hecha: aprobar, programar y que salga sola
+
+Nico: *"quiero decir listo, aprobada esta plantilla, y que se publique el siguiente día en
+cola a las 7:30pm… dedicarme un día a revisar y programar un mes entero, con calendario que
+muestre qué días ya están publicados"*.
+
+**Lo que hay ahora.** En el editor, «Aprobar y programar» exporta la pieza (sin descargar
+nada), propone el siguiente día libre según la cadencia y la hora por defecto, y la deja en
+estado `programado`. Un job de pg_cron pega cada 5 minutos a `/api/cron/publicar-contenido`,
+que toma las piezas vencidas y las publica por la Graph API: imagen única, carrusel (2–10) o
+historias (una por slide en 9:16). `/contenido/calendario` muestra publicados (incluidos los
+15 posts históricos del bot viejo), programados y fallos, con el ritmo y la hora por defecto
+editables. «Ahora» publica en el momento con el mismo motor: es la forma de probar el flujo
+entero con una pieza real.
+
+**Decisiones, y el porqué:**
+- **El motor vive en la app, no en el otro repo ni en el puente.** El puente corre en el
+  portátil de Nico (apagado = nada sale) y el otro repo solo sabía de foto única. Con el
+  motor en Railway, "Publicar ahora" y el cron son el mismo código (`src/lib/contenido/
+  publicar.ts`); la Graph API se copió de `_shared/instagram.ts` y se amplió a carrusel e
+  historias. Misma versión v21.0: es la que lleva un año funcionando con este token.
+- **El cron responde 202 y publica después (`after` de next/server).** pg_net corta a los
+  15 s y un carrusel tarda más. La toma es atómica (`contenido_tomar_publicaciones`, `for
+  update skip locked`) y `contenido_rescatar_publicaciones` devuelve a la cola lo que lleve
+  10 min en `publicando`; al tercer intento vuelve a `listo` con el motivo escrito.
+- **Se exporta justo antes de programar y se guarda `export_hash`.** Al publicar se
+  compara con los slides guardados: si la pieza cambió después, NO se publica y lo dice.
+  Es la misma promesa del módulo —lo que se ve es lo que sale— llevada a Instagram.
+- **Hora de Bogotá, siempre.** `programada_para` es un instante UTC; la traducción vive en
+  `src/lib/contenido/fechas.ts` (Colombia es UTC-5 fijo, sin horario de verano). El «hoy»
+  del calendario baja del servidor como prop, como en seguimiento. `dayGroup.ts` no se usa.
+- **`programado` y `publicando` no se ponen a mano** (`ESTADOS_MANUALES`): un "programado"
+  a dedo sería una pieza sin fecha que el cron nunca tomaría. Salir de programado a mano
+  suelta la fecha.
+- **Se escribe en `posts_log` con `origen='estudio'` y `pieza_id`**, como pedía el plan, y
+  no en tabla nueva. Ojo: **los tres jobs de pg_cron del bot viejo están `active=false`**,
+  incluido `metricas`, así que las métricas no se recogen solas; encenderlo es un
+  `cron.alter_job` en el otro repo, fuera de este alcance.
+- **La portada de reel no se programa** (botón deshabilitado con el motivo): es la carátula
+  de un video, no se publica por API.
+- **Avisos.** `config` solo tiene `cron_secret` (no hay Telegram ahí, como creía la
+  bitácora vieja). El resultado se ve en la bandeja y en el calendario; si se ponen
+  `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` en Railway, además avisa por Telegram.
+
+**Archivos:** migración `0041_contenido_programacion.sql` (aplicada), `scripts/
+programar_cron_publicaciones.sh` (job creado en producción), `src/lib/contenido/
+{fechas,instagram,publicar,programacion}.ts`, `src/app/api/cron/publicar-contenido/route.ts`,
+`contenido/[id]/{Programar.tsx,programarActions.ts,exportarPieza.ts}`,
+`contenido/calendario/*`, `scripts/instagram_verifica.ts`.
+
+**Verificado:** `tsc`, lint del módulo y `next build` limpios; token vivo (`@caminosacro.agencia`,
+cuota 0/100); ruta del cron 401 sin secreto y 202 con él en local; job
+`camino-sacro-publicar-contenido` activo cada 5 min en Supabase.
+
+**Sin verificar todavía (hace falta una persona):** una publicación real de punta a punta
+—abrir una pieza 4x5, «Ahora», y ver el carrusel en la cuenta y la fila en `posts_log`—.
+La primera vez conviene hacerlo con una pieza que de verdad se quiera publicar, porque
+sale en la cuenta real. Y mirar el calendario y el diálogo en el navegador.
