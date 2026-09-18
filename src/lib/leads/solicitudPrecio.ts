@@ -15,7 +15,6 @@
  * Sin `server-only`: el panel arma el borrador editable y no hay nada que esconder acá.
  */
 
-import { fechaCorta } from "@/lib/format";
 
 /** Lo único del lead que sale hacia Pilgrim. Lo que no está en este tipo, no viaja. */
 export type LeadParaPilgrim = {
@@ -110,9 +109,16 @@ export function armarSolicitudPrecio(
     `Habitaciones:             ${textoHabitaciones(personas)}`,
   ];
 
-  const subject =
-    `Solicitud de precio ${anio} — ${rutaNombre} — salida ${fechaCorta(lead.start_date)} — ` +
-    `${personas} peregrino${personas === 1 ? "" : "s"}`;
+  // Ruta — Peregrino | Referencia. Corto y en ese orden a propósito: en la bandeja de
+  // Pilgrim lo que distingue un correo de otro es de qué Camino va y de quién, y la
+  // referencia al final es la que se cita al responder. El resto —fecha, personas,
+  // alojamiento— está en el cuerpo, que es donde se lee.
+  //
+  // La referencia es la que vio el visitante (CS-WEB-…), no el código del expediente:
+  // es la que viaja en el acuse que recibió y la que aparece en toda la conversación.
+  const subject = lead.code
+    ? `${rutaNombre} — ${lead.full_name} | ${lead.code}`
+    : `${rutaNombre} — ${lead.full_name}`;
 
   const saludo = opciones?.contacto?.trim() ? `Hola ${opciones.contacto.trim()},` : `Hola Pilgrim,`;
 
