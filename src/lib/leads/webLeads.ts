@@ -79,15 +79,6 @@ export function claveLead(l: {
   ].join("|");
 }
 
-/**
- * Ventana en la que un lead idéntico se considera el mismo envío y no uno nuevo.
- *
- * Los tres casos reales de la base son de 3 a 6 segundos (doble clic en el botón del
- * cotizador, o el reintento de WordPress). Diez minutos deja margen de sobra para eso y
- * sigue siendo corta para lo otro: quien vuelve al día siguiente a preguntar por la misma
- * fecha SÍ es un lead nuevo y tiene que volver a aparecer.
- */
-export const VENTANA_LEAD_REPETIDO_MS = 10 * 60 * 1000;
 
 export type GrupoLead = {
   /** La fila más reciente del grupo: la que se pinta. */

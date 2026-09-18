@@ -10,6 +10,7 @@ import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 import { mensajeError } from "@/lib/errors";
 import { firmarPdf } from "@/lib/quotes/pdfUrl";
 import { sumarDias, tarifarRuta } from "@/lib/quotes/tarifar";
+import { VENTANA_ENVIO_REPETIDO_MS } from "@/lib/enviosRepetidos";
 
 /**
  * Cotización creada desde el cotizador de caminosacro.com (WordPress).
@@ -79,6 +80,77 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   if (!r.ok) return { ok: false, status: r.status, error: r.error };
   const t = r.tarifa;
   const modalityLabel = t.modalityLabel;
+
+  // El desglose no depende de lo que se guarde: sale entero de la tarifa, y se calcula
+  // una sola vez porque lo devuelven los dos caminos de abajo (la cotización nueva y la
+  // repetida).
+  const desglose: DesgloseWordPress = {
+    people: datos.people,
+    rooms: { dobles: t.dobles, en_doble: t.enDoble, individuales: t.individuales },
+    tarifa_doble: t.tarifaDoble,
+    tarifa_indiv: t.tarifaSingle,
+    coste_doble: t.enDoble * t.tarifaDoble,
+    coste_indiv: t.individuales * t.tarifaSingle,
+    base_eur: t.baseEur,
+    season: {
+      kind: t.season.type,
+      label: t.season.label,
+      per_person: t.season.surcharge_per_person_cs,
+      total: t.suplementoEur,
+    },
+    total_eur: t.totalEur,
+  };
+
+  // ---- El mismo envío dos veces no es dos cotizaciones ----
+  //
+  // El formulario de la web manda la solicitud repetida y cada repetición era una
+  // cotización más: un código más, un PDF más y OTRO correo al mismo cliente. En la base
+  // están Pepa (CS-2026-094 y 095, a 6 segundos) y Leidy Lorena (064 y 065, a 20). Para
+  // el visitante es un solo clic; para el CRM eran dos expedientes que alguien tiene que
+  // salir a limpiar a mano.
+  //
+  // Coincidencia EXACTA de lo que define la cotización: mismo correo, misma ruta, misma
+  // salida, mismas personas y misma modalidad. Cualquier cambio —una fecha, una persona,
+  // pensión en vez de hotel— es una cotización distinta y se crea.
+  //
+  // A diferencia del lead, acá NO se exige que a la original ya le haya salido el correo.
+  // Los duplicados reales llegan a 6 y 20 segundos, y para entonces la primera petición
+  // sigue dentro de su propio envío —renderiza el PDF, lo firma y espera al webhook, que
+  // puede tardar hasta 45 s—, así que `email_sent_at` todavía está en null justo cuando
+  // hay que frenar al segundo. Exigirlo dejaba pasar exactamente el caso que esto viene a
+  // cerrar.
+  //
+  // Se puede prescindir de esa red porque la cotización EXISTE en el CRM pase lo que pase
+  // con el correo: si el envío falló, queda en `email_log`, la cotización se queda en
+  // «sin enviar» y se reenvía desde el expediente. En el lead no había nada de eso, y por
+  // eso allá la red sí hace falta.
+  const desde = new Date(Date.now() - VENTANA_ENVIO_REPETIDO_MS).toISOString();
+  const { data: repetida } = await supabase
+    .from("quotes")
+    .select("id,code,email_sent_at")
+    .eq("source", "wordpress")
+    .eq("client_email", datos.email)
+    .eq("route_id", route.id)
+    .eq("start_date", datos.start_date)
+    .eq("people", datos.people)
+    .eq("modality", modalityLabel)
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (repetida) {
+    console.info("[wp-quote] envío repetido, devuelvo", repetida.code, "sin duplicar");
+    // La misma cotización que ya tiene: su código y su PDF, firmado de nuevo porque la
+    // URL anterior caduca. Sin correo nuevo: de ese se encarga la primera petición.
+    // `email_sent` dice lo que se sabe en este momento, no lo que se espera.
+    return {
+      ok: true,
+      code: repetida.code,
+      pdf_url: await firmarPdf(supabase, repetida.id),
+      email_sent: !!repetida.email_sent_at,
+      breakdown: desglose,
+    };
+  }
 
   // (cliente) dedup por teléfono (igual que el wizard interno), guardando consentimientos.
   const ahora = new Date().toISOString();
@@ -186,26 +258,5 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
 
   if (emailSent) await marcarCotizacionEnviada(supabase, quote.id);
 
-  return {
-    ok: true,
-    code: quote.code,
-    pdf_url: pdfUrl,
-    email_sent: emailSent,
-    breakdown: {
-      people: datos.people,
-      rooms: { dobles: t.dobles, en_doble: t.enDoble, individuales: t.individuales },
-      tarifa_doble: t.tarifaDoble,
-      tarifa_indiv: t.tarifaSingle,
-      coste_doble: t.enDoble * t.tarifaDoble,
-      coste_indiv: t.individuales * t.tarifaSingle,
-      base_eur: t.baseEur,
-      season: {
-        kind: t.season.type,
-        label: t.season.label,
-        per_person: t.season.surcharge_per_person_cs,
-        total: t.suplementoEur,
-      },
-      total_eur: t.totalEur,
-    },
-  };
+  return { ok: true, code: quote.code, pdf_url: pdfUrl, email_sent: emailSent, breakdown: desglose };
 }

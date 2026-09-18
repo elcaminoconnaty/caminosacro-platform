@@ -4,7 +4,7 @@ import { registrarEnvio } from "@/lib/email/log";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { WHATSAPP_NICO } from "@/app/cotizar/constants";
 import { autorizado, noAutorizado } from "../auth";
-import { VENTANA_LEAD_REPETIDO_MS } from "@/lib/leads/webLeads";
+import { VENTANA_ENVIO_REPETIDO_MS } from "@/lib/enviosRepetidos";
 
 export const dynamic = "force-dynamic";
 
@@ -173,7 +173,7 @@ export async function POST(request: Request) {
   // Solo se corta si al original YA le salió el correo. Si falló o quedó a medias
   // (`email_sent` null), el reintento sigue de largo: esa persona todavía no ha recibido
   // nada y es exactamente a quien hay que volver a intentarle el envío.
-  const desde = new Date(Date.now() - VENTANA_LEAD_REPETIDO_MS).toISOString();
+  const desde = new Date(Date.now() - VENTANA_ENVIO_REPETIDO_MS).toISOString();
   try {
     const { data: repetido } = await supabase
       .from("web_leads")
