@@ -2,6 +2,7 @@ import { z } from "zod";
 import { crearCotizacionWordPress } from "@/lib/quotes/webQuote";
 import { autorizado, noAutorizado } from "../auth";
 import { enviarEventoMeta } from "@/lib/marketing/metaCapi";
+import { origenSchema } from "@/lib/marketing/origen";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,8 @@ const solicitudSchema = z.object({
   page_url: z.string().trim().max(500).optional(),
   fbp: z.string().trim().max(120).optional(),
   fbc: z.string().trim().max(255).optional(),
-});
+  // Primer toque (utm_*, fbclid, gclid, página de entrada, referente): ver lib/marketing/origen.ts.
+}).merge(origenSchema);
 
 // Techo global laxo por IP del visitante (el límite fino de 5/hora ya lo aplica
 // WordPress con sus transients). En memoria del proceso, igual que /cotizar.

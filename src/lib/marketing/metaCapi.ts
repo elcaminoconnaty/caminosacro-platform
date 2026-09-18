@@ -26,7 +26,7 @@ export type UsuarioCapi = {
 };
 
 export type EventoCapi = {
-  eventName: "Lead" | "Contact" | "ViewContent";
+  eventName: "Lead" | "Contact" | "ViewContent" | "Purchase";
   eventId: string;
   eventSourceUrl?: string | null;
   value?: number | null;

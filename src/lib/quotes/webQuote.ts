@@ -11,6 +11,7 @@ import { mensajeError } from "@/lib/errors";
 import { firmarPdf } from "@/lib/quotes/pdfUrl";
 import { sumarDias, tarifarRuta } from "@/lib/quotes/tarifar";
 import { VENTANA_ENVIO_REPETIDO_MS } from "@/lib/enviosRepetidos";
+import { columnasOrigen, type Origen } from "@/lib/marketing/origen";
 
 /**
  * Cotización creada desde el cotizador de caminosacro.com (WordPress).
@@ -34,7 +35,9 @@ export type SolicitudWordPress = {
   phone: string;
   terms_accepted: boolean;
   marketing_optin: boolean;
-};
+  fbp?: string | null;
+  fbc?: string | null;
+} & Origen;
 
 export type DesgloseWordPress = {
   people: number;
@@ -213,6 +216,9 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
       rooms_json: t.roomsJson,
       // Sin nota de año: estas cotizaciones son siempre con la tarifa del año de salida.
       price_note: null,
+      // De dónde vino la persona (anuncio, campaña, página de entrada) y su identidad
+      // para Meta. Ver supabase/migrations/0046_origen_marketing.sql.
+      ...columnasOrigen(datos),
     })
     .select("id,code")
     .single();

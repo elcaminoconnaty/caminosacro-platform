@@ -18,6 +18,7 @@ import type { OpcionalLibre } from "@/lib/quotes/opcionalLibre";
 import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
 import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
 import { duplicarCotizacion } from "@/lib/quotes/duplicar";
+import { esEstadoVenta, registrarVentaMeta } from "@/lib/marketing/ventaMeta";
 import { resolverPagoCliente, esMonedaPago, type MonedaPago } from "@/lib/quotes/pagoCliente";
 
 /**
@@ -60,6 +61,8 @@ async function sincronizarEstadoPorCobro(
   if (!nuevo || nuevo === q.status) return;
 
   await supabase.from("quotes").update({ status: nuevo }).eq("id", quoteId);
+  // Un pago es una venta aunque nadie haya marcado "aceptada" antes.
+  if (esEstadoVenta(nuevo)) await registrarVentaMeta(supabase, quoteId);
 }
 
 // Borra un archivo de Storage a partir de su ruta "bucket/archivo".
@@ -250,6 +253,8 @@ export async function updateQuoteStatus(id: string, status: string) {
   const supabase = await createCommercialClient();
   const { error } = await supabase.from("quotes").update({ status }).eq("id", id);
   if (error) return { error: mensajeError(error) };
+  // La venta le vuelve a Meta (Purchase por CAPI) la primera vez que entra a un estado de venta.
+  if (esEstadoVenta(status)) await registrarVentaMeta(supabase, id);
   revalidatePath("/seguimiento");
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/calendario");

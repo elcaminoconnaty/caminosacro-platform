@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { WHATSAPP_NICO } from "@/app/cotizar/constants";
 import { autorizado, noAutorizado } from "../auth";
 import { VENTANA_ENVIO_REPETIDO_MS } from "@/lib/enviosRepetidos";
+import { columnasOrigen, origenSchema } from "@/lib/marketing/origen";
 import { crearCotizacionSinPrecio } from "@/lib/quotes/leadQuote";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,9 @@ const solicitudSchema = z.object({
   marketing_optin: z.boolean().default(false),
   visitor_ip: z.string().trim().max(60).optional(),
   honeypot: z.string().max(0).optional(),
-});
+  fbp: z.string().trim().max(120).optional(),
+  fbc: z.string().trim().max(255).optional(),
+}).merge(origenSchema);
 
 // Mismo techo laxo por IP que /api/wp/quote (el límite fino de 5/hora lo aplica
 // WordPress con sus transients). En memoria del proceso.
@@ -220,6 +223,7 @@ export async function POST(request: Request) {
         phone: datos.phone,
         marketing_optin: datos.marketing_optin,
         visitor_ip: datos.visitor_ip ?? null,
+        ...columnasOrigen(datos),
       })
       .select("id")
       .single();
