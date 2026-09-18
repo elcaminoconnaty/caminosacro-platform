@@ -15,7 +15,7 @@
  * Sin `server-only`: el panel arma el borrador editable y no hay nada que esconder acá.
  */
 
-import { fechaCortaISO } from "@/lib/format";
+import { fechaCorta } from "@/lib/format";
 
 /** Lo único del lead que sale hacia Pilgrim. Lo que no está en este tipo, no viaja. */
 export type LeadParaPilgrim = {
@@ -111,7 +111,7 @@ export function armarSolicitudPrecio(
   ];
 
   const subject =
-    `Solicitud de precio ${anio} — ${rutaNombre} — salida ${fechaCortaISO(lead.start_date)} — ` +
+    `Solicitud de precio ${anio} — ${rutaNombre} — salida ${fechaCorta(lead.start_date)} — ` +
     `${personas} peregrino${personas === 1 ? "" : "s"}`;
 
   const saludo = opciones?.contacto?.trim() ? `Hola ${opciones.contacto.trim()},` : `Hola Pilgrim,`;

@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { Check, Inbox, Mail, MessageCircle, Send, TriangleAlert, Undo2 } from "lucide-react";
-import { fechaCortaISO, hace } from "@/lib/format";
+import { fechaCorta, hace } from "@/lib/format";
 import {
   agruparLeads,
   motivoLabel,
@@ -224,7 +224,7 @@ export default function LeadsPanel({
                   </div>
                   <div className="text-sm text-muted">
                     {l.route_name || l.route_slug} · {tipoLabel(l.tipo)} · salida{" "}
-                    <span className="text-fg">{fechaCortaISO(l.start_date)}</span> · {l.people}{" "}
+                    <span className="text-fg">{fechaCorta(l.start_date)}</span> · {l.people}{" "}
                     {l.people === 1 ? "persona" : "personas"}
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs">
