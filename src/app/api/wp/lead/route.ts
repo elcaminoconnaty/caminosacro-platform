@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { WHATSAPP_NICO } from "@/app/cotizar/constants";
 import { autorizado, noAutorizado } from "../auth";
 import { VENTANA_ENVIO_REPETIDO_MS } from "@/lib/enviosRepetidos";
+import { crearCotizacionSinPrecio } from "@/lib/quotes/leadQuote";
 
 export const dynamic = "force-dynamic";
 
@@ -170,9 +171,14 @@ export async function POST(request: Request) {
   // Martha). Cada repetición era una fila más y —peor— un acuse más al visitante y un
   // aviso más a reservas@, o sea la bandeja de Nico llena de gente duplicada.
   //
-  // Solo se corta si al original YA le salió el correo. Si falló o quedó a medias
-  // (`email_sent` null), el reintento sigue de largo: esa persona todavía no ha recibido
-  // nada y es exactamente a quien hay que volver a intentarle el envío.
+  // Se corta salvo que del original se sepa que el correo FALLÓ. `email_sent` en null no
+  // es un fallo: es "la fila se creó y el envío aún no ha terminado" (así lo define la
+  // 0035), y es justo el estado en el que está el original cuando llega el repetido —los
+  // casos reales vienen a 3 y 6 segundos, y el webhook puede tardar hasta 45. Tratar el
+  // null como fallo dejaba pasar exactamente el duplicado que esto viene a frenar.
+  //
+  // Con `email_sent = false` sí se sigue de largo: ahí se sabe que la persona no recibió
+  // nada y el reintento es su segunda oportunidad.
   const desde = new Date(Date.now() - VENTANA_ENVIO_REPETIDO_MS).toISOString();
   try {
     const { data: repetido } = await supabase
@@ -184,7 +190,7 @@ export async function POST(request: Request) {
       .eq("start_date", datos.start_date)
       .eq("people", datos.people)
       .eq("motivo", datos.motivo)
-      .eq("email_sent", true)
+      .or("email_sent.is.null,email_sent.is.true")
       .gte("created_at", desde)
       .limit(1)
       .maybeSingle();
@@ -223,6 +229,45 @@ export async function POST(request: Request) {
     console.error("[wp-lead] no pude guardar el lead:", e);
   }
 
+  // ---- El expediente ----
+  //
+  // La cotización se crea aunque no haya precio. Hasta ahora no se creaba —es justo lo que
+  // no se puede calcular— y el resultado era que estas personas no salían en el listado de
+  // cotizaciones, que es donde se mira: vivían solo en el panel de leads. Nace vacía y en
+  // `sin_enviar`; los importes se rellenan cuando Pilgrim conteste.
+  //
+  // En su propio try y después de guardar el lead: si esto falla, el lead ya está a salvo y
+  // los correos salen igual. Un expediente de menos se arregla a mano; una persona perdida, no.
+  let quoteId: string | null = null;
+  let quoteCode: string | null = null;
+  try {
+    const expediente = await crearCotizacionSinPrecio(supabase, {
+      motivo: datos.motivo,
+      route_slug: datos.route_slug,
+      route_name: datos.route_name ?? null,
+      tipo: datos.tipo,
+      start_date: datos.start_date,
+      people: datos.people,
+      full_name: datos.full_name,
+      email: datos.email,
+      phone: datos.phone,
+      marketing_optin: datos.marketing_optin,
+      code_web: codigo || null,
+    });
+    if (expediente.ok) {
+      quoteId = expediente.id;
+      quoteCode = expediente.code;
+      if (leadId) {
+        const { error } = await supabase.from("web_leads").update({ quote_id: quoteId }).eq("id", leadId);
+        if (error) console.warn("[wp-lead] no pude enlazar el expediente:", error);
+      }
+    } else {
+      console.error("[wp-lead] no pude abrir el expediente:", expediente.error);
+    }
+  } catch (e) {
+    console.error("[wp-lead] no pude abrir el expediente:", e);
+  }
+
   const envio = await enviarCorreoWebhook({
     code: codigo,
     nombre: datos.full_name,
@@ -237,7 +282,12 @@ export async function POST(request: Request) {
     subject,
     body: body_cliente,
     aviso_subject,
-    aviso_body,
+    // El código del expediente se añade acá y no dentro de `aviso_body` porque hasta este
+    // punto no se sabe: la cotización se crea unas líneas más arriba. Es el dato con el
+    // que se trabaja el lead, así que va en el aviso y no solo en la pantalla.
+    aviso_body: quoteCode
+      ? `${aviso_body}\nExpediente abierto en el CRM: ${quoteCode} (sin precio, estado "sin enviar").\n`
+      : `${aviso_body}\nAVISO: no se pudo abrir el expediente en el CRM. Hay que crearlo a mano.\n`,
   });
 
   const emailSent = envio.ok;
@@ -263,6 +313,7 @@ export async function POST(request: Request) {
   // de Supabase sí puede lanzar si falta la clave, y este endpoint debe responder igual.
   try {
     await registrarEnvio(supabase, {
+      quoteId,
       code: codigo || null,
       tipo: "lead",
       destinatario: datos.email,

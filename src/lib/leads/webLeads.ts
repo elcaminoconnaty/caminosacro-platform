@@ -31,6 +31,8 @@ export type WebLead = {
   atendido_nota: string | null;
   /** Cuándo se le pidió el precio a Pilgrim (migración 0044). null = todavía no. */
   precio_solicitado_at: string | null;
+  /** Expediente sin precio abierto para este lead (migración 0045). */
+  quote_id: string | null;
 };
 
 export const MOTIVO_LABEL: Record<string, string> = {

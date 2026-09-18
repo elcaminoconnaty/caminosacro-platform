@@ -63,7 +63,7 @@ export default async function SeguimientoPage() {
     supabase
       .from("web_leads")
       .select(
-        "id,created_at,code,motivo,route_slug,route_name,tipo,start_date,people,full_name,email,phone,marketing_optin,email_sent,atendido_at,atendido_nota,precio_solicitado_at",
+        "id,created_at,code,motivo,route_slug,route_name,tipo,start_date,people,full_name,email,phone,marketing_optin,email_sent,atendido_at,atendido_nota,precio_solicitado_at,quote_id",
       )
       .order("created_at", { ascending: false })
       .limit(300),
@@ -110,6 +110,10 @@ export default async function SeguimientoPage() {
   // peregrino no va" como regla y como costumbre.
   //
   // Solo para los pendientes: un lead cerrado ya no se cotiza.
+  // El código del expediente de cada lead. No hace falta otra consulta: las cotizaciones
+  // ya están cargadas arriba y el expediente de un lead es una de ellas.
+  const codigoPorQuote = Object.fromEntries(quotes.map((q) => [q.id, q.code]));
+
   const pendientes = leads.filter((l) => !l.atendido_at);
   let borradores: Record<string, SolicitudPrecio> = {};
   let pilgrimEmail = "";
@@ -222,7 +226,12 @@ export default async function SeguimientoPage() {
           }
         />
       ) : (
-        <LeadsPanel leads={leads} borradores={borradores} pilgrimEmail={pilgrimEmail} />
+        <LeadsPanel
+          leads={leads}
+          borradores={borradores}
+          pilgrimEmail={pilgrimEmail}
+          codigoPorQuote={codigoPorQuote}
+        />
       )}
 
       <QuotesTable rows={rows} hoy={hoy} />

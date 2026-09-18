@@ -134,6 +134,11 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     .eq("start_date", datos.start_date)
     .eq("people", datos.people)
     .eq("modality", modalityLabel)
+    // Con precio. Desde la 0045 un lead sin tarifas abre su propio expediente vacío con
+    // estos mismos datos; si el año se carga y la persona vuelve a cotizar dentro de la
+    // ventana, devolverle aquella cotización en blanco sería darle un PDF sin cifras en
+    // vez del que acaba de pedir.
+    .gt("total_eur", 0)
     .gte("created_at", desde)
     .order("created_at", { ascending: false })
     .limit(1)

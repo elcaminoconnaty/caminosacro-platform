@@ -46,11 +46,14 @@ export default function LeadsPanel({
   leads,
   borradores,
   pilgrimEmail,
+  codigoPorQuote,
 }: {
   leads: WebLead[];
   /** Borrador del correo a Pilgrim por lead pendiente, armado en el servidor. */
   borradores: Record<string, SolicitudPrecio>;
   pilgrimEmail: string;
+  /** Código del expediente de cada lead, por id de cotización (migración 0045). */
+  codigoPorQuote: Record<string, string>;
 }) {
   // Qué se está mirando. Nace en "pendientes" porque el panel contesta "¿a quién le
   // debo algo?", pero las tres opciones se pintan SIEMPRE, con su cuenta: con un solo
@@ -183,6 +186,7 @@ export default function LeadsPanel({
           const l = g.lead;
           const anio = l.start_date.slice(0, 4);
           const ocupado = busy === l.id && pending;
+          const expediente = l.quote_id ? codigoPorQuote[l.quote_id] : null;
           const wa = telefonoWhatsApp(l.phone);
           return (
             <li key={l.id} className={`px-4 py-3 ${ocupado ? "opacity-50" : ""}`}>
@@ -263,13 +267,25 @@ export default function LeadsPanel({
                       Cargar tarifas {anio}
                     </Link>
                   )}
-                  {!l.atendido_at && (
+                  {/* Desde la 0045 el lead nace con su expediente, así que lo normal es
+                      abrirlo y rellenarle el precio. Los leads anteriores no tienen
+                      ninguno: a esos se les sigue ofreciendo crearlo a mano. */}
+                  {expediente ? (
                     <Link
-                      href="/cotizaciones/nueva"
+                      href={`/seguimiento/${l.quote_id}`}
                       className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition whitespace-nowrap"
                     >
-                      Cotizar a mano
+                      Abrir {expediente}
                     </Link>
+                  ) : (
+                    !l.atendido_at && (
+                      <Link
+                        href="/cotizaciones/nueva"
+                        className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition whitespace-nowrap"
+                      >
+                        Cotizar a mano
+                      </Link>
+                    )
                   )}
                   {!l.atendido_at && borradores[l.id] && (
                     <button
