@@ -70,6 +70,45 @@ export type ContractVariables = {
   org_nombre?: string;
   org_tipo_documento?: string;
   org_documento?: string;
+
+  /**
+   * Lo que se pactó DISTINTO con este cliente. **Ausente = el articulado de siempre**,
+   * palabra por palabra, para que los contratos anteriores sigan diciendo exactamente lo
+   * que decían — mismo criterio que `contratante_tipo` y `con_pagare`.
+   */
+  condiciones_particulares?: CondicionesParticulares;
+};
+
+/**
+ * Condiciones particulares de UN contrato.
+ *
+ * Existe porque el cliente firma dos papeles: la cotización (que entra como Anexo No. 1,
+ * con las políticas del operador) y el articulado. Cuando no dicen lo mismo, el cliente lo
+ * nota y no firma: pasó con CS-2026-080 (Colegiatura, sep-2026), que antes de firmar pidió
+ * unificar los porcentajes de cancelación, el cargo por modificación y los plazos de pago.
+ *
+ * Esto NO es la solución de fondo —alinear la cotización y la plantilla de raíz, para que
+ * no vuelvan a divergir, es tarea aparte—, sino la forma de cerrar un contrato concreto en
+ * los términos realmente pactados sin reescribirle el texto a los demás.
+ *
+ * Cada campo reemplaza el párrafo equivalente; los parágrafos que no se nombran siguen
+ * intactos, para que no se pierda en silencio nada de lo que ya protege a las dos partes
+ * (comisiones bancarias, plazo de reembolso, cancelación por parte de EL ORGANIZADOR).
+ */
+export type CondicionesParticulares = {
+  /** Reemplaza la regla general de FORMA DE PAGO (el primer párrafo). */
+  pago?: string;
+  /**
+   * Reemplaza los parágrafos propios de FORMA DE PAGO (el cronograma, la mora, el pagaré).
+   * El de comisiones bancarias se mantiene siempre y va de último.
+   */
+  pago_parags?: string[];
+  /** Reemplaza el párrafo único de MODIFICACIONES SOLICITADAS. */
+  modificaciones?: string;
+  /** Reemplaza la escala de penalidades de CANCELACIÓN Y REEMBOLSOS (el primer párrafo). */
+  cancelacion?: string;
+  /** Parágrafos que se suman a CANCELACIÓN, antes del de cancelación por EL ORGANIZADOR. */
+  cancelacion_parags?: string[];
 };
 
 /** Un firmante de Camino Sacro (`settings.firmantes`). */
@@ -239,6 +278,8 @@ export const VARIABLE_LABELS: Record<keyof ContractVariables, string> = {
   org_nombre: "Firma por Camino Sacro",
   org_tipo_documento: "Tipo de documento de quien firma",
   org_documento: "Documento de quien firma",
+  // No es un campo de texto del editor: son párrafos del articulado. Ver `GRUPOS`.
+  condiciones_particulares: "Condiciones particulares pactadas",
 };
 
 export const DEFAULT_INCLUYE =
@@ -414,6 +455,8 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
   const numCuotas = financiado ? plan.cuotas.length : 0;
   const crono = financiado ? cronogramaTexto(plan) : "";
   const anexoPagare = numeroAnexoPagare(v);
+  /** Lo pactado distinto con este cliente. Vacío = el articulado de siempre. */
+  const cp = v.condiciones_particulares ?? {};
 
   /** Numera los parágrafos seguidos: un salto delata que se le quitó algo al contrato. */
   const parags = (textos: string[], primerRotulo = "") =>
@@ -427,18 +470,21 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
       : `El valor total del plan es de ${v.valor_total_eur} euros (EUR), pagadero en euros mediante transferencia a la cuenta que EL ORGANIZADOR indique. La cotización tiene una validez de ${v.validez} días desde su emisión.`;
 
   const formaPago: string[] = [
-    `Por regla general, ${P} pagará el cien por ciento (100%) del valor del plan al momento de confirmar la reserva, mediante los medios de pago que EL ORGANIZADOR le informe.`,
+    cp.pago ??
+      `Por regla general, ${P} pagará el cien por ciento (100%) del valor del plan al momento de confirmar la reserva, mediante los medios de pago que EL ORGANIZADOR le informe.`,
   ];
   const comisionesBancarias = `Los costos y comisiones bancarias o de la pasarela de pago dependen del banco desde donde se origina el pago y de la forma de pago elegida, y son asumidos por ${P}. Se tendrá como valor pagado el que efectivamente ingrese a la cuenta de EL ORGANIZADOR; si el monto acreditado es menor al pactado, ${P} deberá realizar el ajuste correspondiente por la diferencia. Los pagos se entienden recibidos cuando EL ORGANIZADOR confirme su acreditación por escrito.`;
   if (financiado) {
     formaPago.push(
       ...parags(
         [
-          `Las partes pactan un plan de pagos en ${numCuotas} cuotas, conforme al siguiente cronograma, que hace parte de este Contrato: ${crono}. En todo caso, el cien por ciento (100%) del valor del plan deberá estar pagado a más tardar sesenta (60) días calendario antes de la fecha de inicio del viaje. Sin el pago total no habrá lugar a la entrega de la documentación del viaje ni a la prestación de los servicios.`,
-          `El plan financiado no causa intereses remuneratorios. En caso de mora en cualquiera de las cuotas, EL ORGANIZADOR podrá cobrar intereses moratorios a la tasa máxima legal permitida, declarar vencido el plazo de las cuotas pendientes y exigir su pago inmediato, y, transcurridos cinco (5) días calendario desde el vencimiento sin pago ni justificación, entender que ${P} ha desistido del viaje, con aplicación de la política de cancelación de la ${ref("cancelacion")} y liberación del cupo.`,
-          ...(conPagare
-            ? [`Como garantía de las obligaciones dinerarias de este Contrato, ${P} suscribe un pagaré en blanco con carta de instrucciones (Anexo No. ${anexoPagare}), de conformidad con los artículos 621, 622 y 710 del Código de Comercio.`]
-            : []),
+          ...(cp.pago_parags ?? [
+            `Las partes pactan un plan de pagos en ${numCuotas} cuotas, conforme al siguiente cronograma, que hace parte de este Contrato: ${crono}. En todo caso, el cien por ciento (100%) del valor del plan deberá estar pagado a más tardar sesenta (60) días calendario antes de la fecha de inicio del viaje. Sin el pago total no habrá lugar a la entrega de la documentación del viaje ni a la prestación de los servicios.`,
+            `El plan financiado no causa intereses remuneratorios. En caso de mora en cualquiera de las cuotas, EL ORGANIZADOR podrá cobrar intereses moratorios a la tasa máxima legal permitida, declarar vencido el plazo de las cuotas pendientes y exigir su pago inmediato, y, transcurridos cinco (5) días calendario desde el vencimiento sin pago ni justificación, entender que ${P} ha desistido del viaje, con aplicación de la política de cancelación de la ${ref("cancelacion")} y liberación del cupo.`,
+            ...(conPagare
+              ? [`Como garantía de las obligaciones dinerarias de este Contrato, ${P} suscribe un pagaré en blanco con carta de instrucciones (Anexo No. ${anexoPagare}), de conformidad con los artículos 621, 622 y 710 del Código de Comercio.`]
+              : []),
+          ]),
           comisionesBancarias,
         ],
         " (PLAN FINANCIADO)",
@@ -447,7 +493,9 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
   } else {
     formaPago.push(
       ...parags([
-        `Si con posterioridad las partes pactan por escrito un plan de pagos en cuotas, el cien por ciento (100%) del valor del plan deberá estar pagado a más tardar sesenta (60) días calendario antes de la fecha de inicio del viaje; sin el pago total no habrá lugar a la entrega de la documentación del viaje ni a la prestación de los servicios.`,
+        ...(cp.pago_parags ?? [
+          `Si con posterioridad las partes pactan por escrito un plan de pagos en cuotas, el cien por ciento (100%) del valor del plan deberá estar pagado a más tardar sesenta (60) días calendario antes de la fecha de inicio del viaje; sin el pago total no habrá lugar a la entrega de la documentación del viaje ni a la prestación de los servicios.`,
+        ]),
         comisionesBancarias,
       ]),
     );
@@ -467,6 +515,7 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
           `La cancelación referida a uno o varios viajeros, sin cancelar el plan completo, se liquidará con los mismos porcentajes y plazos sobre la parte proporcional que corresponda a esos viajeros. El cambio en el número de viajeros puede modificar el reparto de habitaciones y, con él, la tarifa por persona de quienes permanezcan; esa diferencia será asumida por EL CONTRATANTE.`,
         ]
       : []),
+    ...(cp.cancelacion_parags ?? []),
     `CANCELACIÓN POR PARTE DE EL ORGANIZADOR. Si EL ORGANIZADOR cancela el viaje por causa no imputable a ${P} y distinta de los eventos de la ${ref("fuerza_mayor")}, reembolsará el cien por ciento (100%) de las sumas pagadas, sin descuento alguno, dentro de los treinta (30) días calendario siguientes, y ofrecerá, cuando sea posible, una alternativa de fecha o de ruta en condiciones equivalentes, que ${P} podrá aceptar o rechazar libremente.`,
   ];
 
@@ -502,13 +551,15 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
     modificaciones: {
       titulo: `MODIFICACIONES SOLICITADAS POR ${P}`,
       parrafos: [
-        `Toda modificación del plan ya reservado (fechas, etapas, alojamientos, número de noches o servicios) está sujeta a disponibilidad de los proveedores y causará un cargo de gestión de cien euros (100 €) ${empresa ? "por cada solicitud" : "por persona"}, más la diferencia de tarifa que la modificación genere. EL ORGANIZADOR gestionará la solicitud pero no garantiza disponibilidad, costo ni resultado.`,
+        cp.modificaciones ??
+          `Toda modificación del plan ya reservado (fechas, etapas, alojamientos, número de noches o servicios) está sujeta a disponibilidad de los proveedores y causará un cargo de gestión de cien euros (100 €) ${empresa ? "por cada solicitud" : "por persona"}, más la diferencia de tarifa que la modificación genere. EL ORGANIZADOR gestionará la solicitud pero no garantiza disponibilidad, costo ni resultado.`,
       ],
     },
     cancelacion: {
       titulo: "CANCELACIÓN Y REEMBOLSOS",
       parrafos: [
-        `Si ${P} cancela el viaje, aplicarán las siguientes condiciones sobre el valor total del plan, en atención a los gastos y compromisos irrevocables que EL ORGANIZADOR asume anticipadamente con los proveedores: (a) cancelación con sesenta (60) días calendario o más de antelación a la fecha de inicio: reembolso de lo pagado, descontando ciento cincuenta euros (150 €) por persona por gastos de gestión; (b) cancelación posterior: con más de 16 días de antelación, penalidad del 15% del valor total; entre 15 y 11 días, del 50%; entre 10 y 6 días, del 80%; con 5 días o menos, no presentación o abandono, sin devolución.`,
+        cp.cancelacion ??
+          `Si ${P} cancela el viaje, aplicarán las siguientes condiciones sobre el valor total del plan, en atención a los gastos y compromisos irrevocables que EL ORGANIZADOR asume anticipadamente con los proveedores: (a) cancelación con sesenta (60) días calendario o más de antelación a la fecha de inicio: reembolso de lo pagado, descontando ciento cincuenta euros (150 €) por persona por gastos de gestión; (b) cancelación posterior: con más de 16 días de antelación, penalidad del 15% del valor total; entre 15 y 11 días, del 50%; entre 10 y 6 días, del 80%; con 5 días o menos, no presentación o abandono, sin devolución.`,
         ...parags(cancelacionParags),
       ],
     },

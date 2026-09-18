@@ -72,7 +72,15 @@ function rotuloRecordatorios(c: ContractRow | undefined): string | null {
 
 // Los datos del firmante ya no viven acá: son por viajero (bloque 1) y cada uno los
 // confirma al firmar. Acá solo quedan los campos comunes a todos los contratos.
-const GRUPOS: { titulo: string; campos: (keyof ContractVariables)[] }[] = [
+/**
+ * Solo las variables que se escriben a mano en una caja de texto. `condiciones_particulares`
+ * no es una de ellas: son párrafos del articulado, no un dato del viaje.
+ */
+type CampoTexto = {
+  [K in keyof ContractVariables]-?: ContractVariables[K] extends string | undefined ? K : never;
+}[keyof ContractVariables];
+
+const GRUPOS: { titulo: string; campos: CampoTexto[] }[] = [
   {
     titulo: "El viaje",
     campos: ["ruta_nombre", "origen", "destino", "fecha_inicio", "fecha_fin", "num_personas", "modalidad", "habitaciones"],
@@ -87,8 +95,8 @@ const GRUPOS: { titulo: string; campos: (keyof ContractVariables)[] }[] = [
   },
 ];
 
-const TEXTAREA_FIELDS: (keyof ContractVariables)[] = ["incluye", "no_incluye", "opcionales"];
-const DATE_FIELDS: (keyof ContractVariables)[] = ["fecha_inicio", "fecha_fin", "fecha_cotizacion"];
+const TEXTAREA_FIELDS: CampoTexto[] = ["incluye", "no_incluye", "opcionales"];
+const DATE_FIELDS: CampoTexto[] = ["fecha_inicio", "fecha_fin", "fecha_cotizacion"];
 
 type FilaViajero = {
   id: string | null;

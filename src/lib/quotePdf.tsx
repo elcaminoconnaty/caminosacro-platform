@@ -328,6 +328,62 @@ export type QuotePDFProps = {
     extraNightTipo: "pension" | "hotel";
     tours: string[];
   } | null;
+  /**
+   * Lo que se pactó DISTINTO con este cliente. Ausente = el texto de siempre, palabra
+   * por palabra. Ver `CondicionesCotizacion` y la migración 0042.
+   */
+  condiciones?: CondicionesCotizacion | null;
+};
+
+/**
+ * Condiciones particulares de UNA cotización.
+ *
+ * La cotización entra al contrato como Anexo No. 1, así que las dos tienen que decir lo
+ * mismo. Cuando no lo dicen, el cliente lo nota: CS-2026-080 (Colegiatura, sep-2026)
+ * devolvió el contrato sin firmar pidiendo unificar cancelación, modificaciones y plazos
+ * de pago. Cada campo reemplaza un bloque del texto estándar; lo que no se nombra sigue
+ * intacto. Ver el gemelo `CondicionesParticulares` en `@/lib/contracts/template`.
+ */
+export type CondicionesCotizacion = {
+  /**
+   * Itinerario realmente reservado, cuando no es el del catálogo de la ruta.
+   *
+   * El catálogo describe la ruta genérica; lo que el operador confirma para un grupo
+   * concreto puede variar de pueblo (el Costero desde Baiona duerme en Redondela en el
+   * catálogo, y este grupo duerme en Arcade). Sin esto, la cotización promete un pueblo
+   * y la reserva es en otro — que es lo que Colegiatura pidió aclarar.
+   */
+  etapas?: Array<{
+    day: number;
+    from_place: string | null;
+    to_place: string | null;
+    km: number | null;
+    accommodation: string | null;
+  }>;
+  /** Reemplaza la lista de "Incluye". Ausente = la estándar según número de noches. */
+  incluido?: string[];
+  /** Reemplaza la lista de "No incluye". */
+  no_incluido?: string[];
+  /** Reemplaza el párrafo de validez del presupuesto. */
+  validez?: string;
+  /** Reemplaza la nota de "los servicios opcionales no se incluyen por defecto". */
+  opcionales_nota?: string;
+  /** Reemplaza el párrafo de "Para confirmar el viaje es necesario abonar el 30%…". */
+  confirmacion_pago?: string;
+  /** Reemplaza el párrafo del cargo por modificación de la reserva. */
+  modificaciones?: string;
+  /**
+   * Reemplaza la sección "Plazos de pago según antelación de reserva" completa. Lista
+   * vacía = la sección no se imprime, que es lo correcto cuando el plan ya está pagado
+   * y esos escalones solo confundirían.
+   */
+  plazos_pago?: { titulo?: string; items: { subtitulo?: string; texto: string }[] };
+  /**
+   * Rótulo bajo cada opcional ya contratado en el resumen de inversión. Ausente =
+   * "Servicio opcional", que para algo que YA está dentro del total se lee como si no
+   * lo estuviera — es justo lo que preguntó Colegiatura sobre el traslado de 612 €.
+   */
+  opcional_rotulo?: string;
 };
 
 // =============== HELPERS ===============
@@ -491,7 +547,9 @@ const CAT_TITLE: Record<string, string> = {
 const CAT_ORDER = ["seguro", "noche_extra", "meal", "transfer", "tour", "gift"];
 
 // =============== COMPONENT ===============
-export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceNote, priceBlocks, selectedOptionals, bikeFleet, selectedBikes, baseEur, seasonSupplement, roomBreakdown, customRooms, itineraryExtras }: QuotePDFProps) {
+export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = new Date(), coverImage, seasonNote, priceNote, priceBlocks, selectedOptionals, bikeFleet, selectedBikes, baseEur, seasonSupplement, roomBreakdown, customRooms, itineraryExtras, condiciones }: QuotePDFProps) {
+  /** Lo pactado distinto con este cliente. Vacío = el texto de siempre. */
+  const cond = condiciones ?? {};
   const total = Number(quote.total_eur) || 0;
   const base = Number(baseEur) || total;
   const people = quote.people || 1;
@@ -708,7 +766,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
         <View style={s.servicesRow} wrap={false}>
           <View style={[s.serviceBox, s.serviceBoxIn]}>
             <Text style={[s.serviceTitle, s.serviceTitleIn]}>{`✓ ${nights} INCLUIDO`}</Text>
-            {INCLUIDO_DEFAULT(nights).map((t, i) => (
+            {(cond.incluido ?? INCLUIDO_DEFAULT(nights)).map((t, i) => (
               <View key={i} style={s.serviceItem}>
                 <Text style={[s.serviceBullet, s.serviceBulletIn]}>•</Text>
                 <Text style={s.serviceText}>{t}</Text>
@@ -717,7 +775,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
           </View>
           <View style={[s.serviceBox, s.serviceBoxOut]}>
             <Text style={[s.serviceTitle, s.serviceTitleOut]}>✗ NO INCLUIDO</Text>
-            {NO_INCLUIDO_DEFAULT.map((t, i) => (
+            {(cond.no_incluido ?? NO_INCLUIDO_DEFAULT).map((t, i) => (
               <View key={i} style={s.serviceItem}>
                 <Text style={[s.serviceBullet, s.serviceBulletOut]}>•</Text>
                 <Text style={s.serviceText}>{t}</Text>
@@ -933,7 +991,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
               <View key={i} style={s.resumenLine}>
                 <View style={s.resumenLineConcept}>
                   <Text style={s.resumenLineConceptName}>{l.description}</Text>
-                  <Text style={s.resumenLineConceptSub}>Servicio opcional</Text>
+                  <Text style={s.resumenLineConceptSub}>{cond.opcional_rotulo ?? "Servicio opcional"}</Text>
                 </View>
                 <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(Number(l.unit_price) || 0)} €</Text>
                 <Text style={[s.resumenLineCell, s.resumenPpl]}>×{Number(l.quantity) || 1}</Text>
@@ -978,8 +1036,8 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
         {/* Condiciones */}
         <Text style={s.condTitle}>Condiciones generales</Text>
         <Text style={s.condText}>La reserva y contratación de cualquiera de los viajes ofrecidos por CAMINO SACRO supone la aceptación total de las condiciones generales de contratación.</Text>
-        <Text style={s.condText}>La validez de los presupuestos realizados a los clientes es de 30 días desde la fecha de envío de la cotización, excepto en promociones temporales con fechas de finalización especificadas a través de la propia cotización, email o por vía telefónica, o en aquellas cotizaciones especiales donde se indique lo contrario por cuestiones de disponibilidad de alojamientos o de alguno de los servicios solicitados.</Text>
-        <Text style={s.condText}>Los servicios opcionales no se incluyen por defecto en el precio total indicado, y será el cliente quien deba indicar expresamente los que desea contratar a la hora de confirmar el viaje.</Text>
+        <Text style={s.condText}>{cond.validez ?? "La validez de los presupuestos realizados a los clientes es de 30 días desde la fecha de envío de la cotización, excepto en promociones temporales con fechas de finalización especificadas a través de la propia cotización, email o por vía telefónica, o en aquellas cotizaciones especiales donde se indique lo contrario por cuestiones de disponibilidad de alojamientos o de alguno de los servicios solicitados."}</Text>
+        <Text style={s.condText}>{cond.opcionales_nota ?? "Los servicios opcionales no se incluyen por defecto en el precio total indicado, y será el cliente quien deba indicar expresamente los que desea contratar a la hora de confirmar el viaje."}</Text>
         <Text style={s.condText}>Tras haber realizado todas las gestiones necesarias para su ruta, le enviaremos su documentación de viaje por email acompañada de su póliza de seguro de viaje. El período estimado para el envío de su documentación es de 30 días antes de la salida de su viaje. Hasta que haya sido confirmado el 100% del pago de su reserva (en el caso de pago fraccionado, hasta que recibamos el abono del 70% correspondiente a la segunda cuota), no recibirá en su email la documentación de viaje.</Text>
       </Page>
 
@@ -990,11 +1048,11 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
 
         <Text style={s.condTitle}>Confirmación y gestión de la reserva</Text>
         <Text style={s.condText}>En el momento de planificación del viaje no se gestionan reservas con los alojamientos; quedan sujetos a disponibilidad hasta que se realice el pago inicial.</Text>
-        <Text style={s.condText}>Para confirmar el viaje es necesario abonar el 30% de la reserva (mínimo 150€ por persona — no reembolsables) en un plazo máximo de 7 días desde la confirmación. El importe restante deberá estar abonado 60 días antes de la fecha de inicio.</Text>
+        <Text style={s.condText}>{cond.confirmacion_pago ?? "Para confirmar el viaje es necesario abonar el 30% de la reserva (mínimo 150€ por persona — no reembolsables) en un plazo máximo de 7 días desde la confirmación. El importe restante deberá estar abonado 60 días antes de la fecha de inicio."}</Text>
         <Text style={s.condText}>El titular deberá aportar los siguientes documentos de cada integrante del viaje: foto o copia del pasaporte, nombre completo, número de identidad y número de teléfono de contacto.</Text>
 
         <Text style={s.condTitle}>Modificación de la reserva</Text>
-        <Text style={s.condText}>Cualquier modificación que altere el itinerario o las fechas una vez formalizada la reserva tendrá un coste de 100€ por persona en concepto de gastos de gestión, más la diferencia de precio entre la reserva original y la nueva opción.</Text>
+        <Text style={s.condText}>{cond.modificaciones ?? "Cualquier modificación que altere el itinerario o las fechas una vez formalizada la reserva tendrá un coste de 100€ por persona en concepto de gastos de gestión, más la diferencia de precio entre la reserva original y la nueva opción."}</Text>
 
         <Text style={s.condTitle}>Política de cancelación</Text>
         <Text style={[s.condText, { fontFamily: SANS_BOLD }]}>Con 60 o más días de antelación: reembolso excepto gastos de gestión de 150€ por persona (IVA incluido).</Text>
@@ -1015,15 +1073,31 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
           </>
         )}
 
-        <Text style={s.condTitle}>Plazos de pago según antelación de reserva</Text>
-        <Text style={s.condSubtitle}>Más de 30 días antes del inicio:</Text>
-        <Text style={s.condText}>30% del importe en un plazo máximo de 7 días desde la confirmación de reserva, y el 70% restante antes de los 30 días previos a la salida del viaje.</Text>
-        <Text style={s.condSubtitle}>Entre 30 y 11 días de antelación:</Text>
-        <Text style={s.condText}>100% del importe en las siguientes 72 horas al envío de la confirmación.</Text>
-        <Text style={s.condSubtitle}>Entre 10 y 4 días antes del inicio:</Text>
-        <Text style={s.condText}>Pago total obligatorio mediante tarjeta de crédito, débito o PayPal en las siguientes 24 horas al envío de la confirmación.</Text>
-        <Text style={s.condSubtitle}>Reservas con menos de 72 horas:</Text>
-        <Text style={s.condText}>Se contemplan como reservas de última hora, sujetas a disponibilidad y a las condiciones estipuladas para este supuesto.</Text>
+        {/* Con condiciones particulares, esta sección se reemplaza entera: una cotización ya
+            pagada no puede seguir anunciando escalones de pago según la antelación, y era
+            justo acá donde el texto estándar se contradecía con el párrafo de confirmación
+            («el saldo 60 días antes» arriba, «el 70% antes de los 30 días previos» acá). */}
+        {(() => {
+          const pp = cond.plazos_pago;
+          const items = pp?.items ?? [
+            { subtitulo: "Más de 30 días antes del inicio:", texto: "30% del importe en un plazo máximo de 7 días desde la confirmación de reserva, y el 70% restante antes de los 30 días previos a la salida del viaje." },
+            { subtitulo: "Entre 30 y 11 días de antelación:", texto: "100% del importe en las siguientes 72 horas al envío de la confirmación." },
+            { subtitulo: "Entre 10 y 4 días antes del inicio:", texto: "Pago total obligatorio mediante tarjeta de crédito, débito o PayPal en las siguientes 24 horas al envío de la confirmación." },
+            { subtitulo: "Reservas con menos de 72 horas:", texto: "Se contemplan como reservas de última hora, sujetas a disponibilidad y a las condiciones estipuladas para este supuesto." },
+          ];
+          if (items.length === 0) return null;
+          return (
+            <>
+              <Text style={s.condTitle}>{pp?.titulo ?? "Plazos de pago según antelación de reserva"}</Text>
+              {/* Plano, sin Fragment: este archivo no importa React y un View de más
+                  cambiaría cómo parte la página. */}
+              {items.flatMap((it, i) => [
+                it.subtitulo ? <Text key={`sub-${i}`} style={s.condSubtitle}>{it.subtitulo}</Text> : null,
+                <Text key={`txt-${i}`} style={s.condText}>{it.texto}</Text>,
+              ])}
+            </>
+          );
+        })()}
 
         {/* CTA */}
         <View style={s.ctaBox} wrap={false}>

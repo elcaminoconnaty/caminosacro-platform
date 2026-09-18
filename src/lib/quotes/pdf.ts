@@ -21,7 +21,23 @@ export type ComercialClient =
 // El nombre y la ubicaci\u00f3n de los archivos viven en @/lib/storage/paths.
 export { buildPdfFilename } from "@/lib/storage/paths";
 
-export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId: string) {
+/**
+ * Opciones del render. Ambas existen para lo mismo: poder VER una cotización antes de que
+ * salga. `soloRender` devuelve el PDF sin subirlo ni tocar `pdf_path`, y `condiciones`
+ * permite probar unas condiciones particulares antes de guardarlas en la cotización.
+ */
+export type OpcionesQuotePdf = {
+  /** Devuelve el buffer sin subir a storage ni actualizar la cotización. */
+  soloRender?: boolean;
+  /** Condiciones particulares a usar en vez de las guardadas (migración 0042). */
+  condiciones?: unknown;
+};
+
+export async function renderAndStoreQuotePdf(
+  supabase: ComercialClient,
+  quoteId: string,
+  opciones: OpcionesQuotePdf = {},
+) {
 
   // Las líneas se traen de una sola vez para opcionales Y bicis (migración 0021). Antes se
   // filtraba `.eq("type","optional")`, así que una bici contratada existía en la BD, sumaba
@@ -42,6 +58,12 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     getTRMHoy(supabase).catch(() => null),
   ]);
   if (!quote) return { error: "Cotización no encontrada" };
+
+  // Lo pactado distinto con este cliente (migración 0042). Ausente = el texto y el
+  // itinerario de siempre. Se resuelve acá arriba porque las etapas se usan más abajo.
+  const condiciones = (opciones.condiciones ?? quote.condiciones_json ?? null) as
+    | import("@/lib/quotePdf").CondicionesCotizacion
+    | null;
 
   type QuoteLine = {
     type: string;
@@ -114,6 +136,14 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
         ...x,
         km: x.km != null ? Number(x.km) : null,
       }));
+      // El itinerario pactado manda sobre el del catálogo: el catálogo describe la ruta
+      // genérica y el operador puede confirmarle a un grupo otros pueblos. Los km del
+      // encabezado se recalculan con él, o el cuadro de stats diría los del catálogo
+      // mientras la tabla de etapas debajo suma otra cosa.
+      if (condiciones?.etapas?.length) {
+        stages = condiciones.etapas;
+        route.km = stages.reduce((a, st) => a + (Number(st.km) || 0), 0);
+      }
       // Tarifas del año de salida (migración 0017): una salida 2027 no se compara contra
       // precios 2026. Sin tarifas del año no hay tarjeta comparativa, que es lo correcto.
       const { data: prc } = await supabase
@@ -448,6 +478,7 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     roomBreakdown,
     customRooms: customRoomsPdf,
     itineraryExtras,
+    condiciones,
     baseEur: Number(quote.base_eur) || Number(quote.total_eur) || 0,
     seasonSupplement: {
       kind: (quote.season_kind === "high_season" || quote.season_kind === "easter" ? quote.season_kind : "regular") as "regular" | "high_season" | "easter",
@@ -463,6 +494,9 @@ export async function renderAndStoreQuotePdf(supabase: ComercialClient, quoteId:
     console.error("[generateQuotePdf] render falló:", e);
     return { error: mensajeError(e as Error, "No se pudo generar el PDF de la cotización.") };
   }
+
+  // Vista previa: el PDF sale por la puerta de atrás, sin tocar storage ni la cotización.
+  if (opciones.soloRender) return { ok: true as const, buffer };
 
   const pdfPath = rutaCotizacion(quote.code, quote.client_name, quote.route_name);
 

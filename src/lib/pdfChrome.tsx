@@ -15,26 +15,38 @@ import path from "node:path";
 // Inter TTF locales: soportan el Unicode ancho (flechas, símbolos, «») que las fuentes
 // built-in de PDF (Adobe Standard Encoding) no incluyen.
 const FONT_DIR = path.join(process.cwd(), "src/lib/fonts");
-Font.register({
-  family: "Inter",
-  fonts: [
-    { src: path.join(FONT_DIR, "Inter-Regular.ttf"), fontWeight: 400 },
-    { src: path.join(FONT_DIR, "Inter-Italic.ttf"), fontWeight: 400, fontStyle: "italic" },
-  ],
-});
-Font.register({
-  family: "Inter-Bold",
-  fonts: [
-    { src: path.join(FONT_DIR, "Inter-Bold.ttf"), fontWeight: 400 },
-    { src: path.join(FONT_DIR, "Inter-BoldItalic.ttf"), fontWeight: 400, fontStyle: "italic" },
-  ],
-});
 
-// Sin guionado: `@react-pdf` parte las palabras por guion al final de línea y con datos
-// reales ya se ven cortes como «acomo-dación» o «Ponfe-rrada». Devolver la palabra entera
-// desactiva el algoritmo. Es global al módulo `Font`, pero se repite en cada sitio que
-// registra fuentes porque no todos los generadores pasan por el mismo módulo.
-Font.registerHyphenationCallback((word) => [word]);
+/**
+ * Deja las fuentes puestas en UN módulo `Font` de @react-pdf.
+ *
+ * Recibe el `Font` en vez de usar el importado acá porque no siempre hay uno solo: fuera
+ * de Next, un `import()` dinámico de @react-pdf carga la copia CommonJS del paquete, con
+ * su propio registro de fuentes, y el render revienta con "Font family not registered:
+ * Inter" aunque este módulo ya se haya importado. Los scripts que renderizan por esa vía
+ * (ver scripts/colegiatura_preview.tsx) llaman a esto con SU copia de `Font`.
+ */
+export function registrarFuentes(F: typeof Font = Font) {
+  F.register({
+    family: "Inter",
+    fonts: [
+      { src: path.join(FONT_DIR, "Inter-Regular.ttf"), fontWeight: 400 },
+      { src: path.join(FONT_DIR, "Inter-Italic.ttf"), fontWeight: 400, fontStyle: "italic" },
+    ],
+  });
+  F.register({
+    family: "Inter-Bold",
+    fonts: [
+      { src: path.join(FONT_DIR, "Inter-Bold.ttf"), fontWeight: 400 },
+      { src: path.join(FONT_DIR, "Inter-BoldItalic.ttf"), fontWeight: 400, fontStyle: "italic" },
+    ],
+  });
+  // Sin guionado: `@react-pdf` parte las palabras por guion al final de línea y con datos
+  // reales ya se ven cortes como «acomo-dación» o «Ponfe-rrada». Devolver la palabra entera
+  // desactiva el algoritmo.
+  F.registerHyphenationCallback((word) => [word]);
+}
+
+registrarFuentes();
 
 
 // Times built-in para títulos y números: sin caracteres raros, y da el aire de imprenta
