@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Check, Inbox, Mail, MessageCircle, TriangleAlert, Undo2 } from "lucide-react";
+import { Check, Inbox, Mail, MessageCircle, Send, TriangleAlert, Undo2 } from "lucide-react";
 import { fechaCortaISO, hace } from "@/lib/format";
 import {
   agruparLeads,
@@ -12,7 +12,8 @@ import {
   type GrupoLead,
   type WebLead,
 } from "@/lib/leads/webLeads";
-import { marcarLeadAtendido } from "./leadsActions";
+import type { SolicitudPrecio } from "@/lib/leads/solicitudPrecio";
+import { enviarSolicitudPrecioPilgrim, marcarLeadAtendido } from "./leadsActions";
 
 /**
  * Los leads del cotizador de la web que se quedaron sin precio.
@@ -41,12 +42,29 @@ function telefonoWhatsApp(tel: string): string {
   return d;
 }
 
-export default function LeadsPanel({ leads }: { leads: WebLead[] }) {
+export default function LeadsPanel({
+  leads,
+  borradores,
+  pilgrimEmail,
+}: {
+  leads: WebLead[];
+  /** Borrador del correo a Pilgrim por lead pendiente, armado en el servidor. */
+  borradores: Record<string, SolicitudPrecio>;
+  pilgrimEmail: string;
+}) {
   const [verAtendidos, setVerAtendidos] = useState(false);
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notas, setNotas] = useState<Record<string, string>>({});
+
+  // Borrador de Pilgrim abierto, y el texto que se está editando. Se guardan por lead
+  // para no perder lo escrito al plegar y volver a abrir.
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const [textos, setTextos] = useState<Record<string, SolicitudPrecio>>({});
+  const [resultados, setResultados] = useState<Record<string, { ok: boolean; texto: string }>>({});
+  const [modoPrueba, setModoPrueba] = useState(false);
+  const [emailPrueba, setEmailPrueba] = useState("");
 
   const pendientes = useMemo(() => agruparLeads(leads.filter((l) => !l.atendido_at)), [leads]);
   const atendidos = useMemo(() => agruparLeads(leads.filter((l) => l.atendido_at)), [leads]);
@@ -55,6 +73,42 @@ export default function LeadsPanel({ leads }: { leads: WebLead[] }) {
   if (leads.length === 0) return null;
 
   const mostrados = verAtendidos ? atendidos : pendientes;
+
+  function textoDe(id: string): SolicitudPrecio {
+    return textos[id] ?? borradores[id] ?? { subject: "", body: "" };
+  }
+
+  function editar(id: string, campo: keyof SolicitudPrecio, valor: string) {
+    setTextos((prev) => ({ ...prev, [id]: { ...textoDe(id), [campo]: valor } }));
+  }
+
+  function pedirPrecio(id: string) {
+    const prueba = modoPrueba ? emailPrueba.trim() : "";
+    if (modoPrueba && !prueba) {
+      setResultados((p) => ({ ...p, [id]: { ok: false, texto: "Escribe el correo de prueba." } }));
+      return;
+    }
+    setResultados((p) => ({ ...p, [id]: { ok: true, texto: "Enviando…" } }));
+    setBusy(id);
+    startTransition(async () => {
+      const { subject, body } = textoDe(id);
+      const r = await enviarSolicitudPrecioPilgrim(id, { subject, body, pruebaEmail: prueba || null });
+      setResultados((p) => ({
+        ...p,
+        [id]: r.ok
+          ? {
+              ok: true,
+              // "Enviado" solo con el id del proveedor. Sin eso lo único cierto es que
+              // se encoló, y darlo por enviado fue como se perdieron tres solicitudes.
+              texto: r.confirmado
+                ? `✓ Enviado a ${r.email}${prueba ? " (prueba)" : ""}`
+                : `⏳ En cola para ${r.email} — el proveedor todavía no lo confirmó.`,
+            }
+          : { ok: false, texto: r.error ?? "No se pudo enviar el correo." },
+      }));
+      setBusy(null);
+    });
+  }
 
   function cerrar(g: GrupoLead, atendido: boolean) {
     setError(null);
@@ -137,6 +191,14 @@ export default function LeadsPanel({ leads }: { leads: WebLead[] }) {
                       </span>
                     )}
                     {l.code && <span className="text-[11px] font-mono text-muted">{l.code}</span>}
+                    {l.precio_solicitado_at && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-bosque/10 text-bosque font-semibold"
+                        title="Ya se le pidió el precio a Pilgrim"
+                      >
+                        <Send size={10} /> precio pedido {hace(l.precio_solicitado_at)}
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-muted">
                     {l.route_name || l.route_slug} · {tipoLabel(l.tipo)} · salida{" "}
@@ -191,6 +253,21 @@ export default function LeadsPanel({ leads }: { leads: WebLead[] }) {
                       Cotizar a mano
                     </Link>
                   )}
+                  {!l.atendido_at && borradores[l.id] && (
+                    <button
+                      type="button"
+                      onClick={() => setAbierto((a) => (a === l.id ? null : l.id))}
+                      aria-expanded={abierto === l.id}
+                      className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-md border transition whitespace-nowrap ${
+                        abierto === l.id
+                          ? "border-bosque bg-bosque/5 text-bosque"
+                          : "border-border hover:bg-taupe/40"
+                      }`}
+                    >
+                      <Send size={13} />
+                      {l.precio_solicitado_at ? "Volver a pedir precio" : "Pedir precio a Pilgrim"}
+                    </button>
+                  )}
                   {l.atendido_at ? (
                     <button
                       type="button"
@@ -220,6 +297,92 @@ export default function LeadsPanel({ leads }: { leads: WebLead[] }) {
                   )}
                 </div>
               </div>
+
+              {/* Borrador de la solicitud de precio a Pilgrim. Se pliega: en pantalla
+                  puede haber varios leads y abrirlos todos sería ilegible. */}
+              {abierto === l.id && borradores[l.id] && (
+                <div className="mt-3 rounded-lg border border-border bg-taupe/20 p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted">
+                      Para{" "}
+                      <span className="font-medium text-fg">
+                        {modoPrueba ? emailPrueba.trim() || "—" : pilgrimEmail || "—"}
+                      </span>
+                      {" · "}
+                      {/* Lo que este correo NO lleva es la mitad del encargo, así que se
+                          dice en pantalla y no solo en el código. */}
+                      <span title="El correo y el teléfono del peregrino no salen de la plataforma.">
+                        sin el contacto del peregrino
+                      </span>
+                    </p>
+                    <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={modoPrueba}
+                        onChange={(e) => setModoPrueba(e.target.checked)}
+                        className="rounded border-border"
+                      />
+                      Probar a otra dirección
+                    </label>
+                  </div>
+
+                  {modoPrueba && (
+                    <input
+                      value={emailPrueba}
+                      onChange={(e) => setEmailPrueba(e.target.value)}
+                      placeholder="correo de prueba"
+                      className="w-full px-2 py-1.5 rounded-md border border-border bg-white text-xs"
+                    />
+                  )}
+
+                  <input
+                    value={textoDe(l.id).subject}
+                    onChange={(e) => editar(l.id, "subject", e.target.value)}
+                    className="w-full px-2 py-1.5 rounded-md border border-border bg-white text-xs font-medium"
+                    aria-label="Asunto del correo a Pilgrim"
+                  />
+                  <textarea
+                    value={textoDe(l.id).body}
+                    onChange={(e) => editar(l.id, "body", e.target.value)}
+                    rows={16}
+                    className="w-full px-2 py-2 rounded-md border border-border bg-white text-xs font-mono leading-relaxed"
+                    aria-label="Cuerpo del correo a Pilgrim"
+                  />
+
+                  {resultados[l.id] && (
+                    <p
+                      role="status"
+                      className={`text-xs ${resultados[l.id].ok ? "text-bosque" : "text-red-700"}`}
+                    >
+                      {resultados[l.id].texto}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAbierto(null)}
+                      className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition"
+                    >
+                      Cerrar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => pedirPrecio(l.id)}
+                      disabled={pending || (!modoPrueba && !pilgrimEmail)}
+                      title={
+                        !modoPrueba && !pilgrimEmail
+                          ? "Falta el correo de Pilgrim en Configuración → Proveedor Pilgrim"
+                          : undefined
+                      }
+                      className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-md bg-bosque text-white hover:bg-bosque-medio disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    >
+                      <Send size={13} />
+                      {ocupado ? "Enviando…" : modoPrueba ? "Enviar prueba" : "Enviar a Pilgrim"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </li>
           );
         })}

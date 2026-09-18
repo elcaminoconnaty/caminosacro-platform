@@ -29,6 +29,8 @@ export type WebLead = {
   email_sent: boolean | null;
   atendido_at: string | null;
   atendido_nota: string | null;
+  /** Cuándo se le pidió el precio a Pilgrim (migración 0044). null = todavía no. */
+  precio_solicitado_at: string | null;
 };
 
 export const MOTIVO_LABEL: Record<string, string> = {

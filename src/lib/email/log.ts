@@ -17,7 +17,10 @@ import type { ComercialClient } from "@/lib/quotes/pdf";
 export type EnvioRegistrado = {
   quoteId?: string | null;
   code?: string | null;
-  tipo: "cliente" | "pilgrim" | "contrato" | "lead" | "documentacion" | "ficha";
+  // `precio_pilgrim` es la solicitud de precio de un lead de la web que se quedó sin
+  // tarifa; se separa de `pilgrim` (la reserva confirmada) porque no es lo mismo pedir
+  // un precio que confirmar plazas, y a la hora de mirar el registro hay que distinguirlo.
+  tipo: "cliente" | "pilgrim" | "precio_pilgrim" | "contrato" | "lead" | "documentacion" | "ficha";
   destinatario: string;
   asunto?: string | null;
   adjuntos?: number;

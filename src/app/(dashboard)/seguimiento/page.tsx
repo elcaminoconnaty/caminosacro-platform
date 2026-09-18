@@ -6,6 +6,8 @@ import AvisoCarga from "@/components/AvisoCarga";
 import QuotesTable, { type QuoteRow } from "./QuotesTable";
 import LeadsPanel from "./LeadsPanel";
 import type { WebLead } from "@/lib/leads/webLeads";
+import { armarSolicitudPrecio, type SolicitudPrecio } from "@/lib/leads/solicitudPrecio";
+import { getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 
 type Quote = {
   id: string;
@@ -61,7 +63,7 @@ export default async function SeguimientoPage() {
     supabase
       .from("web_leads")
       .select(
-        "id,created_at,code,motivo,route_slug,route_name,tipo,start_date,people,full_name,email,phone,marketing_optin,email_sent,atendido_at,atendido_nota",
+        "id,created_at,code,motivo,route_slug,route_name,tipo,start_date,people,full_name,email,phone,marketing_optin,email_sent,atendido_at,atendido_nota,precio_solicitado_at",
       )
       .order("created_at", { ascending: false })
       .limit(300),
@@ -99,6 +101,33 @@ export default async function SeguimientoPage() {
 
   const quotes = (qData ?? []) as Quote[];
   const leads = (leadRows ?? []) as WebLead[];
+
+  // El borrador del correo a Pilgrim de cada lead pendiente, armado en el servidor.
+  //
+  // Se arma acá y no en el panel por lo mismo que el resto de correos del CRM: el cuerpo
+  // que se manda lo compone el servidor a partir de una lista cerrada de campos, y el
+  // navegador solo lo enseña para retocarlo. Es la diferencia entre "el contacto del
+  // peregrino no va" como regla y como costumbre.
+  //
+  // Solo para los pendientes: un lead cerrado ya no se cotiza.
+  const pendientes = leads.filter((l) => !l.atendido_at);
+  let borradores: Record<string, SolicitudPrecio> = {};
+  let pilgrimEmail = "";
+  if (pendientes.length > 0) {
+    const [{ data: rutas }, ajustes] = await Promise.all([
+      // `modality` importa: en las rutas en bici el correo pide además el alquiler.
+      supabase.from("routes").select("slug,origin,destination,days,nights,modality"),
+      getPilgrimSettings(supabase),
+    ]);
+    pilgrimEmail = ajustes.email;
+    const porSlug = new Map((rutas ?? []).map((r) => [r.slug as string, r]));
+    borradores = Object.fromEntries(
+      pendientes.map((l) => [
+        l.id,
+        armarSolicitudPrecio(l, porSlug.get(l.route_slug) ?? null, { contacto: ajustes.contacto }),
+      ]),
+    );
+  }
   const cps = (clientPays ?? []) as ClientPayment[];
   const pps = (providerPays ?? []) as ProviderPayment[];
 
@@ -193,7 +222,7 @@ export default async function SeguimientoPage() {
           }
         />
       ) : (
-        <LeadsPanel leads={leads} />
+        <LeadsPanel leads={leads} borradores={borradores} pilgrimEmail={pilgrimEmail} />
       )}
 
       <QuotesTable rows={rows} hoy={hoy} />
