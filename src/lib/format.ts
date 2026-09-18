@@ -23,6 +23,27 @@ export function fechaCorta(d: Date | string) {
   return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 }
 
+const MESES_CORTOS = [
+  "ene", "feb", "mar", "abr", "may", "jun",
+  "jul", "ago", "sep", "oct", "nov", "dic",
+];
+
+/**
+ * Una fecha suelta ("2027-05-03") en "03 may 2027", sin pasar por `Date`.
+ *
+ * `fechaCorta` sí pasa por `Date`, y `new Date("2027-05-03")` es medianoche **UTC**: en
+ * Bogotá (UTC-5) eso son las 7 de la tarde del día 2, así que una salida del 3 de mayo se
+ * pinta "02 may". El servidor de Railway va en UTC y la acierta; el navegador de Nico, no.
+ * En columnas como `start_date`, que en Postgres son `date` y no llevan hora, el día es el
+ * dato entero: no hay zona que aplicarle.
+ */
+export function fechaCortaISO(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+  if (!m) return iso;
+  const [, y, mes, d] = m;
+  return `${d} ${MESES_CORTOS[Number(mes) - 1] ?? mes} ${y}`;
+}
+
 export function hace(d: Date | string) {
   const date = typeof d === "string" ? new Date(d) : d;
   const diff = Date.now() - date.getTime();

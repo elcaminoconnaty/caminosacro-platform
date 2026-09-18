@@ -4,6 +4,7 @@ import { registrarEnvio } from "@/lib/email/log";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { WHATSAPP_NICO } from "@/app/cotizar/constants";
 import { autorizado, noAutorizado } from "../auth";
+import { VENTANA_LEAD_REPETIDO_MS } from "@/lib/leads/webLeads";
 
 export const dynamic = "force-dynamic";
 
@@ -161,6 +162,41 @@ export async function POST(request: Request) {
   // Va en su propio try: que la base no responda no puede impedir que salgan los correos,
   // que es el camino que hoy funciona. Si falla, se sigue con `leadId` en null.
   const supabase = createAdminClient();
+
+  // ---- El mismo envío dos veces no es dos leads ----
+  //
+  // El cotizador de la web manda la solicitud repetida: en la base hay tres casos de la
+  // misma persona con la misma ruta y la misma fecha a 3 y 6 segundos de distancia (Hugo,
+  // Martha). Cada repetición era una fila más y —peor— un acuse más al visitante y un
+  // aviso más a reservas@, o sea la bandeja de Nico llena de gente duplicada.
+  //
+  // Solo se corta si al original YA le salió el correo. Si falló o quedó a medias
+  // (`email_sent` null), el reintento sigue de largo: esa persona todavía no ha recibido
+  // nada y es exactamente a quien hay que volver a intentarle el envío.
+  const desde = new Date(Date.now() - VENTANA_LEAD_REPETIDO_MS).toISOString();
+  try {
+    const { data: repetido } = await supabase
+      .from("web_leads")
+      .select("id")
+      .eq("email", datos.email)
+      .eq("route_slug", datos.route_slug)
+      .eq("tipo", datos.tipo)
+      .eq("start_date", datos.start_date)
+      .eq("people", datos.people)
+      .eq("motivo", datos.motivo)
+      .eq("email_sent", true)
+      .gte("created_at", desde)
+      .limit(1)
+      .maybeSingle();
+    if (repetido) {
+      console.info("[wp-lead] envío repetido, no se duplica:", datos.email, datos.route_slug);
+      return Response.json({ ok: true, email_sent: true, repetido: true });
+    }
+  } catch (e) {
+    // Que no se pueda comprobar no puede impedir atender a la persona: se sigue como antes.
+    console.warn("[wp-lead] no pude comprobar si era repetido:", e);
+  }
+
   let leadId: string | null = null;
   try {
     const { data, error } = await supabase

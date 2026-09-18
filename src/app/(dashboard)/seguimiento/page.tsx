@@ -4,6 +4,8 @@ import { eur } from "@/lib/format";
 import Link from "next/link";
 import AvisoCarga from "@/components/AvisoCarga";
 import QuotesTable, { type QuoteRow } from "./QuotesTable";
+import LeadsPanel from "./LeadsPanel";
+import type { WebLead } from "@/lib/leads/webLeads";
 
 type Quote = {
   id: string;
@@ -30,7 +32,13 @@ type Contract = { quote_id: string; signed_at: string | null; kind: string | nul
 
 export default async function SeguimientoPage() {
   const supabase = await createCommercialClient();
-  const [{ data: qData, error }, { data: clientPays }, { data: providerPays }, { data: contractRows }] = await Promise.all([
+  const [
+    { data: qData, error },
+    { data: clientPays },
+    { data: providerPays },
+    { data: contractRows },
+    { data: leadRows, error: leadsError },
+  ] = await Promise.all([
     supabase
       .from("quotes")
       .select(
@@ -45,6 +53,18 @@ export default async function SeguimientoPage() {
     // un viajero sin firmar era invisible desde acá: había que entrar expediente por
     // expediente para verlo (§2.0 de la síntesis).
     supabase.from("contracts").select("quote_id,signed_at,kind"),
+    // Los leads del cotizador que se quedaron sin precio (`comercial.web_leads`, 0035).
+    // No crean cotización a propósito —es justo lo que no se puede calcular—, así que la
+    // consulta de arriba no los ve y hasta ahora no los veía nadie: quedaban en la tabla y
+    // en el correo, y en ninguna pantalla. Esa es la razón de que Hugo y Marcela no
+    // aparecieran acá mientras Pepa sí.
+    supabase
+      .from("web_leads")
+      .select(
+        "id,created_at,code,motivo,route_slug,route_name,tipo,start_date,people,full_name,email,phone,marketing_optin,email_sent,atendido_at,atendido_nota",
+      )
+      .order("created_at", { ascending: false })
+      .limit(300),
   ]);
 
   // Si la consulta de cotizaciones falla no se pinta nada más: ni los cinco KPI en 0,00 € ni
@@ -78,6 +98,7 @@ export default async function SeguimientoPage() {
   }
 
   const quotes = (qData ?? []) as Quote[];
+  const leads = (leadRows ?? []) as WebLead[];
   const cps = (clientPays ?? []) as ClientPayment[];
   const pps = (providerPays ?? []) as ProviderPayment[];
 
@@ -156,6 +177,24 @@ export default async function SeguimientoPage() {
         <Card label="Cobrado al cliente" value={eur(totCobrado)} />
         <Card label="Pagado a Pilgrim" value={eur(totPagadoPilgrim)} muted />
       </section>
+
+      {/* Si la tabla de leads no responde se dice, en vez de enseñar la pantalla sin el
+          panel: sin aviso, "no hay leads" y "no pude leerlos" se ven exactamente igual,
+          que es el mismo error que este panel viene a cerrar. */}
+      {leadsError ? (
+        <AvisoCarga
+          titulo="No se pudieron cargar los leads de la web."
+          detalle={
+            <>
+              {mensajeError(leadsError, "La consulta al servidor no respondió.")} Las
+              cotizaciones de abajo sí están completas; lo que falta acá son los leads que
+              el cotizador no pudo cotizar.
+            </>
+          }
+        />
+      ) : (
+        <LeadsPanel leads={leads} />
+      )}
 
       <QuotesTable rows={rows} hoy={hoy} />
     </div>
