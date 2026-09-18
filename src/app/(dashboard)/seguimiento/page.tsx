@@ -115,8 +115,8 @@ export default async function SeguimientoPage() {
   let pilgrimEmail = "";
   if (pendientes.length > 0) {
     const [{ data: rutas }, ajustes] = await Promise.all([
-      // `modality` importa: en las rutas en bici el correo pide además el alquiler.
-      supabase.from("routes").select("slug,origin,destination,days,nights,modality"),
+      // Solo el tramo: la duración no va en el correo, la pone Pilgrim.
+      supabase.from("routes").select("slug,origin,destination"),
       getPilgrimSettings(supabase),
     ]);
     pilgrimEmail = ajustes.email;

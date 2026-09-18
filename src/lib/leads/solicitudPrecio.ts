@@ -28,14 +28,18 @@ export type LeadParaPilgrim = {
   full_name: string;
 };
 
-/** Lo que se sabe de la ruta en el catálogo. Todo opcional: hay rutas sin ficha completa. */
+/**
+ * Lo que se sabe de la ruta en el catálogo. Solo el tramo, y opcional: hay rutas sin
+ * ficha completa.
+ *
+ * Ni días ni noches: la duración la pone Pilgrim, que es quien arma el itinerario. Un
+ * "7 días · 6 noches" salido de NUESTRO catálogo en una petición de precio es decirle al
+ * proveedor lo que tiene que ofrecer, y si su programa de ese año no coincide, el precio
+ * vuelve cotizado sobre una duración que no era.
+ */
 export type RutaParaPilgrim = {
   origin?: string | null;
   destination?: string | null;
-  days?: number | null;
-  nights?: number | null;
-  /** 'senderismo' | 'bici' | 'mixto'. En bici hay que preguntar también por el alquiler. */
-  modality?: string | null;
 };
 
 export type SolicitudPrecio = { subject: string; body: string };
@@ -55,15 +59,6 @@ function fechaLargaISO(iso: string): string {
   ];
   const [, y, mes, d] = m;
   return `${Number(d)} de ${meses[Number(mes) - 1] ?? mes} de ${y}`;
-}
-
-/** Suma días a una fecha suelta sin tocar zonas horarias. */
-function sumarDiasISO(iso: string, dias: number): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
-  if (!m) return null;
-  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  d.setUTCDate(d.getUTCDate() + dias);
-  return d.toISOString().slice(0, 10);
 }
 
 /**
@@ -101,10 +96,6 @@ export function armarSolicitudPrecio(
   const alojamiento = TIPO_LARGO[lead.tipo] ?? lead.tipo;
   const anio = lead.start_date.slice(0, 4);
 
-  const dias = ruta?.days ?? null;
-  const noches = ruta?.nights ?? (dias ? dias - 1 : null);
-  const fin = dias ? sumarDiasISO(lead.start_date, dias - 1) : null;
-
   const tramo = ruta?.origin
     ? `${ruta.origin} → ${ruta.destination || "Santiago de Compostela"}`
     : "";
@@ -114,18 +105,10 @@ export function armarSolicitudPrecio(
     `Peregrino:                ${lead.full_name}`,
     `Ruta:                     ${rutaNombre}${tramo ? ` (${tramo})` : ""}`,
     `Fecha de inicio:          ${fechaLargaISO(lead.start_date)}`,
-    ...(fin ? [`Fecha de fin estimada:    ${fechaLargaISO(fin)}`] : []),
-    ...(dias ? [`Duración:                 ${dias} días · ${noches} noches`] : []),
     `Número de peregrinos:     ${personas}`,
     `Alojamiento:              ${alojamiento}`,
     `Habitaciones:             ${textoHabitaciones(personas)}`,
   ];
-
-  // En bici el precio del camino no es todo: el alquiler va aparte (tabla `bike_prices`) y
-  // el cotizador de la web no pregunta si lo quieren. Si no se pide aquí, la cotización
-  // que se arme con la respuesta de Pilgrim sale corta justo en la ruta en la que más se
-  // nota. Marcela, uno de los tres leads abiertos, pidió Francés Bici Ponferrada.
-  const enBici = ruta?.modality === "bici" || ruta?.modality === "mixto";
 
   const subject =
     `Solicitud de precio ${anio} — ${rutaNombre} — salida ${fechaCortaISO(lead.start_date)} — ` +
@@ -141,15 +124,6 @@ export function armarSolicitudPrecio(
     ``,
     `DATOS DEL VIAJE`,
     ...datos,
-    ``,
-    `LO QUE NECESITAMOS`,
-    `1. Precio por persona en ${alojamiento.toLowerCase()}, para el reparto de habitaciones de arriba.`,
-    `2. Si esa fecha lleva suplemento de temporada, cuánto es y por persona.`,
-    ...(enBici
-      ? [`3. Precio del alquiler de bicicleta por persona para esos días, por si lo quieren.`]
-      : []),
-    `${enBici ? 4 : 3}. Disponibilidad para esas fechas.`,
-    `${enBici ? 5 : 4}. Hasta cuándo mantenéis ese precio.`,
     ``,
     `Cuando lo tengamos le pasamos la cotización al peregrino. Si hay que cerrar plazas`,
     `antes, decídnoslo y lo gestionamos.`,
