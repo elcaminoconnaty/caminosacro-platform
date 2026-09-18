@@ -52,7 +52,12 @@ export default function LeadsPanel({
   borradores: Record<string, SolicitudPrecio>;
   pilgrimEmail: string;
 }) {
-  const [verAtendidos, setVerAtendidos] = useState(false);
+  // Qué se está mirando. Nace en "pendientes" porque el panel contesta "¿a quién le
+  // debo algo?", pero las tres opciones se pintan SIEMPRE, con su cuenta: con un solo
+  // interruptor, cerrar el último lead dejaba la lista vacía y la única forma de volver
+  // a ver a alguien era descubrir un botón que hasta entonces no estaba. Un lead
+  // desaparecido de la pantalla es exactamente lo que este panel vino a arreglar.
+  const [filtro, setFiltro] = useState<"pendientes" | "atendidos" | "todos">("pendientes");
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,11 +73,12 @@ export default function LeadsPanel({
 
   const pendientes = useMemo(() => agruparLeads(leads.filter((l) => !l.atendido_at)), [leads]);
   const atendidos = useMemo(() => agruparLeads(leads.filter((l) => l.atendido_at)), [leads]);
+  const todos = useMemo(() => agruparLeads(leads), [leads]);
 
   // Sin una sola fila en la tabla no hay nada que contar y el panel sobra.
   if (leads.length === 0) return null;
 
-  const mostrados = verAtendidos ? atendidos : pendientes;
+  const mostrados = filtro === "atendidos" ? atendidos : filtro === "todos" ? todos : pendientes;
 
   function textoDe(id: string): SolicitudPrecio {
     return textos[id] ?? borradores[id] ?? { subject: "", body: "" };
@@ -140,18 +146,30 @@ export default function LeadsPanel({
             cotización: hay que escribirles.
           </p>
         </div>
-        {atendidos.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setVerAtendidos((v) => !v)}
-            aria-pressed={verAtendidos}
-            className={`text-xs px-3 py-1.5 rounded-md border transition ${
-              verAtendidos ? "border-bosque bg-bosque/5 text-bosque" : "border-border hover:bg-taupe/40"
-            }`}
-          >
-            {verAtendidos ? `Ver pendientes (${pendientes.length})` : `Ver atendidos (${atendidos.length})`}
-          </button>
-        )}
+        {/* Siempre los tres, siempre con su cuenta. Mismo gesto que los filtros de estado
+            de la tabla de cotizaciones, y ninguno se esconde cuando su lista queda vacía. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {([
+            ["pendientes", "Pendientes", pendientes.length],
+            ["atendidos", "Atendidos", atendidos.length],
+            ["todos", "Todos", todos.length],
+          ] as const).map(([clave, etiqueta, cuantos]) => {
+            const activo = filtro === clave;
+            return (
+              <button
+                key={clave}
+                type="button"
+                onClick={() => setFiltro(clave)}
+                aria-pressed={activo}
+                className={`text-xs px-3 py-1.5 rounded-md border transition ${
+                  activo ? "border-bosque bg-bosque/5 text-bosque font-medium" : "border-border hover:bg-taupe/40"
+                }`}
+              >
+                {etiqueta} ({cuantos})
+              </button>
+            );
+          })}
+        </div>
       </header>
 
       {error && (
@@ -388,7 +406,23 @@ export default function LeadsPanel({
         })}
         {mostrados.length === 0 && (
           <li className="px-4 py-8 text-center text-sm text-muted">
-            {verAtendidos ? "Ninguno atendido todavía." : "Ningún lead pendiente. Todos atendidos."}
+            {filtro === "atendidos" ? (
+              "Ninguno atendido todavía."
+            ) : atendidos.length > 0 ? (
+              <>
+                Ningún lead pendiente:{" "}
+                <button
+                  type="button"
+                  onClick={() => setFiltro("atendidos")}
+                  className="text-bosque underline hover:no-underline"
+                >
+                  {atendidos.length === 1 ? "el que hay ya lo cerraste" : `los ${atendidos.length} que hay ya los cerraste`}
+                </button>
+                . Desde ahí se pueden reabrir.
+              </>
+            ) : (
+              "Ningún lead pendiente."
+            )}
           </li>
         )}
       </ul>
