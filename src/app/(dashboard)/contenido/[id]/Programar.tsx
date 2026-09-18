@@ -169,7 +169,7 @@ export default function Programar(p: ProgramarProps) {
       {p.publicacionError && !aviso && (
         <span className="text-[11px] text-red-700 max-w-xs text-right leading-snug">{p.publicacionError}</span>
       )}
-      {aviso && <span className="text-[11px] text-dorado-oscuro max-w-xs text-right leading-snug">{aviso}</span>}
+      {aviso && !abierto && <span className="text-[11px] text-dorado-oscuro max-w-xs text-right leading-snug">{aviso}</span>}
 
       {abierto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-tinta/40 p-4" onClick={() => !pendiente && setAbierto(false)}>
@@ -209,6 +209,12 @@ export default function Programar(p: ProgramarProps) {
                 Ese día ya tiene una publicación. Se puede, pero saldrán dos.
               </p>
             )}
+
+            {/* El error va AQUÍ, dentro del diálogo. La primera versión lo pintaba debajo
+                del botón de la cabecera, tapado por el velo del modal: programar fallaba y
+                no se veía por qué. */}
+            {aviso && <p className="text-xs text-red-700 leading-snug">{aviso}</p>}
+            {fase && <p className="text-xs text-muted">{fase}</p>}
 
             <div className="flex items-center justify-end gap-2">
               <button type="button" onClick={() => setAbierto(false)} disabled={pendiente}

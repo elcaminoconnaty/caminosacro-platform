@@ -5,6 +5,9 @@ import { createPublicSchemaClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mensajeError } from "@/lib/errors";
 import { rutaPiezaJpg, sinBucket } from "@/lib/storage/paths";
+import { SlidesSchema, type Slide } from "@/lib/contenido/tipos";
+import { esFormatoId } from "@/lib/contenido/formatos";
+import { hashPieza } from "@/lib/contenido/hashSlide";
 
 const BUCKET = "contenido-piezas";
 
@@ -45,13 +48,34 @@ export async function archivarSlide(piezaId: string, indice: number, jpegBase64:
  * Deja constancia de la exportación en la pieza. `export_paths` guarda las rutas CON el
  * bucket adelante, que es la convención del repo (ver src/lib/storage/paths.ts).
  */
-export async function registrarExport(id: string, rutas: string[], exportHash?: string) {
+export async function registrarExport(
+  id: string,
+  rutas: string[],
+  exportado?: { slides: Slide[]; formato: string },
+) {
   const supabase = await createPublicSchemaClient();
+
   // `export_hash` es la huella de lo exportado: al publicar se compara con lo guardado
   // para no mandar a Instagram unos JPG que ya no son lo que se ve en pantalla.
+  //
+  // Los slides que se dibujaron se GUARDAN aquí mismo, junto con la huella, y la huella se
+  // calcula sobre eso guardado. Antes el navegador mandaba solo la huella de lo que tenía
+  // en pantalla y el servidor la comparaba con lo que había en la base; pero el editor
+  // abre la pieza con los datos del catálogo refrescados (precio, km) y la base tiene los
+  // viejos hasta que se edita algo, así que "no cambió nada" y aun así no cuadraba, y
+  // programar fallaba. Guardando lo dibujado, base y JPG son lo mismo por construcción.
+  let extra: Record<string, unknown> = { export_hash: null };
+  if (exportado) {
+    const parseo = SlidesSchema.safeParse(exportado.slides);
+    if (!parseo.success || !esFormatoId(exportado.formato)) {
+      return { error: "Los slides exportados tienen una forma que no se reconoce. No se registró la exportación." };
+    }
+    extra = { slides: parseo.data, formato: exportado.formato, export_hash: hashPieza(parseo.data, exportado.formato) };
+  }
+
   const { error } = await supabase
     .from("contenido_piezas")
-    .update({ export_paths: rutas, exportado_at: new Date().toISOString(), export_hash: exportHash ?? null })
+    .update({ export_paths: rutas, exportado_at: new Date().toISOString(), ...extra })
     .eq("id", id);
 
   if (error) return { error: mensajeError(error) };

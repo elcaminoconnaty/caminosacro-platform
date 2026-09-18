@@ -1,6 +1,5 @@
 import { FORMATOS, type FormatoId } from "@/lib/contenido/formatos";
 import type { Slide } from "@/lib/contenido/tipos";
-import { hashPieza } from "@/lib/contenido/hashSlide";
 import { archivarSlide, registrarExport } from "./exportActions";
 
 /**
@@ -143,8 +142,9 @@ export async function exportarPieza(o: OpcionesExportar): Promise<{ rutas: strin
   if (rutas.length) {
     // La huella solo vale si TODOS los slides quedaron archivados: con uno de menos, la
     // publicación diría "hay N slides pero N-1 imágenes" y no saldría, que es lo correcto.
+    // El servidor guarda estos mismos slides y calcula la huella sobre ellos.
     const completa = rutas.length === o.slides.length;
-    const r = await registrarExport(o.piezaId, rutas, completa ? hashPieza(o.slides, o.formato) : undefined);
+    const r = await registrarExport(o.piezaId, rutas, completa ? { slides: o.slides, formato: o.formato } : undefined);
     if ("error" in r && r.error) avisos.push(r.error);
   }
   return { rutas, avisos };

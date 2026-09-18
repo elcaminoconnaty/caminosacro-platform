@@ -15,6 +15,13 @@ export type EstadoPiezaId = (typeof ESTADOS_PIEZA)[number];
  */
 export const ESTADOS_MANUALES: readonly EstadoPiezaId[] = ["borrador", "listo", "publicado", "archivado"];
 
+/**
+ * Los botones del editor. "Publicado" no está: al lado de «Aprobar y programar» se
+ * confundía con aprobar, y una pieza marcada así a mano luego decía "ya se publicó".
+ * Marcar publicado a mano (subida por fuera) sigue en el desplegable de la bandeja.
+ */
+export const ESTADOS_EDITOR: readonly EstadoPiezaId[] = ["borrador", "listo", "archivado"];
+
 export const ESTADO: Record<EstadoPiezaId, { etiqueta: string; ayuda: string; clase: string }> = {
   borrador: {
     etiqueta: "Borrador",

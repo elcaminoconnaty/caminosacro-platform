@@ -1363,3 +1363,25 @@ el cuerpo de cada respuesta unas horas.
 —abrir una pieza 4x5, «Ahora», y ver el carrusel en la cuenta y la fila en `posts_log`—.
 La primera vez conviene hacerlo con una pieza que de verdad se quiera publicar, porque
 sale en la cuenta real. Y mirar el calendario y el diálogo en el navegador.
+
+### 2026-09-17 (noche) · "programé dos y no aparecen" y "dice que ya está publicada"
+
+Nico probó de verdad: la primera pieza quedó programada; las dos siguientes, no, y una
+decía "ya se publicó". Tres causas, las tres arregladas:
+
+1. **La huella no cuadraba sin haber tocado nada.** El navegador mandaba la huella de lo
+   que tenía en pantalla y el servidor la comparaba con lo guardado; pero el editor abre la
+   pieza con el catálogo **refrescado** (precio, km) y la base tiene los valores viejos hasta
+   que se edita algo. Además Postgres reordena las claves del jsonb. Ahora `registrarExport`
+   **guarda los slides dibujados** y calcula la huella sobre eso (con claves ordenadas): base
+   y JPG son lo mismo por construcción.
+2. **El error se pintaba detrás del diálogo.** El aviso iba debajo del botón de la cabecera,
+   tapado por el velo del modal: programar fallaba y el diálogo se quedaba abierto mudo.
+   Ahora el error sale dentro del diálogo.
+3. **"Publicado" a mano bloqueaba programar.** El botón "Publicado" del editor, al lado de
+   «Aprobar y programar», se confundía con aprobar; y una pieza así marcada respondía "ya se
+   publicó". Ahora solo se rechaza la que de verdad salió por API (`ig_media_id`), el
+   editor deja de ofrecer "Publicado" (queda en la bandeja para la subida por fuera) y la
+   pieza "Año Santo Jacobeo 2027" se puede programar.
+
+Sigue pendiente ver la primera publicación real (Francés Bici Ponferrada, hoy 7:30 pm).

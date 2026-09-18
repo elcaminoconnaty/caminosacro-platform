@@ -27,5 +27,19 @@ export function hashSlide(slide: Slide | null | undefined, formato: string): str
  * ve en pantalla y NO se publica. Mismo djb2, mismas dos puntas (navegador y servidor).
  */
 export function hashPieza(slides: Slide[], formato: string): string {
-  return djb2(JSON.stringify({ slides, formato }));
+  return djb2(canonico({ slides, formato }));
+}
+
+/**
+ * JSON con las claves ordenadas, a todos los niveles. Postgres guarda el jsonb con sus
+ * claves en OTRO orden (por largo y luego alfabético) y zod devuelve el del esquema: el
+ * mismo slide daba dos textos distintos según de dónde viniera, y la huella no cuadraba.
+ */
+function canonico(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonico).join(",")}]`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonico(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v ?? null);
 }

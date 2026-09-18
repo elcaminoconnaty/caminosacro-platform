@@ -8,7 +8,7 @@ import { aInstante, esCadencia, fechaLocal, siguienteDiaLibre } from "@/lib/cont
 import { diasOcupados, leerProgramacion, listarOcupados } from "@/lib/contenido/programacion";
 import { motivoNoPublicable, publicarPiezaTomada, type PiezaTomada } from "@/lib/contenido/publicar";
 
-const CAMPOS = "id,titulo,formato,slides,caption,hashtags,pilar,export_paths,export_hash,estado,publicacion_intentos";
+const CAMPOS = "id,titulo,formato,slides,caption,hashtags,pilar,export_paths,export_hash,estado,publicacion_intentos,ig_media_id,permalink";
 
 function revalidar(id: string) {
   revalidatePath("/contenido");
@@ -51,7 +51,12 @@ export async function programarPieza(id: string, fecha: string, hora: string) {
   if (error) return { error: mensajeError(error) };
   if (!p) return { error: "La pieza no existe." };
   if (p.estado === "publicando") return { error: "Se está publicando en este momento." };
-  if (p.estado === "publicado") return { error: "Esta pieza ya se publicó. Duplícala si quieres volver a usarla." };
+  // "Publicado" marcado a mano en la bandeja (sin ig_media_id) no cuenta: es el flujo viejo
+  // de subir a Instagram por fuera, y esa pieza sí se puede programar. Solo se rechaza la
+  // que de verdad salió por API desde acá.
+  if (p.estado === "publicado" && p.ig_media_id) {
+    return { error: `Esta pieza ya salió en Instagram desde acá${p.permalink ? ` (${p.permalink})` : ""}. Duplícala si quieres volver a usarla.` };
+  }
 
   const motivo = motivoNoPublicable(p);
   if (motivo) return { error: motivo };
@@ -95,7 +100,7 @@ export async function publicarAhora(id: string) {
   if (error) return { error: mensajeError(error) };
   if (!p) return { error: "La pieza no existe." };
   if (p.estado === "publicando") return { error: "Ya se está publicando." };
-  if (p.estado === "publicado") return { error: "Esta pieza ya se publicó." };
+  if (p.estado === "publicado" && p.ig_media_id) return { error: "Esta pieza ya salió en Instagram desde acá." };
   const motivo = motivoNoPublicable(p);
   if (motivo) return { error: motivo };
 

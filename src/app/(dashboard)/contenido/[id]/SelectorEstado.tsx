@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { cn } from "@/lib/cn";
-import { ESTADOS_MANUALES, ESTADO, type EstadoPiezaId } from "@/lib/contenido/estados";
+import { ESTADOS_EDITOR, ESTADO, type EstadoPiezaId } from "@/lib/contenido/estados";
 import { cambiarEstado } from "./actions";
 
 /**
@@ -28,12 +28,12 @@ export default function SelectorEstado({
       <div className="flex items-center gap-1" role="group" aria-label="Estado de la pieza">
         {/* `programado` y `publicando` no se ponen a dedo: los pone "Aprobar y programar".
             Si la pieza está en uno de ellos, se muestra como chapita y no como botón. */}
-        {!ESTADOS_MANUALES.includes(estado) && (
+        {!ESTADOS_EDITOR.includes(estado) && (
           <span className={cn("px-2.5 py-1.5 rounded-md text-[11px]", ESTADO[estado].clase)} title={ESTADO[estado].ayuda}>
             {ESTADO[estado].etiqueta}
           </span>
         )}
-        {ESTADOS_MANUALES.map((e) => (
+        {ESTADOS_EDITOR.map((e) => (
           <button
             key={e}
             type="button"
