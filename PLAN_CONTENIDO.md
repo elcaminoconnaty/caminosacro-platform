@@ -1384,4 +1384,10 @@ decía "ya se publicó". Tres causas, las tres arregladas:
    editor deja de ofrecer "Publicado" (queda en la bandeja para la subida por fuera) y la
    pieza "Año Santo Jacobeo 2027" se puede programar.
 
-Sigue pendiente ver la primera publicación real (Francés Bici Ponferrada, hoy 7:30 pm).
+**Primera publicación real, comprobada.** La de las 7:30 pm falló con "la pieza cambió
+después de exportarla" —se había programado ANTES del arreglo, con la huella vieja—. Se volvió
+a programar desde el navegador para las 7:35 pm y el cron la publicó a las 7:35:
+carrusel de 4 en `https://www.instagram.com/p/DdaKVQjmQQ6/`, fila en `posts_log` con
+`origen='estudio'`, la pieza en `publicado` con permalink, y el calendario la pinta en verde.
+El flujo completo —aprobar → exportar → cola → cron → Graph API → posts_log → calendario—
+está verificado de punta a punta.
