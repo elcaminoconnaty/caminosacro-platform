@@ -15,7 +15,7 @@ import EmailPreviewCard from "./EmailPreviewCard";
 import OptionalsCard, { type OptionalCatalog, type OptionalLine } from "./OptionalsCard";
 import BikesCard, { type BikeLine } from "./BikesCard";
 import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice } from "@/lib/bikes/catalog";
-import TravelDocCard, { type NocheInicial, type HotelOpcion, type TravelDocEstado } from "./TravelDocCard";
+import TravelDocCard, { type MarcadoEtiqueta, type NocheInicial, type HotelOpcion, type TravelDocEstado } from "./TravelDocCard";
 import PilgrimFilesCard, { type PilgrimFile } from "./PilgrimFilesCard";
 import { type EnvioResumen } from "./EstadoEnvio";
 import ContractCard from "./ContractCard";
@@ -190,7 +190,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       .order("position"),
     supabase
       .from("travel_docs")
-      .select("token,doc_pdf_path,doc_generated_at,insurance_pdf_path,luggage_tag_pdf_path,sent_at,revoked_at,services")
+      .select("token,doc_pdf_path,doc_generated_at,insurance_pdf_path,luggage_tag_pdf_path,luggage_tag_original_path,luggage_tag_brand,sent_at,revoked_at,services")
       .eq("quote_id", id)
       .maybeSingle(),
     supabase.from("hotels").select("id,name,city").eq("active", true).order("city").order("name"),
@@ -278,6 +278,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const doc = travelDoc as {
     token: string | null; doc_pdf_path: string | null; doc_generated_at: string | null;
     insurance_pdf_path: string | null; luggage_tag_pdf_path: string | null;
+    luggage_tag_original_path: string | null; luggage_tag_brand: MarcadoEtiqueta | null;
     sent_at: string | null; revoked_at: string | null; services: string[] | null;
   } | null;
   const estadoDocumentacion: TravelDocEstado = {
@@ -286,6 +287,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     docGeneratedAt: doc?.doc_generated_at ?? null,
     insurancePath: doc?.insurance_pdf_path ?? null,
     luggageTagPath: doc?.luggage_tag_pdf_path ?? null,
+    luggageTagOriginalPath: doc?.luggage_tag_original_path ?? null,
+    luggageTagMarcado: doc?.luggage_tag_brand ?? null,
     sentAt: doc?.sent_at ?? null,
     revokedAt: doc?.revoked_at ?? null,
     services: Array.isArray(doc?.services) ? (doc!.services as string[]) : [],

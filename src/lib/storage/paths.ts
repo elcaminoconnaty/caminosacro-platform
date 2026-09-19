@@ -94,6 +94,19 @@ export function rutaEtiquetaEquipaje(code: string): string {
 }
 
 /**
+ * La etiqueta tal como la emitió el transportista, antes de cambiarle el logo del
+ * intermediario por el nuestro (ver src/lib/etiquetas/).
+ *
+ * Se guarda SIEMPRE que se marque una, y con nombre aparte para que el archivo que se
+ * envía conserve el de siempre: los correos ya enviados y la página pública apuntan a
+ * `Etiqueta-Equipaje-{code}.pdf` y esa ruta no puede moverse. Es la copia de seguridad que
+ * hace reversible el marcado sin volver a pedirle el PDF a Pilgrim.
+ */
+export function rutaEtiquetaEquipajeOriginal(code: string): string {
+  return `comercial-docs/${carpetaCotizacion(code)}/Etiqueta-Equipaje-${code}-original.pdf`;
+}
+
+/**
  * Un documento que nos mandó Pilgrim, en la subcarpeta `pilgrim/` del expediente.
  *
  * Lleva marca de tiempo delante porque acá los nombres se repiten de verdad: Pilgrim

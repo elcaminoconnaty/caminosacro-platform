@@ -7,6 +7,7 @@ import {
 import { getSignedUrl } from "./actions";
 import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
 import {
+  dejarEtiquetaOriginal,
   enviarCorreoDocumentacion,
   generateTravelDoc,
   prefillTravelNights,
@@ -34,12 +35,28 @@ export type NocheInicial = {
   notes: string | null;
 };
 
+/**
+ * Lo que hizo el módulo de etiquetas al cambiarle el logo del proveedor a la etiqueta de
+ * equipaje. Viene de `travel_docs.luggage_tag_brand`; ver `src/lib/etiquetas/`.
+ */
+export type MarcadoEtiqueta = {
+  reemplazos: number;
+  huellas: string[];
+  /** false = el logo que se quitó no estaba en la lista conocida; conviene mirarla. */
+  reconocido: boolean;
+  detalle: string[];
+  cuando?: string;
+};
+
 export type TravelDocEstado = {
   token: string | null;
   docPath: string | null;
   docGeneratedAt: string | null;
   insurancePath: string | null;
   luggageTagPath: string | null;
+  /** La etiqueta tal como la subió Nico, si se le cambió el logo. */
+  luggageTagOriginalPath: string | null;
+  luggageTagMarcado: MarcadoEtiqueta | null;
   sentAt: string | null;
   revokedAt: string | null;
   services: string[];
@@ -418,12 +435,21 @@ export default function TravelDocCard({
 
         <ArchivoSubible
           titulo="Etiqueta de transporte de equipaje"
-          detalle="La emite el transportista; el viajero la imprime y la pega en la mochila."
+          detalle="La emite el transportista; el viajero la imprime y la pega en la mochila. Al subirla le cambiamos el logo del proveedor por el nuestro."
           path={estado.luggageTagPath}
           quoteId={quoteId}
           tipo="etiqueta"
           onOpen={() => abrir(estado.luggageTagPath)}
           onError={setError}
+          extra={
+            <MarcaEtiqueta
+              quoteId={quoteId}
+              marcado={estado.luggageTagMarcado}
+              originalPath={estado.luggageTagOriginalPath}
+              onVerOriginal={() => abrir(estado.luggageTagOriginalPath)}
+              onError={setError}
+            />
+          }
         />
       </div>
 
@@ -524,10 +550,12 @@ function ArchivoFila({
 }
 
 function ArchivoSubible({
-  titulo, detalle, path, quoteId, tipo, onOpen, onError,
+  titulo, detalle, path, quoteId, tipo, onOpen, onError, extra,
 }: {
   titulo: string; detalle: string; path: string | null; quoteId: string;
   tipo: "seguro" | "etiqueta"; onOpen: () => void; onError: (e: string | null) => void;
+  /** Se pinta debajo de la fila cuando el archivo ya está. Lo usa la etiqueta de equipaje. */
+  extra?: React.ReactNode;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -546,7 +574,8 @@ function ArchivoSubible({
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-2.5">
+    <div className="rounded-lg border border-border px-4 py-2.5">
+      <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">
         <p className="text-sm text-bosque">{titulo}</p>
         <p className="text-xs text-muted mt-0.5">{path ? "Cargado." : detalle}</p>
@@ -579,6 +608,69 @@ function ArchivoSubible({
           <input type="file" accept="application/pdf" className="hidden" onChange={subir} disabled={pending} />
         </label>
       </div>
+      </div>
+      {path ? extra : null}
+    </div>
+  );
+}
+
+/**
+ * Qué se le hizo al logo de la etiqueta, y las dos salidas por si se hizo mal.
+ *
+ * Solo levanta la voz cuando hace falta: si el logo que se quitó ya estaba reconocido, una
+ * línea gris y ya. La primera vez que aparece una plantilla nueva de un proveedor sale en
+ * ámbar pidiendo que se mire la etiqueta antes de mandarla, porque ahí es donde un
+ * reconocimiento equivocado haría daño de verdad.
+ */
+function MarcaEtiqueta({
+  quoteId, marcado, originalPath, onVerOriginal, onError,
+}: {
+  quoteId: string; marcado: MarcadoEtiqueta | null; originalPath: string | null;
+  onVerOriginal: () => void; onError: (e: string | null) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  if (!marcado) return null;
+
+  const marcada = marcado.reemplazos > 0;
+  const revisar = marcada && !marcado.reconocido;
+
+  return (
+    <div className={`mt-2.5 pt-2.5 border-t border-border text-xs ${revisar ? "text-amber-700" : "text-muted"}`}>
+      {marcada ? (
+        <p>
+          {revisar ? "⚠ " : "✓ "}
+          {marcado.detalle.join(" ")}
+          {revisar ? " Es la primera vez que veo este logo: ábrela y comprueba que quedó bien antes de enviarla." : null}
+        </p>
+      ) : (
+        <p>{marcado.detalle.join(" ") || "Se guardó tal cual la mandó el transportista."}</p>
+      )}
+
+      {marcada && originalPath && (
+        <div className="flex flex-wrap gap-2 mt-2">
+          <button
+            onClick={onVerOriginal}
+            disabled={pending}
+            className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+          >
+            Ver la original
+          </button>
+          <button
+            onClick={() => {
+              if (!confirm("La etiqueta volverá a tener el logo del proveedor, y no se lo volveré a quitar a las etiquetas que traigan ese mismo logo. ¿Seguir?")) return;
+              onError(null);
+              startTransition(async () => {
+                const r = await dejarEtiquetaOriginal(quoteId);
+                if (r?.error) onError(r.error);
+              });
+            }}
+            disabled={pending}
+            className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+          >
+            {pending ? "Restaurando…" : "Dejar la original"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

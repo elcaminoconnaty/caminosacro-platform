@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
-import { rutaEtiquetaEquipaje, rutaSeguroViaje, sinBucket } from "@/lib/storage/paths";
+import { rutaEtiquetaEquipaje, rutaEtiquetaEquipajeOriginal, rutaSeguroViaje, sinBucket } from "@/lib/storage/paths";
+import { ponerNuestraMarca } from "@/lib/etiquetas/logoProveedor";
+import { leerMemoriaLogos, recordarLogos } from "@/lib/etiquetas/memoria";
 import {
   ensureTravelDoc,
   newTravelDocToken,
@@ -197,6 +199,10 @@ export async function suggestTravelServices(quoteId: string) {
 /**
  * Sube el seguro o la etiqueta de equipaje. No los generamos: los emite la aseguradora
  * y el transportista, y llegan como PDF ya hecho.
+ *
+ * La etiqueta, además, pasa por el módulo de marcado: se le cambia el logo del
+ * intermediario (Pilgrim) por el de Camino Sacro y el archivo original se guarda al lado,
+ * intacto, para poder volver a él de un clic. Ver `src/lib/etiquetas/`.
  */
 export async function uploadTravelFile(quoteId: string, formData: FormData) {
   const supabase = await createCommercialClient();
@@ -214,19 +220,126 @@ export async function uploadTravelFile(quoteId: string, formData: FormData) {
   const exp = await ensureTravelDoc(supabase, quoteId);
   if (exp.error) return { error: exp.error };
 
-  const destino = tipo === "seguro" ? rutaSeguroViaje(quote.code) : rutaEtiquetaEquipaje(quote.code);
-  const buf = Buffer.from(await file.arrayBuffer());
-  const { error: upErr } = await supabase.storage
-    .from("comercial-docs")
-    .upload(sinBucket(destino), buf, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
-  if (upErr) return { error: mensajeError(upErr) };
+  const subido = Buffer.from(await file.arrayBuffer());
 
-  const columna = tipo === "seguro" ? "insurance_pdf_path" : "luggage_tag_pdf_path";
-  const { error } = await supabase.from("travel_docs").update({ [columna]: destino }).eq("quote_id", quoteId);
+  if (tipo === "seguro") {
+    const destino = rutaSeguroViaje(quote.code);
+    const subir = await guardarPdf(supabase, destino, subido);
+    if (subir.error) return { error: subir.error };
+    const { error } = await supabase.from("travel_docs").update({ insurance_pdf_path: destino }).eq("quote_id", quoteId);
+    if (error) return { error: mensajeError(error) };
+    revalidatePath(`/seguimiento/${quoteId}`);
+    return { ok: true };
+  }
+
+  const memoria = await leerMemoriaLogos(supabase);
+  // Si el marcado falla por lo que sea, la etiqueta se sube igual sin tocar: el peregrino
+  // necesita SU etiqueta mucho más de lo que nos molesta el logo del proveedor.
+  let marcado: Awaited<ReturnType<typeof ponerNuestraMarca>>;
+  try {
+    marcado = await ponerNuestraMarca(subido, memoria);
+  } catch (e) {
+    marcado = {
+      pdf: null,
+      informe: {
+        reemplazos: 0,
+        huellas: [],
+        reconocido: true,
+        detalle: [`No pude cambiarle el logo (${e instanceof Error ? e.message : "error desconocido"}); se guarda tal cual.`],
+      },
+    };
+  }
+
+  const destino = rutaEtiquetaEquipaje(quote.code);
+  const original = rutaEtiquetaEquipajeOriginal(quote.code);
+
+  // El archivo que se envía conserva SIEMPRE el nombre de siempre, marcado o no: los
+  // correos ya enviados y la página pública apuntan a esa ruta.
+  const subir = await guardarPdf(supabase, destino, marcado.pdf ? Buffer.from(marcado.pdf) : subido);
+  if (subir.error) return { error: subir.error };
+
+  if (marcado.pdf) {
+    const copia = await guardarPdf(supabase, original, subido);
+    if (copia.error) return { error: copia.error };
+    // Solo se aprende de lo que de verdad se guardó.
+    await recordarLogos(supabase, { logos: marcado.informe.huellas });
+  } else {
+    // Una etiqueta sin marcar no deja "original" colgando de la anterior.
+    await borrarSiExiste(supabase, original);
+  }
+
+  const { error } = await supabase
+    .from("travel_docs")
+    .update({
+      luggage_tag_pdf_path: destino,
+      luggage_tag_original_path: marcado.pdf ? original : null,
+      luggage_tag_brand: { ...marcado.informe, cuando: new Date().toISOString() },
+    })
+    .eq("quote_id", quoteId);
   if (error) return { error: mensajeError(error) };
 
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
+}
+
+/**
+ * Deja como etiqueta buena la que subió el transportista, con su logo y todo, y anota la
+ * huella para no volver a tocarla nunca.
+ *
+ * Es la salida cuando el marcado se equivoca: en vez de esperar un arreglo, Nico recupera
+ * en un clic la etiqueta que le sirve, y la plataforma aprende de paso.
+ */
+export async function dejarEtiquetaOriginal(quoteId: string) {
+  const supabase = await createCommercialClient();
+  const { data: doc } = await supabase
+    .from("travel_docs")
+    .select("luggage_tag_pdf_path,luggage_tag_original_path,luggage_tag_brand")
+    .eq("quote_id", quoteId)
+    .maybeSingle();
+
+  const original = doc?.luggage_tag_original_path as string | null | undefined;
+  const destino = doc?.luggage_tag_pdf_path as string | null | undefined;
+  if (!original || !destino) return { error: "Esta etiqueta no tiene copia del original." };
+
+  const [bucket, ...resto] = original.split("/");
+  const { data: archivo, error: bajarErr } = await supabase.storage.from(bucket).download(resto.join("/"));
+  if (bajarErr || !archivo) return { error: mensajeError(bajarErr) || "No encontré el original." };
+
+  const subir = await guardarPdf(supabase, destino, Buffer.from(await archivo.arrayBuffer()));
+  if (subir.error) return { error: subir.error };
+  await borrarSiExiste(supabase, original);
+
+  // Lo que se quitó no era un logo del proveedor (o no queremos que se toque): a la lista
+  // de respetar, para que la próxima etiqueta igual llegue entera.
+  const informe = doc?.luggage_tag_brand as { huellas?: string[] } | null;
+  if (informe?.huellas?.length) await recordarLogos(supabase, { respetar: informe.huellas });
+
+  const { error } = await supabase
+    .from("travel_docs")
+    .update({ luggage_tag_original_path: null, luggage_tag_brand: null })
+    .eq("quote_id", quoteId);
+  if (error) return { error: mensajeError(error) };
+
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+/** Sube un PDF a `comercial-docs`. `upsert` porque reemplazar es lo normal acá. */
+async function guardarPdf(
+  supabase: Awaited<ReturnType<typeof createCommercialClient>>,
+  ruta: string,
+  contenido: Buffer,
+) {
+  const { error } = await supabase.storage
+    .from("comercial-docs")
+    .upload(sinBucket(ruta), contenido, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+  return { error: error ? mensajeError(error) : null };
+}
+
+/** Borra un archivo del storage sin quejarse si ya no estaba. */
+async function borrarSiExiste(supabase: Awaited<ReturnType<typeof createCommercialClient>>, ruta: string) {
+  const [bucket, ...resto] = ruta.split("/");
+  await supabase.storage.from(bucket).remove([resto.join("/")]);
 }
 
 export async function removeTravelFile(quoteId: string, tipo: "seguro" | "etiqueta") {
@@ -234,17 +347,22 @@ export async function removeTravelFile(quoteId: string, tipo: "seguro" | "etique
   const columna = tipo === "seguro" ? "insurance_pdf_path" : "luggage_tag_pdf_path";
   const { data: doc } = await supabase
     .from("travel_docs")
-    .select("insurance_pdf_path,luggage_tag_pdf_path")
+    .select("insurance_pdf_path,luggage_tag_pdf_path,luggage_tag_original_path")
     .eq("quote_id", quoteId)
     .maybeSingle();
   const ruta = doc?.[columna] as string | null | undefined;
+  const original = tipo === "etiqueta" ? (doc?.luggage_tag_original_path as string | null | undefined) : null;
 
-  const { error } = await supabase.from("travel_docs").update({ [columna]: null }).eq("quote_id", quoteId);
+  // Quitar la etiqueta se lleva también la copia sin marcar y su informe: dejar el original
+  // colgando haría que la siguiente etiqueta que se suba herede el "Dejar la original" de
+  // la anterior, que ya no tiene nada que ver.
+  const limpieza = tipo === "etiqueta"
+    ? { [columna]: null, luggage_tag_original_path: null, luggage_tag_brand: null }
+    : { [columna]: null };
+  const { error } = await supabase.from("travel_docs").update(limpieza).eq("quote_id", quoteId);
   if (error) return { error: mensajeError(error) };
-  if (ruta) {
-    const [bucket, ...rest] = ruta.split("/");
-    await supabase.storage.from(bucket).remove([rest.join("/")]);
-  }
+  if (ruta) await borrarSiExiste(supabase, ruta);
+  if (original) await borrarSiExiste(supabase, original);
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
 }
