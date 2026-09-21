@@ -131,7 +131,7 @@ function renglonesPrecio(d: DatosMensajeWhatsApp): string[] {
 
 export function mensajeWhatsAppCotizacion(d: DatosMensajeWhatsApp): string {
   const nombre = nombrePila(d.cliente);
-  const saludo = nombre ? `Hola ${nombre} 👋` : "¡Hola! 👋";
+  const saludo = nombre ? `¡Hola ${nombre}! 👋` : "¡Hola! 👋";
   const asesor = d.asesor || "Nicolás";
   const web = d.web || "www.caminosacro.com";
 
@@ -162,20 +162,32 @@ export function mensajeWhatsAppCotizacion(d: DatosMensajeWhatsApp): string {
   // queja de siempre es "no me llegó nada", y casi siempre está en promociones o en un
   // correo que no es el que usa a diario.
   const correo = d.emailCliente
-    ? `Te envié la cotización completa al correo (${d.emailCliente}), con el itinerario día a día, lo que incluye y las condiciones. Te la adjunto también acá en el chat para que la tengas a la mano 📎`
-    : `Te envié la cotización completa por correo, con el itinerario día a día, lo que incluye y las condiciones. Te la adjunto también acá en el chat para que la tengas a la mano 📎`;
+    ? `Te mandé la cotización completa al correo (${d.emailCliente}) 📩 Ahí va el itinerario día a día, lo que incluye y las condiciones.`
+    : `Te mandé la cotización completa por correo 📩 Ahí va el itinerario día a día, lo que incluye y las condiciones.`;
+
+  // Cómo se ve la cotización desde el chat.
+  //
+  // Con enlace: se manda el enlace y no el PDF. Es el mismo correo que ya se le envió,
+  // servido en /correo/[token]; se abre en el celular de un toque, no pesa nada y así
+  // nadie tiene que bajar el archivo del CRM para arrastrarlo a WhatsApp.
+  //
+  // Sin enlace (el correo todavía no ha salido) queda la otra forma —adjuntar el PDF a
+  // mano—, y eso es lo que dice el texto. Prometer un enlace que no existe sería mandar a
+  // la persona a buscar algo que no le va a llegar.
+  const verla = d.enlaceCotizacion
+    ? `¿Quieres verla de una vez desde acá? Solo dale clic 👉 ${d.enlaceCotizacion}`
+    : "Te la dejo también acá en el chat 📎";
 
   const bloques = [
     saludo,
-    `Soy ${asesor}, de Camino Sacro (${web}). Vimos que cotizaste${ruta ? ` el ${ruta}` : " el Camino"} en nuestra página y que el cotizador no alcanzó a mostrarte los precios, así que los confirmamos con nuestro operador en España. Acá te dejo toda la información:`,
+    `Soy ${asesor}, de Camino Sacro (${web}). Vi que estuviste cotizando${ruta ? ` el ${ruta}` : " el Camino"} en nuestra página y que no alcanzaste a ver los precios. Ya los tengo confirmados con nuestro operador en España, así que acá te dejo todo 👇`,
     viaje.length ? `*TU CAMINO*\n${viaje.join("\n")}` : "",
-    precio.length ? `*LA INVERSIÓN*\n${precio.join("\n")}` : "",
+    precio.length ? `*PRECIOS*\n${precio.join("\n")}` : "",
     d.validoHasta
-      ? `Los precios están garantizados hasta el ${fechaLarga(d.validoHasta)}; después pueden cambiar según la disponibilidad de los alojamientos.`
+      ? `Te los mantengo hasta el ${fechaLarga(d.validoHasta)}; de ahí en adelante ya dependen de la disponibilidad de los alojamientos.`
       : "",
-    correo,
-    d.enlaceCotizacion ? `Y si prefieres verla en línea, sin descargar nada: ${d.enlaceCotizacion}` : "",
-    "Cualquier duda me escribes por acá, con toda confianza. Si quieres la ajustamos a tu medida: fechas, días de camino, tipo de alojamiento o servicios extra (traslados, maletas, noches adicionales).",
+    `${correo}\n${verla}`,
+    "Cualquier cosa me escribes por acá con toda confianza 😊 Si quieres la acomodamos a tu gusto: fechas, días de camino, tipo de alojamiento o extras (traslados, maletas, noches adicionales).",
     `¡Buen Camino! 🐚\n${asesor} — Camino Sacro\n${web}`,
   ];
 

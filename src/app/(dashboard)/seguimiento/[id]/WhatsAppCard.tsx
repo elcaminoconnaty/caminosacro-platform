@@ -26,6 +26,7 @@ import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
 export default function WhatsAppCard({
   telefonoInicial,
   mensajeInicial,
+  enlaceCotizacion,
   pdfPath,
   pdfNombre,
   envio,
@@ -33,6 +34,8 @@ export default function WhatsAppCard({
   /** `quotes.client_phone`, tal como está escrito en el expediente. */
   telefonoInicial: string;
   mensajeInicial: string;
+  /** El enlace a la cotización que va DENTRO del mensaje (/correo/[token]), si ya existe. */
+  enlaceCotizacion: string | null;
   /** Ruta del PDF en Storage, para bajarlo y adjuntarlo al chat. */
   pdfPath: string | null;
   pdfNombre: string;
@@ -43,11 +46,34 @@ export default function WhatsAppCard({
   const [telefono, setTelefono] = useState(telefonoInicial);
   const [mensaje, setMensaje] = useState(mensajeInicial);
   const [copiado, setCopiado] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendiente, startTransition] = useTransition();
 
   const numero = telefonoWhatsApp(telefono);
   const editado = mensaje !== mensajeInicial;
+
+  /**
+   * Abre el chat con el mensaje puesto Y lo deja en el portapapeles.
+   *
+   * Las dos cosas porque una sola no basta: WhatsApp escribe el texto solo en la caja del
+   * chat, pero si la sesión de WhatsApp Web se cayó, o el mensaje es largo, o el navegador
+   * corta la URL, lo que aparece es media cotización. Con el texto copiado, pegarlo es
+   * ⌘V y no volver acá.
+   *
+   * El orden importa: la copia se dispara ANTES de abrir la pestaña. Al abrirse, esta
+   * página pierde el foco y el navegador rechaza escribir en el portapapeles de un
+   * documento que no lo tiene.
+   */
+  function enviar() {
+    if (!numero) return;
+    setError(null);
+    const copia = navigator.clipboard?.writeText(mensaje);
+    window.open(enlaceWhatsApp(telefono, mensaje), "_blank", "noopener,noreferrer");
+    copia
+      ?.then(() => setAviso("✓ Se abrió WhatsApp con el mensaje escrito. También quedó copiado: si la caja sale vacía, pégalo con ⌘V."))
+      .catch(() => setAviso("Se abrió WhatsApp con el mensaje escrito, pero no pude copiarlo al portapapeles."));
+  }
 
   async function copiar() {
     try {
@@ -131,16 +157,28 @@ export default function WhatsAppCard({
             <textarea
               id="wa-mensaje"
               value={mensaje}
-              onChange={(e) => setMensaje(e.target.value)}
+              onChange={(e) => { setMensaje(e.target.value); setAviso(null); }}
               rows={20}
               className="w-full font-sans bg-crema border border-border rounded-md p-3 text-sm leading-relaxed focus:outline-none focus:border-bosque resize-y"
             />
             <p className="text-xs text-muted mt-1">
-              En WhatsApp, lo que va entre asteriscos sale en <strong>negrita</strong>. El PDF
-              no viaja en el enlace: descárgalo y arrástralo al chat.
+              En WhatsApp, lo que va entre asteriscos sale en <strong>negrita</strong>.{" "}
+              {enlaceCotizacion ? (
+                <>
+                  El mensaje lleva el enlace a la cotización, así que no hace falta adjuntar el
+                  PDF: se abre con un toque desde el celular.
+                </>
+              ) : (
+                <>
+                  Todavía no hay enlace que mandar —se crea al enviarle el correo de la
+                  cotización—, así que el texto dice que va adjunta: descarga el PDF y
+                  arrástralo al chat.
+                </>
+              )}
             </p>
           </div>
 
+          {aviso && <p role="status" className="text-xs text-bosque">{aviso}</p>}
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
 
           <div className="flex flex-wrap items-center gap-2 justify-end">
@@ -169,18 +207,15 @@ export default function WhatsAppCard({
             >
               <Copy size={13} /> {copiado ? "✓ Copiado" : "Copiar mensaje"}
             </button>
-            <a
-              href={numero ? enlaceWhatsApp(telefono, mensaje) : undefined}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-disabled={!numero}
+            <button
+              type="button"
+              onClick={enviar}
+              disabled={!numero}
               title={numero ? undefined : "Falta el WhatsApp del peregrino"}
-              className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md text-white transition ${
-                numero ? "bg-bosque hover:bg-bosque-medio" : "bg-bosque/40 pointer-events-none"
-              }`}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-bosque text-white hover:bg-bosque-medio disabled:opacity-40 disabled:cursor-not-allowed transition"
             >
-              <ExternalLink size={13} /> Abrir WhatsApp
-            </a>
+              <ExternalLink size={13} /> Enviar por WhatsApp
+            </button>
           </div>
         </div>
       )}

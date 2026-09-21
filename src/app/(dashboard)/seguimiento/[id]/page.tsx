@@ -439,6 +439,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // —`filasEnvio` viene ordenado del más nuevo al más viejo—, nunca el de una prueba: el
   // de una prueba muestra el correo con [PRUEBA] en el asunto.
   const tokenVersionWeb = filasEnvio.find((e) => e.tipo === "cliente" && !e.prueba && e.token)?.token ?? null;
+  const enlaceCotizacion = tokenVersionWeb ? `${appBaseUrl}/correo/${tokenVersionWeb}` : null;
   const rutaMeta = findRouteMeta(routes, quote.route_name);
   const mensajeWhatsApp = mensajeWhatsAppCotizacion({
     cliente: quote.client_name ?? null,
@@ -454,7 +455,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     habitaciones: habitacionesDeCotizacion(quote.rooms_json),
     validoHasta: (quote.valid_until as string | null) ?? null,
     emailCliente: quote.client_email ?? null,
-    enlaceCotizacion: tokenVersionWeb ? `${appBaseUrl}/correo/${tokenVersionWeb}` : null,
+    enlaceCotizacion,
     asesor: nombrePila(firmantes[0]?.nombre) || "Nicolás",
     web: travelDocTexts.contacto.web || "www.caminosacro.com",
   });
@@ -580,6 +581,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       <WhatsAppCard
         telefonoInicial={quote.client_phone || ""}
         mensajeInicial={mensajeWhatsApp}
+        enlaceCotizacion={enlaceCotizacion}
         pdfPath={quote.pdf_path ?? null}
         pdfNombre={`Cotizacion-${quote.code}.pdf`}
         envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
