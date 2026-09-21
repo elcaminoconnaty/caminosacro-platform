@@ -165,14 +165,15 @@ export default function WhatsAppCard({
               En WhatsApp, lo que va entre asteriscos sale en <strong>negrita</strong>.{" "}
               {enlaceCotizacion ? (
                 <>
-                  El mensaje lleva el enlace a la cotización, así que no hace falta adjuntar el
-                  PDF: se abre con un toque desde el celular.
+                  El mensaje lleva el enlace corto a la cotización (
+                  <span className="font-mono">{enlaceCotizacion.replace(/^https?:\/\//, "")}</span>
+                  ), así que no hace falta adjuntar el PDF: se abre con un toque desde el
+                  celular y siempre muestra la versión vigente.
                 </>
               ) : (
                 <>
-                  Todavía no hay enlace que mandar —se crea al enviarle el correo de la
-                  cotización—, así que el texto dice que va adjunta: descarga el PDF y
-                  arrástralo al chat.
+                  No se pudo crear el enlace corto, así que el texto dice que la cotización va
+                  adjunta: descarga el PDF y arrástralo al chat.
                 </>
               )}
             </p>

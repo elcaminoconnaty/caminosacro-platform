@@ -106,7 +106,7 @@ export const PLANTILLAS: PlantillaMensaje[] = [
         id: "enlace",
         etiqueta: "Invitación a abrir la cotización",
         ayuda:
-          "Sale solo si ya se le envió el correo: el enlace es el de esa versión web. Sin correo enviado no hay enlace y se usa la línea de abajo.",
+          "El enlace corto de la cotización (caminosacro…/c/xxxxxxxxxx). Abre el PDF vigente y no caduca; si la cotización se corrige, el mismo enlace muestra la versión buena.",
         variables: ["enlace"],
         filas: 2,
         valor: "Para ver la cotización por aquí solo dale clic acá 👉 {{enlace}}",
@@ -114,7 +114,7 @@ export const PLANTILLAS: PlantillaMensaje[] = [
       {
         id: "adjunto",
         etiqueta: "Línea alternativa (sin enlace)",
-        ayuda: "Lo que se dice cuando toca adjuntar el PDF a mano.",
+        ayuda: "Respaldo: solo sale si el enlace no se pudo crear, y entonces toca adjuntar el PDF a mano.",
         filas: 2,
         valor: "Te la dejo también acá en el chat 📎",
       },

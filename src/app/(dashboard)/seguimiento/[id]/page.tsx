@@ -29,6 +29,7 @@ import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmai
 import { habitacionesDeCotizacion, mensajeWhatsAppCotizacion, nombrePila } from "@/lib/quotes/mensajeWhatsApp";
 import { getTravelDocTexts } from "@/lib/travelDocs/texts";
 import { getMensajes } from "@/lib/mensajes/settings";
+import { asegurarShareCode, urlCorta } from "@/lib/quotes/shareLink";
 
 function basename(p: string | null): string | null {
   if (!p) return null;
@@ -211,9 +212,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     // las pruebas: son justo lo que hace dudar de si el correo de verdad ya salió.
     supabase
       .from("email_log")
-      // `token` es el de la versión web del correo (/correo/[token]): el mensaje de
-      // WhatsApp lo ofrece como "verla en línea, sin descargar nada".
-      .select("tipo,prueba,created_at,estado,token")
+      .select("tipo,prueba,created_at,estado")
       .eq("quote_id", id)
       .neq("estado", "error")
       .order("created_at", { ascending: false }),
@@ -275,7 +274,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // Resumen de envíos por tipo de correo. La marca de "enviado" NO sale de aquí sino de
   // las columnas del expediente (`quotes.email_sent_at`, `travel_docs.sent_at`), que son
   // las que solo se escriben en un envío real; del registro solo se cuentan las pruebas.
-  type FilaEnvio = { tipo: string; prueba: boolean; created_at: string; token: string | null };
+  type FilaEnvio = { tipo: string; prueba: boolean; created_at: string };
   const filasEnvio = ((envios as FilaEnvio[] | null) || []);
   function resumenEnvio(tipo: string, enviadoAt: string | null): EnvioResumen {
     const pruebas = filasEnvio.filter((e) => e.tipo === tipo && e.prueba);
@@ -437,11 +436,12 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // esta cotización (la ruta con su origen, el reparto de habitaciones con su precio por
   // persona, el total) y en la tarjeta se edita antes de mandarlo.
   //
-  // El enlace de "verla en línea" es el del ÚLTIMO correo real que se le mandó al cliente
-  // —`filasEnvio` viene ordenado del más nuevo al más viejo—, nunca el de una prueba: el
-  // de una prueba muestra el correo con [PRUEBA] en el asunto.
-  const tokenVersionWeb = filasEnvio.find((e) => e.tipo === "cliente" && !e.prueba && e.token)?.token ?? null;
-  const enlaceCotizacion = tokenVersionWeb ? `${appBaseUrl}/correo/${tokenVersionWeb}` : null;
+  // El enlace que va en el mensaje es el corto de la cotización (/c/[code], migración
+  // 0048), no la versión web del correo: aquella solo existe si el correo ya salió —y esta
+  // tarjeta se usa justo antes—, y medía 48 caracteres de token. El código se crea la
+  // primera vez que se abre el expediente y no cambia nunca más.
+  const shareCode = await asegurarShareCode(supabase, id, (quote.share_code as string | null) ?? null);
+  const enlaceCotizacion = shareCode ? urlCorta(shareCode) : null;
   const rutaMeta = findRouteMeta(routes, quote.route_name);
   const mensajeWhatsApp = mensajeWhatsAppCotizacion({
     cliente: quote.client_name ?? null,
