@@ -119,6 +119,31 @@ function renglonesPrecio(d: DatosMensajeWhatsApp): string[] {
   return out;
 }
 
+/** Sin tildes y en minúscula, para comparar nombres escritos de dos maneras. */
+function plano(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/**
+ * Cómo se nombra la ruta delante del peregrino: "Camino Francés desde Sarria".
+ *
+ * Dos cosas que el catálogo no da hechas:
+ *
+ *   1. Los nombres están guardados SIN la palabra "Camino" ("Francés desde Sarria"), que
+ *      en el CRM se entiende y en un WhatsApp a un desconocido no: "estuviste cotizando el
+ *      Francés" no dice nada. Se antepone, quitándola antes por si alguna ruta ya la trae.
+ *   2. La mitad de los nombres YA llevan el origen. Pegarle el `origin` del catálogo a
+ *      todos producía "el Francés desde Sarria desde Sarria", que es lo que salió en la
+ *      primera prueba con una cotización real (CS-2026-121).
+ */
+export function nombreRutaLargo(ruta: string | null, origen: string | null): string {
+  const base = String(ruta ?? "").trim().replace(/^camino\s+/i, "");
+  if (!base) return "";
+  const org = String(origen ?? "").trim();
+  const yaLoDice = org && plano(base).includes(plano(org));
+  return `Camino ${base}${org && !yaLoDice ? ` desde ${org}` : ""}`;
+}
+
 export function mensajeWhatsAppCotizacion(d: DatosMensajeWhatsApp): string {
   // Las frases salen de Configuración (clave `mensajes`), con los textos de fábrica de
   // @/lib/mensajes/plantillas como respaldo. Lo que este armador decide es QUÉ datos van
@@ -128,13 +153,7 @@ export function mensajeWhatsAppCotizacion(d: DatosMensajeWhatsApp): string {
   const asesor = d.asesor || "Nicolás";
   const web = d.web || "www.caminosacro.com";
 
-  // "el Camino Francés desde Sarria". El origen va pegado al nombre porque es lo que la
-  // persona escogió en el cotizador y lo que distingue dos cotizaciones de la misma ruta.
-  const ruta = d.ruta
-    ? d.origen
-      ? `${d.ruta} desde ${d.origen}`
-      : d.ruta
-    : "";
+  const ruta = nombreRutaLargo(d.ruta, d.origen);
 
   const duracion = d.dias
     ? `${d.dias} días${d.noches ? ` · ${d.noches} noches` : ""}`

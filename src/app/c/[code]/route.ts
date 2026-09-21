@@ -15,7 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { renderAndStoreQuotePdf, type ComercialClient } from "@/lib/quotes/pdf";
+import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +69,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ code: s
   // `pdf_path` guardado y las siguientes visitas solo firman la URL.
   let pdfPath = (quote.pdf_path as string | null) ?? null;
   if (!pdfPath) {
-    const r = await renderAndStoreQuotePdf(supabase as unknown as ComercialClient, quote.id as string);
+    // El cliente admin es uno de los dos que `ComercialClient` admite: el render no
+    // necesita sesión, y acá no la hay por definición.
+    const r = await renderAndStoreQuotePdf(supabase, quote.id as string);
     if (r.error) {
       console.error("[enlace corto] no pude generar el PDF de", quote.code, r.error);
       return noValido(500);
