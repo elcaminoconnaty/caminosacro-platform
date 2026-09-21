@@ -453,7 +453,6 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     alojamiento: quote.modality ?? null,
     totalEur: total,
     habitaciones: habitacionesDeCotizacion(quote.rooms_json),
-    validoHasta: (quote.valid_until as string | null) ?? null,
     emailCliente: quote.client_email ?? null,
     enlaceCotizacion,
     asesor: nombrePila(firmantes[0]?.nombre) || "Nicolás",

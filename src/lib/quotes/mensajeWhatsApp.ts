@@ -86,7 +86,6 @@ export type DatosMensajeWhatsApp = {
   totalEur: number;
   /** Reparto a medida con su precio por persona, si lo hay (`quotes.rooms_json.filas`). */
   habitaciones: RoomRow[];
-  validoHasta: string | null;
   /** A qué correo salió la cotización. Se nombra para que el peregrino la busque. */
   emailCliente: string | null;
   /** Versión web del correo que se le envió (/correo/[token]), si ya salió. */
@@ -175,19 +174,16 @@ export function mensajeWhatsAppCotizacion(d: DatosMensajeWhatsApp): string {
   // mano—, y eso es lo que dice el texto. Prometer un enlace que no existe sería mandar a
   // la persona a buscar algo que no le va a llegar.
   const verla = d.enlaceCotizacion
-    ? `¿Quieres verla de una vez desde acá? Solo dale clic 👉 ${d.enlaceCotizacion}`
+    ? `Para ver la cotización por aquí solo dale clic acá 👉 ${d.enlaceCotizacion}`
     : "Te la dejo también acá en el chat 📎";
 
   const bloques = [
     saludo,
-    `Soy ${asesor}, de Camino Sacro (${web}). Vi que estuviste cotizando${ruta ? ` el ${ruta}` : " el Camino"} en nuestra página y que no alcanzaste a ver los precios. Ya los tengo confirmados con nuestro operador en España, así que acá te dejo todo 👇`,
+    `Soy ${asesor}, de Camino Sacro (${web}). Vi que estuviste cotizando${ruta ? ` el ${ruta}` : " el Camino"} en nuestra página y que no alcanzaste a ver los precios. Ya los tengo listos, así que acá te dejo todo 👇`,
     viaje.length ? `*TU CAMINO*\n${viaje.join("\n")}` : "",
     precio.length ? `*PRECIOS*\n${precio.join("\n")}` : "",
-    d.validoHasta
-      ? `Te los mantengo hasta el ${fechaLarga(d.validoHasta)}; de ahí en adelante ya dependen de la disponibilidad de los alojamientos.`
-      : "",
     `${correo}\n${verla}`,
-    "Cualquier cosa me escribes por acá con toda confianza 😊 Si quieres la acomodamos a tu gusto: fechas, días de camino, tipo de alojamiento o extras (traslados, maletas, noches adicionales).",
+    "Quedo atento a cualquier duda 😊 Si quieres la acomodamos a tu gusto: fechas, días de camino, tipo de alojamiento o extras (traslados, maletas, noches adicionales).",
     `¡Buen Camino! 🐚\n${asesor} — Camino Sacro\n${web}`,
   ];
 

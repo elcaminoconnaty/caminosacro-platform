@@ -378,12 +378,12 @@ pedimos a Pilgrim y ahora hay que escribirle por WhatsApp, que es donde contesta
 
 El texto se arma solo con los datos de la cotización, en tono de chat: saludo, quién
 escribe ("Soy Nicolás, de Camino Sacro" + la web), ruta con su origen, salida y regreso,
-duración, viajeros, alojamiento, el precio **por persona** de cada habitación, el total,
-hasta cuándo se mantienen los precios, y el aviso de que la cotización salió por correo.
+duración, viajeros, alojamiento, el precio **por persona** de cada habitación, el total, y
+el aviso de que la cotización salió por correo.
 
 - **La cotización se comparte como ENLACE, no como adjunto**: el mensaje lleva el
-  `/correo/[token]` del correo que ya se le envió ("¿Quieres verla de una vez desde acá?
-  Solo dale clic 👉"). Se abre de un toque en el celular y nadie tiene que bajar el PDF
+  `/correo/[token]` del correo que ya se le envió ("Para ver la cotización por aquí solo
+  dale clic acá 👉"). Se abre de un toque en el celular y nadie tiene que bajar el PDF
   para arrastrarlo al chat. Ese enlace **solo existe si el correo ya salió**; mientras
   tanto el texto dice que va adjunta y ahí sí toca el PDF (botón "Descargar PDF").
 - **"Enviar por WhatsApp"** abre el chat con el mensaje escrito **y lo deja copiado** en el
