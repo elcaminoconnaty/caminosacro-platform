@@ -30,6 +30,7 @@ import {
   OTP_MAX_INTENTOS, OTP_MAX_POR_HORA, OTP_VIGENCIA_MIN,
 } from "@/lib/contracts/firma";
 import { textoConsentimiento } from "@/lib/contracts/consentimiento";
+import { comoSeSaluda, correoCodigoFirmaHtml } from "@/lib/contracts/otpHtml";
 import type { FirmanteInforme, InformeFirmasProps } from "@/lib/contracts/informeFirmas";
 import { baseUrlApp } from "@/lib/email/versionWeb";
 
@@ -176,8 +177,19 @@ export async function pedirCodigo(token: string): Promise<ResultadoCodigo> {
       total_eur: null,
       pdf_url: null,
       subject: `${codigo} es tu código para firmar el contrato ${code}`,
+      // Maquetado con la papelería de la marca; `body` sigue siendo el respaldo en texto
+      // plano (y lo que se guarda en `email_log` junto al HTML).
+      html: correoCodigoFirmaHtml({
+        code,
+        primerNombre,
+        codigo,
+        minutos: OTP_VIGENCIA_MIN,
+        ruta: vars.ruta_nombre || null,
+        razonSocial: esEmpresa(vars) ? vars.empresa_razon_social || null : null,
+        email: "reservas@caminosacro.com",
+      }),
       body: [
-        `Hola ${primerNombre || "peregrino"},`,
+        `Hola ${comoSeSaluda(primerNombre) || "peregrino"},`,
         ``,
         `Este es tu código para firmar el contrato ${code}:`,
         ``,
