@@ -375,3 +375,70 @@ export function correoContratoFirmado(d: DatosFirmado): { texto: string; html: s
     }),
   };
 }
+
+// ---------------------------------------------------------------------------
+// 4. La ficha del viajero (los datos que hacen falta para reservar)
+// ---------------------------------------------------------------------------
+
+export type DatosFicha = {
+  /** Código de la cotización, para el rótulo y el pie. */
+  code: string;
+  /** Primer nombre del viajero. */
+  saludo: string;
+  ruta?: string | null;
+  fechaInicio?: string | null;
+  /** Empresa que lo invita, si el viaje lo contrata una. */
+  empresa?: string | null;
+  url: string;
+  /** Días que dura el enlace personal. */
+  dias: number;
+  avisoPrueba?: string | null;
+};
+
+export function correoFichaViajero(d: DatosFicha): { texto: string; html: string } {
+  const saludo = comoSeSaluda(d.saludo) || "peregrino";
+  const cuerpo = [
+    `¡Vas al ${d.ruta || "Camino de Santiago"}${d.empresa ? ` con ${d.empresa}` : ""}! Para reservar tus alojamientos, emitir tu seguro y prepararte la documentación necesitamos algunos datos tuyos.`,
+    `Entra a este enlace y complétalos. Te toma dos minutos y necesitas tener a mano tu pasaporte:`,
+  ];
+  const despedida = [
+    `El enlace es personal y vence en ${d.dias} días. Si te equivocas en algo, puedes volver a abrirlo y corregirlo.`,
+    `Cualquier duda, respóndenos por aquí.`,
+  ];
+
+  const texto = [
+    ...(d.avisoPrueba ? [d.avisoPrueba, ``] : []),
+    `Hola ${saludo},`,
+    ``,
+    ...cuerpo.flatMap((p) => [p, ``]),
+    d.url,
+    ``,
+    ...despedida.flatMap((p) => [p, ``]),
+    `Buen Camino,`,
+    `Camino Sacro · ${CORREO}`,
+  ].join("\n");
+
+  const contenido = `
+  ${avisoDePrueba(d.avisoPrueba)}
+  <tr><td class="cs-pad" style="padding:28px 32px 0;">
+    <p style="${P}">Hola ${esc(saludo)},</p>
+    ${cuerpo.map((p) => `<p style="${P}">${esc(p)}</p>`).join("")}
+  </td></tr>
+  ${llamadaAccion("Completar mis datos", d.url)}
+  ${fichaViaje(d)}
+  <tr><td class="cs-pad" style="padding:14px 32px 0;">
+    ${despedida.map((p) => `<p style="${P_MINI}">${esc(p)}</p>`).join("")}
+  </td></tr>
+  ${cierre(CORREO)}`;
+
+  return {
+    texto,
+    html: envolturaCorreo({
+      titulo: `Tus datos para el Camino · ${d.code}`,
+      preheader: `Nos faltan tus datos para reservar tu ${d.ruta || "Camino"}. Son dos minutos.`,
+      eyebrow: `${d.code} · TUS DATOS DE VIAJERO`,
+      contenido,
+      pie: `Camino Sacro · ${d.code}${d.ruta ? ` · ${d.ruta}` : ""}`,
+    }),
+  };
+}

@@ -7,6 +7,7 @@ import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
 import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
+import { armarHtmlCotizacion } from "@/lib/quotes/correoCotizacion";
 import { registrarEnvio } from "@/lib/email/log";
 import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
 import { DEFAULT_STATUS } from "@/lib/quoteStatus";
@@ -195,6 +196,14 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
   //    falla, la cotización ya existe y el cliente igual ve su enlace en pantalla:
   //    no se pierde el lead.
   const correo = await armarCorreoCotizacion(supabase, quote.id);
+  // Maquetado con la papelería de la marca, igual que el que sale del CRM: el cliente
+  // no tiene por qué recibir un correo distinto según por dónde haya cotizado.
+  const maqueta = correo?.body
+    ? await armarHtmlCotizacion(supabase, quote.id, {
+        cuerpo: correo.body,
+        adjunto: pdfUrl ? `Cotizacion-${quote.code}.pdf` : null,
+      })
+    : null;
   const envio = await enviarCorreoWebhook({
     code: quote.code,
     nombre: datos.full_name,
@@ -208,6 +217,7 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
     pdf_url: pdfUrl,
     subject: correo?.subject ?? null,
     body: correo?.body ?? null,
+    html: maqueta?.html,
   });
   // Fila en `email_log` pase lo que pase: este camino manda sin que nadie mire, así que
   // el registro es la única forma de contestar después "¿esto se envió, y a qué correo?".
@@ -222,6 +232,8 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
     adjuntos: pdfUrl ? 1 : 0,
     messageId: envio.messageId ?? null,
     error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
+    token: maqueta?.token,
+    html: maqueta?.html,
   });
   const emailEnviado = envio.ok;
 

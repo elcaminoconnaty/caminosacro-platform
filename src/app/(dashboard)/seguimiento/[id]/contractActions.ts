@@ -36,7 +36,7 @@ import {
   type ViajeroAnexo,
 } from "@/lib/contracts/template";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
-import { correoContratoParaFirma } from "@/lib/contracts/correos";
+import { correoContratoParaFirma, correoFichaViajero } from "@/lib/contracts/correos";
 import { adjuntosContrato } from "@/lib/contracts/adjuntos";
 import { FICHA_TTL_DAYS, newFichaToken } from "@/lib/travelers/ficha";
 import { rutaContrato, rutaContratoEmpresa, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
@@ -398,6 +398,17 @@ export async function enviarFichaViajero(
 
   const primerNombre = String(t.full_name || "").trim().split(/\s+/)[0] || "";
   const code = String(q?.code || "");
+  // Texto y HTML del mismo correo, escritos una sola vez en `@/lib/contracts/correos`.
+  const correo = correoFichaViajero({
+    code,
+    saludo: primerNombre,
+    ruta: (q?.route_name as string | null) ?? null,
+    fechaInicio: (q?.start_date as string | null) ?? null,
+    empresa: empresa || null,
+    url,
+    dias: FICHA_TTL_DAYS,
+    avisoPrueba: esPrueba ? `(Correo de PRUEBA. El destinatario real sería ${t.email || "—"}.)` : null,
+  });
   const envio = await enviarCorreoContrato(
     {
       code,
@@ -411,23 +422,8 @@ export async function enviarFichaViajero(
       total_eur: null,
       pdf_url: null,
       subject: `${esPrueba ? "[PRUEBA] " : ""}${primerNombre}, necesitamos tus datos para el Camino - ${code}`,
-      body: [
-        ...(esPrueba ? [`(Correo de PRUEBA. El destinatario real sería ${t.email || "—"}.)`, ``] : []),
-        `Hola ${primerNombre},`,
-        ``,
-        `¡Vas al ${q?.route_name || "Camino de Santiago"}${empresa ? ` con ${empresa}` : ""}! Para reservar tus alojamientos, emitir tu seguro y prepararte la documentación necesitamos algunos datos tuyos.`,
-        ``,
-        `Entra a este enlace y complétalos. Te toma dos minutos y necesitas tener a mano tu pasaporte:`,
-        ``,
-        url,
-        ``,
-        `El enlace es personal y vence en ${FICHA_TTL_DAYS} días. Si te equivocas en algo, puedes volver a abrirlo y corregirlo.`,
-        ``,
-        `Cualquier duda, respóndenos por aquí.`,
-        ``,
-        `Buen Camino,`,
-        `Camino Sacro · reservas@caminosacro.com`,
-      ].join("\n"),
+      body: correo.texto,
+      html: correo.html,
       // Sin aviso interno: lo dispara alguien del equipo desde el CRM.
       aviso: false,
     },
