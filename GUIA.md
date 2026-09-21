@@ -390,11 +390,15 @@ escribe ("Soy Nicolás, de Camino Sacro" + la web), ruta con su origen, salida y
 duración, viajeros, alojamiento, el precio **por persona** de cada habitación, el total, y
 el aviso de que la cotización salió por correo.
 
-- **La cotización se comparte como ENLACE, no como adjunto**: el mensaje lleva el
-  `/correo/[token]` del correo que ya se le envió ("Para ver la cotización por aquí solo
-  dale clic acá 👉"). Se abre de un toque en el celular y nadie tiene que bajar el PDF
-  para arrastrarlo al chat. Ese enlace **solo existe si el correo ya salió**; mientras
-  tanto el texto dice que va adjunta y ahí sí toca el PDF (botón "Descargar PDF").
+- **La cotización se comparte como ENLACE CORTO, no como adjunto**: cada cotización tiene
+  el suyo, `…/c/xxxxxxxxxx` (10 caracteres, migración 0048), que se crea solo la primera
+  vez que se abre el expediente y **no cambia nunca** — un enlace mandado hace un mes sigue
+  funcionando. Abre el **PDF vigente**: si la cotización se corrige y se regenera, ese
+  mismo enlace muestra la versión buena. Si todavía no hay PDF, se genera al vuelo la
+  primera vez que alguien lo abre (unos 8 segundos; después es instantáneo).
+  No pide sesión: el código es la llave, igual que en `/contrato/[token]` y
+  `/documentacion/[token]`. El botón "Descargar PDF" sigue ahí para cuando se prefiera
+  adjuntar el archivo.
 - **"Enviar por WhatsApp"** abre el chat con el mensaje escrito **y lo deja copiado** en el
   portapapeles: si la caja del chat sale vacía (sesión caída, mensaje largo), se pega con
   ⌘V. **No envía nada**: el envío lo da una persona. Automatizarlo requiere la API de
