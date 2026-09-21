@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
+import { correoRecordatorioFirma } from "@/lib/contracts/correos";
 import { adjuntosContrato } from "@/lib/contracts/adjuntos";
 import { destinatarioContrato, saludoContrato, type ContractVariables } from "@/lib/contracts/template";
 import { sinBucket } from "@/lib/storage/paths";
@@ -227,6 +228,19 @@ export async function POST(request: Request) {
         code,
       );
 
+      // Texto y HTML del mismo recordatorio, escritos una sola vez en `@/lib/contracts/correos`.
+      const correo = correoRecordatorioFirma({
+        code,
+        saludo: primerNombre,
+        entrada,
+        url,
+        insistente: esUltimo || hito != null,
+        ruta: vars.ruta_nombre || null,
+        fechaInicio: vars.fecha_inicio || null,
+        personas: Number(vars.num_personas) || 1,
+        diasParaSalir: hito ?? null,
+      });
+
       const envio = await enviarCorreoContrato({
         code,
         nombre: nombreParte,
@@ -240,24 +254,8 @@ export async function POST(request: Request) {
         pdf_url: adjuntos.pdf_url,
         attachments: adjuntos.attachments,
         subject: `${etiqueta} - Contrato ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
-        body: [
-          `Hola ${primerNombre},`,
-          ``,
-          entrada,
-          ``,
-          `Acá puedes revisarlo, firmarlo y subir la foto de tu pasaporte. Toma dos minutos y se puede hacer desde el celular:`,
-          ``,
-          url,
-          ``,
-          `Al firmar te llega de inmediato una copia del contrato a este mismo correo.`,
-          ``,
-          esUltimo
-            ? `Si prefieres que te acompañemos por teléfono o tienes alguna duda sobre el contrato, respóndenos y te llamamos.`
-            : `Si algo no te cuadra o tienes dudas, respóndenos por aquí y lo resolvemos.`,
-          ``,
-          `Buen Camino,`,
-          `Camino Sacro · reservas@caminosacro.com`,
-        ].join("\n"),
+        body: correo.texto,
+        html: correo.html,
         attachment_name: adjuntos.attachment_name,
         // Avisan a reservas@ el último de la escalera y los dos de cerca de la salida:
         // los tres piden entrar a llamar. Los intermedios los manda el cron en silencio.

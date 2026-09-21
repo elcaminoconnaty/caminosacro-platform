@@ -36,6 +36,7 @@ import {
   type ViajeroAnexo,
 } from "@/lib/contracts/template";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
+import { correoContratoParaFirma } from "@/lib/contracts/correos";
 import { adjuntosContrato } from "@/lib/contracts/adjuntos";
 import { FICHA_TTL_DAYS, newFichaToken } from "@/lib/travelers/ficha";
 import { rutaContrato, rutaContratoEmpresa, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
@@ -1104,44 +1105,23 @@ export async function sendContractLink(
       { url: pdfUrl, name: `Contrato-${vars.codigo_cotizacion}${empresa ? "-empresa" : ""}.pdf` },
       vars.codigo_cotizacion,
     );
-    const anexo1 = adjuntos.conCotizacion ? " Adjuntamos también la cotización, que es el Anexo No. 1 del contrato." : "";
     const prefijo = esPrueba ? "[PRUEBA] " : "";
-    const cuerpoEmpresa = [
-      `Hola ${saludoContrato(vars) || "buen día"},`,
-      ``,
-      `Adjuntamos el Acuerdo de Prestación de Servicios Turísticos No. ${vars.codigo_cotizacion}, a nombre de ${vars.empresa_razon_social || "la empresa"}${vars.empresa_nit ? ` (NIT ${vars.empresa_nit})` : ""}, para el ${vars.ruta_nombre}${viajerosAnexo ? ` de ${viajerosAnexo} viajero(s)` : ""}.`,
-      ``,
-      `La relación de viajeros beneficiarios va en el Anexo No. 2 del propio contrato. Vale la pena revisarla antes de firmar: es la que usamos para las reservas.${anexo1}`,
-      ``,
-      `En este enlace puede revisar el documento completo y firmarlo digitalmente el representante legal:`,
-      ``,
+    // Texto y HTML del mismo correo, escritos una sola vez en `@/lib/contracts/correos`.
+    const correo = correoContratoParaFirma({
+      code: vars.codigo_cotizacion,
+      empresa,
+      saludo: saludoContrato(vars),
+      razonSocial: vars.empresa_razon_social,
+      nit: vars.empresa_nit,
+      ruta: vars.ruta_nombre,
+      fechaInicio: vars.fecha_inicio,
+      personas: Number(vars.num_personas) || 1,
+      viajerosAnexo,
       url,
-      ``,
-      `El enlace vence en ${TOKEN_TTL_DAYS} días. Al firmar les llegará una copia del contrato a este correo.`,
-      ``,
-      `Los pasaportes de los viajeros pueden enviarlos por respuesta a este mismo correo; nosotros los cargamos.`,
-      ``,
-      `Quedamos atentos a cualquier duda.`,
-      ``,
-      `Buen Camino,`,
-      `Camino Sacro · reservas@caminosacro.com`,
-    ];
-    const cuerpoViajero = [
-      `Hola ${saludoContrato(vars)},`,
-      ``,
-      `¡Buenas noticias! Tu reserva del ${vars.ruta_nombre} está lista para el último paso: la firma del contrato de servicios.`,
-      ``,
-      `En este enlace puedes revisar el contrato, firmarlo digitalmente y subir la foto de tu pasaporte (la necesitamos para gestionar tus reservas):`,
-      ``,
-      url,
-      ``,
-      `El enlace es personal y vence en ${TOKEN_TTL_DAYS} días. Al firmar te llegará una copia del contrato a este correo.${anexo1}`,
-      ``,
-      `Si tienes cualquier duda, respóndenos por aquí.`,
-      ``,
-      `Buen Camino,`,
-      `Camino Sacro · reservas@caminosacro.com`,
-    ];
+      dias: TOKEN_TTL_DAYS,
+      conCotizacion: adjuntos.conCotizacion,
+      avisoPrueba: esPrueba ? `(Correo de PRUEBA. El destinatario real sería ${correoParte || "—"}.)` : null,
+    });
     const envio = await enviarCorreoContrato({
       code: vars.codigo_cotizacion,
       nombre: nombreParte,
@@ -1155,10 +1135,8 @@ export async function sendContractLink(
       pdf_url: adjuntos.pdf_url,
       attachments: adjuntos.attachments,
       subject: `${prefijo}${nombreParte} - Contrato para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
-      body: [
-        ...(esPrueba ? [`(Correo de PRUEBA. El destinatario real sería ${correoParte || "—"}.)`, ``] : []),
-        ...(empresa ? cuerpoEmpresa : cuerpoViajero),
-      ].join("\n"),
+      body: correo.texto,
+      html: correo.html,
       attachment_name: adjuntos.attachment_name,
       // Sin aviso interno: lo dispara alguien del equipo desde el CRM. El aviso de
       // verdad llega cuando el cliente firma, que es lo que nadie está mirando.

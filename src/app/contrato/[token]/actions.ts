@@ -31,6 +31,7 @@ import {
 } from "@/lib/contracts/firma";
 import { textoConsentimiento } from "@/lib/contracts/consentimiento";
 import { comoSeSaluda, correoCodigoFirmaHtml } from "@/lib/contracts/otpHtml";
+import { correoContratoFirmado } from "@/lib/contracts/correos";
 import type { FirmanteInforme, InformeFirmasProps } from "@/lib/contracts/informeFirmas";
 import { baseUrlApp } from "@/lib/email/versionWeb";
 
@@ -502,7 +503,20 @@ export async function firmarContrato(token: string, formData: FormData): Promise
       { url: signedUrl?.signedUrl ?? null, name: `Contrato-${code}${empresa ? "-empresa" : ""}-firmado.pdf` },
       code,
     );
-    const anexo1 = adjuntos.conCotizacion ? " y la cotización como Anexo No. 1" : "";
+    // Texto y HTML del mismo correo, escritos una sola vez en `@/lib/contracts/correos`.
+    const correo = correoContratoFirmado({
+      code,
+      empresa,
+      firmante: signerName,
+      razonSocial: vars.empresa_razon_social,
+      fechaFirma: fechaFirmaTexto,
+      huella: docHash,
+      urlVerificacion,
+      ruta: vars.ruta_nombre || null,
+      fechaInicio: vars.fecha_inicio || null,
+      personas: Number(vars.num_personas) || 1,
+      conCotizacion: adjuntos.conCotizacion,
+    });
     const envio = await enviarCorreoContrato({
       code,
       nombre: signerName,
@@ -516,36 +530,8 @@ export async function firmarContrato(token: string, formData: FormData): Promise
       pdf_url: adjuntos.pdf_url,
       attachments: adjuntos.attachments,
       subject: `${empresa ? nombreParte : signerName} - Contrato firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
-      body: (empresa
-        ? [
-            `Hola ${signerName.split(/\s+/)[0]},`,
-            ``,
-            `¡Listo! El contrato de ${vars.empresa_razon_social || "la empresa"} quedó firmado el ${fechaFirmaTexto}.`,
-            ``,
-            `Adjunto encuentras la copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con la relación de viajeros en el Anexo No. 2 y el Informe de Firmas en la última página${anexo1}.`,
-            `Huella digital del documento (SHA-256): ${docHash}`,
-            `Puedes comprobar su autenticidad en: ${urlVerificacion}`,
-            ``,
-            `Si aún faltan pasaportes de algún viajero, envíalos a este mismo correo: los necesitamos para confirmar las reservas.`,
-            ``,
-            `Buen Camino,`,
-            `Camino Sacro · reservas@caminosacro.com`,
-          ]
-        : [
-            `Hola ${signerName.split(/\s+/)[0]},`,
-            ``,
-            `¡Listo! Tu contrato quedó firmado el ${fechaFirmaTexto}.`,
-            ``,
-            `Adjunto encuentras tu copia del Acuerdo de Prestación de Servicios Turísticos No. ${code}, con el Informe de Firmas en la última página${anexo1}.`,
-            `Huella digital del documento (SHA-256): ${docHash}`,
-            `Puedes comprobar su autenticidad en: ${urlVerificacion}`,
-            ``,
-            `Nuestro equipo continúa con la gestión de tus reservas y te iremos contando cada avance.`,
-            ``,
-            `Buen Camino,`,
-            `Camino Sacro · reservas@caminosacro.com`,
-          ]
-      ).join("\n"),
+      body: correo.texto,
+      html: correo.html,
       attachment_name: adjuntos.attachment_name,
       // El correo que le llega a reservas@ (Nico). El asunto describe el evento en
       // voz de adentro y NO repite el del correo del viajero: si fuera el mismo, en
