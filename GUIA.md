@@ -199,6 +199,12 @@ cd "Plataforma Comercial/app" && npx tsx scripts/add_routes.ts
 Es idempotente — solo afecta la ruta nueva, las existentes no se tocan.
 
 ### D. Cambiar la plantilla de email
+**Lo normal: `/configuracion` → "Correos al cliente"**. Ahí se edita el asunto, el cuerpo y
+el interruptor "activa" de cada plantilla, con la lista de variables a la vista. Apagar
+`cotizacion_enviada` hace que el expediente caiga en un texto mínimo de respaldo, así que
+el formulario lo avisa en rojo.
+
+A mano, si hiciera falta:
 1. Abrí: <https://supabase.com/dashboard/project/yvytzquewjsjsmgiwmaa/sql/new>
 2. Editá:
 ```sql
@@ -363,6 +369,9 @@ Card **"Correo a Pilgrim"** en el seguimiento: le manda la reserva a **precios d
 viajeros adjuntos, pidiendo el link de pago. Asunto y cuerpo son editables antes de enviar.
 
 - Destinatario: `/configuracion` → "Proveedor Pilgrim" (llave `pilgrim` en `settings`).
+- **Las frases** (saludo, primera línea, avisos de pasaportes, petición del link de pago,
+  despedida) se editan en `/configuracion` → "Mensajes" → *Pilgrim — reserva y link de
+  pago*. Ver D7.
 - **Modo prueba**: checkbox "Enviar como prueba a…" desvía el correo a otra dirección con
   el mismo contenido y adjuntos, y **no** marca `pilgrim_email_sent_at`. También existe en
   el envío masivo de contratos.
@@ -397,8 +406,34 @@ el aviso de que la cotización salió por correo.
   con su indicativo**.
 - Si el correo de la cotización todavía no ha salido, la tarjeta lo avisa en ámbar: el
   mensaje dice "te mandé la cotización al correo" y esa frase tiene que ser cierta.
-- Quién firma sale de `settings.firmantes` (ver D3c) y la web, de `settings.travel_doc`
-  → `contacto.web`. El texto está en `src/lib/quotes/mensajeWhatsApp.ts`.
+- **El texto se edita en `/configuracion` → "Mensajes"** (ver D7), pieza por pieza y sin
+  desplegar. Quién firma sale de `settings.firmantes` (D3c) y la web, de
+  `settings.travel_doc` → `contacto.web`.
+
+### D7. Los textos de los mensajes (`/configuracion` → "Mensajes")
+Las frases de los mensajes que salen de la plataforma ya no viven en el código: se editan
+acá y el cambio vale desde el siguiente mensaje, sin desplegar. Hay tres, cada uno plegado:
+
+| Mensaje | Dónde se usa |
+|---|---|
+| **WhatsApp — cotización al peregrino** | Expediente → tarjeta "Mensaje de WhatsApp" (D6) |
+| **Pilgrim — solicitud de precio** | Seguimiento → "Leads sin precio" → Pedir precio |
+| **Pilgrim — reserva y link de pago** | Expediente → tarjeta "Correo a Pilgrim" (D5) |
+
+- Cada mensaje son **piezas** (saludo, presentación, cierre, despedida…), y cada pieza
+  lleva sus variables `{{asi}}` escritas debajo del campo. Una variable que no exista se
+  reemplaza por nada, no rompe el envío.
+- **Lo que NO se edita acá**: los bloques de datos (el listado del viaje, los viajeros con
+  su pasaporte, la tabla de tarifas, el TOTAL A PAGAR). Los arma el código con el
+  expediente; sueltos en un textarea se podría mandar a Pilgrim una reserva que dice otra
+  cosa que la base de datos.
+- **"Volver al original"** en cada pieza, y una pieza que queda igual al original **no se
+  guarda**: así, si algún día se mejora un texto en el código, ese cambio llega solo.
+- Dónde queda: `comercial.settings`, llave `mensajes`. Los textos de fábrica y la lista de
+  piezas están en `src/lib/mensajes/plantillas.ts`.
+- Quién firma sale de "Firma del organizador" (D3c) y se presenta en minúsculas
+  (`NICOLÁS VILLA POSADA` → `Nicolás Villa Posada`): en el contrato va a gritos, en un
+  correo no.
 
 ### E. Cambiar suplementos de temporada
 ```sql

@@ -28,6 +28,7 @@ import { buildDefaultVariables, getFirmantes } from "@/lib/contracts/render";
 import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 import { habitacionesDeCotizacion, mensajeWhatsAppCotizacion, nombrePila } from "@/lib/quotes/mensajeWhatsApp";
 import { getTravelDocTexts } from "@/lib/travelDocs/texts";
+import { getMensajes } from "@/lib/mensajes/settings";
 
 function basename(p: string | null): string | null {
   if (!p) return null;
@@ -261,10 +262,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // `travelDocTexts` se trae por el contacto: la web y el WhatsApp de la agencia viven en
   // settings, no en el código, y son los mismos que ya usan el correo de cotización y la
   // documentación de viaje. Un dato, un lugar.
-  const [pilgrimSettings, pilgrimArmado, travelDocTexts] = await Promise.all([
+  const [pilgrimSettings, pilgrimArmado, travelDocTexts, mensajes] = await Promise.all([
     getPilgrimSettings(supabase),
     armarCorreoPilgrim(supabase, id),
     getTravelDocTexts(supabase),
+    getMensajes(supabase),
   ]);
   const pilgrimMail = pilgrimArmado.ok
     ? pilgrimArmado.correo
@@ -457,6 +459,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     enlaceCotizacion,
     asesor: nombrePila(firmantes[0]?.nombre) || "Nicolás",
     web: travelDocTexts.contacto.web || "www.caminosacro.com",
+    textos: mensajes,
   });
 
   return (

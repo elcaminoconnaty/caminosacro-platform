@@ -7,6 +7,9 @@ import QuotesTable, { type QuoteRow } from "./QuotesTable";
 import LeadsPanel from "./LeadsPanel";
 import type { WebLead } from "@/lib/leads/webLeads";
 import { armarSolicitudPrecio, type SolicitudPrecio } from "@/lib/leads/solicitudPrecio";
+import { getMensajes } from "@/lib/mensajes/settings";
+import { getFirmantes } from "@/lib/contracts/render";
+import { nombrePropio } from "@/lib/nombres";
 import { getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 
 type Quote = {
@@ -118,17 +121,26 @@ export default async function SeguimientoPage() {
   let borradores: Record<string, SolicitudPrecio> = {};
   let pilgrimEmail = "";
   if (pendientes.length > 0) {
-    const [{ data: rutas }, ajustes] = await Promise.all([
+    const [{ data: rutas }, ajustes, mensajes, firmantes] = await Promise.all([
       // Solo el tramo: la duración no va en el correo, la pone Pilgrim.
       supabase.from("routes").select("slug,origin,destination"),
       getPilgrimSettings(supabase),
+      getMensajes(supabase),
+      getFirmantes(supabase),
     ]);
     pilgrimEmail = ajustes.email;
     const porSlug = new Map((rutas ?? []).map((r) => [r.slug as string, r]));
     borradores = Object.fromEntries(
       pendientes.map((l) => [
         l.id,
-        armarSolicitudPrecio(l, porSlug.get(l.route_slug) ?? null, { contacto: ajustes.contacto }),
+        armarSolicitudPrecio(l, porSlug.get(l.route_slug) ?? null, {
+          contacto: ajustes.contacto,
+          proveedor: ajustes.nombre,
+          // Quien firma es el de Configuración, no un nombre escrito en el código; en
+          // settings está en mayúsculas (así va en el contrato) y acá se presenta.
+          firmante: nombrePropio(firmantes[0]?.nombre),
+          textos: mensajes,
+        }),
       ]),
     );
   }

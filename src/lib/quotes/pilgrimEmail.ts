@@ -2,6 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { leerFilasHabitacion, personasDeFila, roomRowLabel } from "@/lib/quotes/rooms";
+import { renderTemplate } from "@/lib/emailTemplate";
+import { textosDe } from "@/lib/mensajes/plantillas";
+import { getMensajes } from "@/lib/mensajes/settings";
+import { getFirmantes } from "@/lib/contracts/render";
+import { nombrePropio } from "@/lib/nombres";
 
 /**
  * Correo a Pilgrim: el detalle completo de la reserva a SUS precios, los viajeros con
@@ -92,7 +97,10 @@ export async function armarCorreoPilgrim(
     .maybeSingle();
   if (!quote) return { ok: false, error: "No encontré la cotización." };
 
-  const [{ data: route }, { data: travelers }, { data: lines }, { data: contracts }] = await Promise.all([
+  // Las frases del correo (saludo, primera línea, avisos de pasaportes, despedida) salen
+  // de Configuración → Mensajes; los bloques de datos los sigue armando este archivo.
+  // El firmante y la persona de contacto también son configurables y ya viven en settings.
+  const [{ data: route }, { data: travelers }, { data: lines }, { data: contracts }, mensajes, pilgrim, firmantes] = await Promise.all([
     quote.route_name
       ? supabase.from("routes").select("origin,destination,days,nights").eq("name", quote.route_name).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -109,7 +117,11 @@ export async function armarCorreoPilgrim(
     // Respaldo para los contratos anteriores a la migración 0036, por si algún
     // `passport_path` no alcanzó a copiarse a la ficha del viajero.
     supabase.from("contracts").select("traveler_id,status,passport_path").eq("quote_id", quoteId),
+    getMensajes(supabase),
+    getPilgrimSettings(supabase),
+    getFirmantes(supabase),
   ]);
+  const t = textosDe("pilgrim_reserva", mensajes);
 
   const personas = Number(quote.people) || 1;
   const costBase = Number(quote.cost_base_eur) || 0;
@@ -205,37 +217,51 @@ export async function armarCorreoPilgrim(
   }
   if (tarifas.length === 0) tarifas.push(linea("Sin conceptos cargados", eur(0)));
 
-  const subject =
-    `Reserva ${quote.code} — ${quote.route_name || "Camino de Santiago"} — ` +
-    `salida ${fechaCorta(quote.start_date)} — ${personas} peregrino${personas === 1 ? "" : "s"}`;
+  const subject = renderTemplate(t.asunto, {
+    codigo: quote.code,
+    ruta: quote.route_name || "Camino de Santiago",
+    fecha: fechaCorta(quote.start_date),
+    personas,
+    peregrinos: personas === 1 ? "peregrino" : "peregrinos",
+  });
+
+  const contacto = pilgrim.contacto.trim();
+  const saludo = contacto
+    ? renderTemplate(t.saludo, { contacto })
+    : renderTemplate(t.saludo_sin_contacto, { proveedor: pilgrim.nombre || "Pilgrim" });
+
+  const avisoPasaportes =
+    adjuntos.length === 0
+      ? t.adjuntos_ninguno
+      : adjuntos.length === 1
+        ? t.adjuntos_uno
+        : renderTemplate(t.adjuntos_varios, { cuantos: adjuntos.length });
 
   const body = [
-    `Hola Pilgrim,`,
+    saludo,
     ``,
-    `Confirmamos la siguiente reserva y quedamos atentos al link de pago.`,
+    t.intro,
     ``,
-    `DATOS DEL VIAJE`,
+    t.titulo_datos,
     ...datos,
     ``,
-    `VIAJEROS`,
+    t.titulo_viajeros,
     ...filasViajeros,
     ``,
-    `SERVICIOS Y TARIFAS (precios Pilgrim)`,
+    t.titulo_tarifas,
     ...tarifas,
     ` ${"-".repeat(64)}`,
     linea("TOTAL A PAGAR", eur(total)),
     ``,
-    adjuntos.length > 0
-      ? `Adjuntamos ${adjuntos.length === 1 ? "el pasaporte del viajero" : `los ${adjuntos.length} pasaportes de los viajeros`}.`
-      : `Los pasaportes se los enviamos en cuanto los tengamos.`,
+    avisoPasaportes,
     ...(pendientes.length > 0
-      ? [`Pendientes de pasaporte: ${pendientes.join(", ")}.`]
+      ? [renderTemplate(t.pendientes, { lista: pendientes.join(", ") })]
       : []),
-    `Por favor envíennos el link de pago para realizar la transferencia.`,
+    t.cierre,
     ``,
-    `Gracias,`,
-    `Nicolás Villa Posada`,
-    `Camino Sacro — reservas@caminosacro.com`,
+    // El firmante viene de settings en mayúsculas sostenidas (así va en el contrato);
+    // en un correo eso es gritar.
+    renderTemplate(t.firma, { firmante: nombrePropio(firmantes[0]?.nombre) || "Nicolás Villa Posada" }),
   ].join("\n");
 
   return { ok: true, correo: { subject, body, adjuntos, pendientes, total } };

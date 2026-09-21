@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { renderAndStoreAsistencia } from "@/lib/travelDocs/render";
+import { PLANTILLAS, type MensajesGuardados } from "@/lib/mensajes/plantillas";
+import { MENSAJES_KEY } from "@/lib/mensajes/settings";
 
 // Firmas de quienes firman por Camino Sacro (Nico y Nathalia), guardadas en
 // `settings.firmantes` y reutilizadas en todos los contratos. Cada uno la captura una sola
@@ -144,6 +146,63 @@ export async function regenerarAsistencia() {
   const supabase = await createCommercialClient();
   const r = await renderAndStoreAsistencia(supabase);
   if (r.error) return { error: r.error };
+  revalidatePath("/configuracion");
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+/**
+ * Los textos de los mensajes (WhatsApp al peregrino, correos a Pilgrim).
+ *
+ * Se guarda SOLO lo que difiere del texto de fábrica —el formulario ya lo depura— y acá
+ * se vuelve a comprobar, porque de esta clave depende lo que lee un cliente y lo que lee
+ * un proveedor: se aceptan únicamente las piezas que existen en `PLANTILLAS`, y nada más.
+ * Una clave desconocida en este jsonb no rompería nada hoy, pero mañana es un texto
+ * fantasma que nadie sabe de dónde salió.
+ */
+export async function saveMensajes(valores: MensajesGuardados): Promise<{ ok?: true; error?: string }> {
+  const limpio: MensajesGuardados = {};
+  for (const plantilla of PLANTILLAS) {
+    const propios = valores[plantilla.id];
+    if (!propios) continue;
+    for (const pieza of plantilla.piezas) {
+      const texto = String(propios[pieza.id] ?? "");
+      if (!texto.trim() || texto.trim() === pieza.valor.trim()) continue;
+      if (texto.length > 4000) return { error: `«${pieza.etiqueta}» es demasiado largo.` };
+      limpio[plantilla.id] = { ...(limpio[plantilla.id] ?? {}), [pieza.id]: texto };
+    }
+  }
+
+  const supabase = await createCommercialClient();
+  const { error } = await supabase
+    .from("settings")
+    .upsert({ key: MENSAJES_KEY, value: limpio }, { onConflict: "key" });
+  if (error) return { error: mensajeError(error) };
+  // Los borradores se arman en el servidor al pintar cada pantalla: sin esto, el texto
+  // nuevo no aparecería hasta que a alguien se le ocurriera recargar con fuerza.
+  revalidatePath("/configuracion");
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+/** Una plantilla de correo al cliente (`comercial.email_templates`). */
+export async function savePlantillaCorreo(fila: {
+  slug: string;
+  subject: string;
+  body_md: string;
+  active: boolean;
+}): Promise<{ ok?: true; error?: string }> {
+  const subject = fila.subject.trim();
+  const body = fila.body_md.trim();
+  if (!subject) return { error: "El asunto no puede quedar vacío." };
+  if (!body) return { error: "El cuerpo no puede quedar vacío." };
+
+  const supabase = await createCommercialClient();
+  const { error } = await supabase
+    .from("email_templates")
+    .update({ subject, body_md: body, active: fila.active, updated_at: new Date().toISOString() })
+    .eq("slug", fila.slug);
+  if (error) return { error: mensajeError(error) };
   revalidatePath("/configuracion");
   revalidatePath("/seguimiento");
   return { ok: true };

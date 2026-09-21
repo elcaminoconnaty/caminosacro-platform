@@ -25,6 +25,13 @@
  */
 
 import { leerFilasHabitacion, personasDeFila, roomRowLabel, type RoomRow } from "@/lib/quotes/rooms";
+import { renderTemplate } from "@/lib/emailTemplate";
+import { textosDe, type MensajesGuardados } from "@/lib/mensajes/plantillas";
+// `nombrePila` vive en @/lib/nombres y se reexporta acá porque la página del expediente
+// la usa para el nombre del asesor; el mismo arreglo sirve a los dos.
+import { nombrePila } from "@/lib/nombres";
+
+export { nombrePila };
 
 const MES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -49,24 +56,6 @@ function eur(n: number): string {
   return new Intl.NumberFormat("es-ES", {
     style: "currency", currency: "EUR", maximumFractionDigits: 0,
   }).format(Number(n) || 0);
-}
-
-/**
- * El nombre de pila, presentable.
- *
- * Sirve para los dos lados del mensaje: el peregrino ("JUAN CARLOS PÉREZ" → "Juan") y
- * quien firma, que sale de `settings.firmantes` en mayúsculas sostenidas
- * ("NICOLÁS VILLA POSADA" → "Nicolás"). Un "Hola JUAN CARLOS PÉREZ" en WhatsApp se lee
- * como lo que sería: un envío masivo.
- */
-export function nombrePila(nombre: string | null | undefined): string {
-  const primero = String(nombre ?? "").trim().split(/\s+/)[0] ?? "";
-  if (!primero) return "";
-  // La inicial siempre en mayúscula —la web recoge nombres tecleados en minúscula— y el
-  // resto se baja SOLO si venía todo en mayúsculas, para no romper un "McDonald" ni un
-  // "van Dijk" escritos bien.
-  const resto = primero === primero.toUpperCase() ? primero.slice(1).toLowerCase() : primero.slice(1);
-  return primero.charAt(0).toUpperCase() + resto;
 }
 
 export type DatosMensajeWhatsApp = {
@@ -94,6 +83,8 @@ export type DatosMensajeWhatsApp = {
   asesor: string;
   /** La página, tal como se dice en voz alta: "www.caminosacro.com". */
   web: string;
+  /** Lo que se haya cambiado del texto en Configuración. Sin esto, los textos de fábrica. */
+  textos?: MensajesGuardados | null;
 };
 
 /**
@@ -129,8 +120,11 @@ function renglonesPrecio(d: DatosMensajeWhatsApp): string[] {
 }
 
 export function mensajeWhatsAppCotizacion(d: DatosMensajeWhatsApp): string {
+  // Las frases salen de Configuración (clave `mensajes`), con los textos de fábrica de
+  // @/lib/mensajes/plantillas como respaldo. Lo que este armador decide es QUÉ datos van
+  // y en qué orden; las palabras las pone Nico.
+  const t = textosDe("whatsapp_cotizacion", d.textos);
   const nombre = nombrePila(d.cliente);
-  const saludo = nombre ? `¡Hola ${nombre}! 👋` : "¡Hola! 👋";
   const asesor = d.asesor || "Nicolás";
   const web = d.web || "www.caminosacro.com";
 
@@ -157,12 +151,18 @@ export function mensajeWhatsAppCotizacion(d: DatosMensajeWhatsApp): string {
 
   const precio = renglonesPrecio(d);
 
+  // Sin nombre no hay a quién saludar: se manda el saludo sin el hueco del nombre en vez
+  // de un "¡Hola ! 👋" con un espacio de más.
+  const saludo = nombre
+    ? renderTemplate(t.saludo, { nombre })
+    : renderTemplate(t.saludo, { nombre: "" }).replace(/\s+([!¡,])/g, "$1").replace(/\s{2,}/g, " ").trim();
+
   // El correo se nombra con su dirección para que la persona sepa DÓNDE buscarlo: la
   // queja de siempre es "no me llegó nada", y casi siempre está en promociones o en un
   // correo que no es el que usa a diario.
   const correo = d.emailCliente
-    ? `Te mandé la cotización completa al correo (${d.emailCliente}) 📩 Ahí va el itinerario día a día, lo que incluye y las condiciones.`
-    : `Te mandé la cotización completa por correo 📩 Ahí va el itinerario día a día, lo que incluye y las condiciones.`;
+    ? renderTemplate(t.correo, { email: d.emailCliente })
+    : t.correo_sin_direccion;
 
   // Cómo se ve la cotización desde el chat.
   //
@@ -174,17 +174,17 @@ export function mensajeWhatsAppCotizacion(d: DatosMensajeWhatsApp): string {
   // mano—, y eso es lo que dice el texto. Prometer un enlace que no existe sería mandar a
   // la persona a buscar algo que no le va a llegar.
   const verla = d.enlaceCotizacion
-    ? `Para ver la cotización por aquí solo dale clic acá 👉 ${d.enlaceCotizacion}`
-    : "Te la dejo también acá en el chat 📎";
+    ? renderTemplate(t.enlace, { enlace: d.enlaceCotizacion })
+    : t.adjunto;
 
   const bloques = [
     saludo,
-    `Soy ${asesor}, de Camino Sacro (${web}). Vi que estuviste cotizando${ruta ? ` el ${ruta}` : " el Camino"} en nuestra página y que no alcanzaste a ver los precios. Ya los tengo listos, así que acá te dejo todo 👇`,
-    viaje.length ? `*TU CAMINO*\n${viaje.join("\n")}` : "",
-    precio.length ? `*PRECIOS*\n${precio.join("\n")}` : "",
+    renderTemplate(t.presentacion, { asesor, web, ruta: ruta ? `el ${ruta}` : "el Camino" }),
+    viaje.length ? `${t.titulo_viaje}\n${viaje.join("\n")}` : "",
+    precio.length ? `${t.titulo_precios}\n${precio.join("\n")}` : "",
     `${correo}\n${verla}`,
-    "Quedo atento a cualquier duda 😊 Si quieres la acomodamos a tu gusto: fechas, días de camino, tipo de alojamiento o extras (traslados, maletas, noches adicionales).",
-    `¡Buen Camino! 🐚\n${asesor} — Camino Sacro\n${web}`,
+    t.cierre,
+    renderTemplate(t.firma, { asesor, web }),
   ];
 
   return bloques.filter(Boolean).join("\n\n");

@@ -13,7 +13,13 @@
  * acá, a partir de una lista cerrada de campos, y no volcando la fila de `web_leads`.
  *
  * Sin `server-only`: el panel arma el borrador editable y no hay nada que esconder acá.
+ *
+ * Las FRASES (saludo, por qué se escribe, cierre, despedida, asunto) salen de
+ * Configuración → Mensajes; acá queda lo que decide qué datos van y cuáles no.
  */
+
+import { renderTemplate } from "@/lib/emailTemplate";
+import { textosDe, type MensajesGuardados } from "@/lib/mensajes/plantillas";
 
 
 /** Lo único del lead que sale hacia Pilgrim. Lo que no está en este tipo, no viaja. */
@@ -88,8 +94,15 @@ export function textoHabitaciones(personas: number): string {
 export function armarSolicitudPrecio(
   lead: LeadParaPilgrim,
   ruta: RutaParaPilgrim | null,
-  opciones?: { contacto?: string | null; firmante?: string | null },
+  opciones?: {
+    contacto?: string | null;
+    firmante?: string | null;
+    proveedor?: string | null;
+    /** Textos cambiados en Configuración. Sin esto, los de fábrica. */
+    textos?: MensajesGuardados | null;
+  },
 ): SolicitudPrecio {
+  const t = textosDe("pilgrim_precio", opciones?.textos);
   const rutaNombre = lead.route_name || lead.route_slug;
   const personas = Math.max(1, Number(lead.people) || 1);
   const alojamiento = TIPO_LARGO[lead.tipo] ?? lead.tipo;
@@ -117,26 +130,25 @@ export function armarSolicitudPrecio(
   // La referencia es la que vio el visitante (CS-WEB-…), no el código del expediente:
   // es la que viaja en el acuse que recibió y la que aparece en toda la conversación.
   const subject = lead.code
-    ? `${rutaNombre} — ${lead.full_name} | ${lead.code}`
-    : `${rutaNombre} — ${lead.full_name}`;
+    ? renderTemplate(t.asunto, { ruta: rutaNombre, peregrino: lead.full_name, codigo: lead.code })
+    : renderTemplate(t.asunto_sin_codigo, { ruta: rutaNombre, peregrino: lead.full_name });
 
-  const saludo = opciones?.contacto?.trim() ? `Hola ${opciones.contacto.trim()},` : `Hola Pilgrim,`;
+  const contacto = opciones?.contacto?.trim() || "";
+  const saludo = contacto
+    ? renderTemplate(t.saludo, { contacto })
+    : renderTemplate(t.saludo_sin_contacto, { proveedor: opciones?.proveedor?.trim() || "Pilgrim" });
 
   const body = [
     saludo,
     ``,
-    `Tenemos una solicitud para ${anio} y todavía no tenemos vuestras tarifas de ese año,`,
-    `así que os pedimos el precio de esta salida en concreto.`,
+    renderTemplate(t.intro, { anio }),
     ``,
     `DATOS DEL VIAJE`,
     ...datos,
     ``,
-    `Cuando lo tengamos le pasamos la cotización al peregrino. Si hay que cerrar plazas`,
-    `antes, decídnoslo y lo gestionamos.`,
+    t.cierre,
     ``,
-    `Gracias,`,
-    opciones?.firmante?.trim() || `Nicolás Villa Posada`,
-    `Camino Sacro — reservas@caminosacro.com`,
+    renderTemplate(t.firma, { firmante: opciones?.firmante?.trim() || "Nicolás Villa Posada" }),
   ].join("\n");
 
   return { subject, body };
