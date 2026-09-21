@@ -394,10 +394,14 @@ export async function renderAndStoreQuotePdf(
     ]);
     bikeRows = ((bikesRaw || []) as Array<Record<string, unknown>>).map(normalizeBike);
     const bikePrices = ((bikePricesRaw || []) as Array<Record<string, unknown>>).map(normalizeBikePrice);
-    // `soloConPrecio`: una bici sin tarifa del año de salida NO sale en el PDF. Mejor una
-    // flota corta que un precio inventado en un documento que va al cliente (misma regla
-    // que `comercial.pricing`: coincidencia exacta de año, sin caer al anterior).
-    bikeFleet = bikesForRouteYear(bikeRows, bikePrices, routeId, bikeYear, { soloConPrecio: true }).map((b) => ({
+    // La flota va COMPLETA, también las gamas sin tarifa del año de salida (`priceCs: 0`).
+    // Antes se filtraba con `soloConPrecio` para no inventar cifras, y el efecto real era
+    // peor: sin tarifas 2027 cargadas el PDF de una ruta en bici salía sin flota, sin la
+    // nota de que la bici no está incluida y sin las condiciones del alquiler — el peregrino
+    // no se enteraba de que tenía que alquilarla. La regla de no inventar precios sigue
+    // intacta: la gama sin tarifa se pinta como "Por confirmar", nunca con el precio de
+    // otro año (misma regla de año exacto que `comercial.pricing`).
+    bikeFleet = bikesForRouteYear(bikeRows, bikePrices, routeId, bikeYear).map((b) => ({
       bikeId: b.id,
       categoryLabel: b.category_label,
       name: b.name,
@@ -482,6 +486,7 @@ export async function renderAndStoreQuotePdf(
     })),
     bikeFleet,
     selectedBikes,
+    esRutaBici: route?.modality === "bici",
     roomBreakdown,
     customRooms: customRoomsPdf,
     itineraryExtras,

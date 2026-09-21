@@ -111,7 +111,7 @@ export type OptionalPrice = {
  * `Casco de bicicleta` y `Seguro a todo riesgo`, ambas de 2027— y 13 cotizaciones vivas con
  * salida en 2027: con las tarifas de 2026 y dos personas, 188 € de venta regalados y 144 €
  * de costo que Pilgrim factura igual. El módulo de bicis ya tenía esta guarda
- * (`bikesForRouteYear`, opción `soloConPrecio`) y por eso sus 35 filas sin precio no cotizan
+ * (`bikesForRouteYear`) y por eso sus 35 filas sin precio no cotizan
  * nada; los opcionales no la tenían.
  *
  * Se mira `price_cs` —lo que se le cobra al cliente— porque es lo que decide si la línea

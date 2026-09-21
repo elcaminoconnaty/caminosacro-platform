@@ -104,14 +104,14 @@ export function normalizeBikePrice(raw: Record<string, unknown>): BikePriceRow {
  *
  * Devuelve TODAS las bicis activas, también las que no tienen tarifa cargada (con
  * `price_cs: null`). Quien las pinta decide qué hacer: el CRM las muestra deshabilitadas
- * con el aviso en ámbar, y el PDF y el catálogo público las omiten (`soloConPrecio`).
+ * con el aviso en ámbar y el PDF de la cotización las lista como "Por confirmar". Ninguno
+ * las esconde: en una ruta en bici, una flota a medias se lee como que no hay bicis.
  */
 export function bikesForRouteYear(
   bikes: BikeRow[],
   prices: BikePriceRow[],
   routeId: string | null,
   year: number,
-  opts: { soloConPrecio?: boolean } = {},
 ): BikeWithPrice[] {
   const porBici = new Map<string, BikePriceRow>();
   if (routeId) {
@@ -131,7 +131,7 @@ export function bikesForRouteYear(
         days: p?.days ?? null,
       };
     });
-  return opts.soloConPrecio ? out.filter((b) => (b.price_cs ?? 0) > 0) : out;
+  return out;
 }
 
 /**
