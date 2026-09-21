@@ -20,6 +20,12 @@ import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
 import { duplicarCotizacion } from "@/lib/quotes/duplicar";
 import { esEstadoVenta, registrarVentaMeta } from "@/lib/marketing/ventaMeta";
 import { resolverPagoCliente, esMonedaPago, type MonedaPago } from "@/lib/quotes/pagoCliente";
+import {
+  etapasCaminadas,
+  fechaFinDeItinerario,
+  resumenItinerario,
+  type EtapaItinerario,
+} from "@/lib/quotes/itinerario";
 
 /**
  * Mueve el estado de la venta según lo cobrado. Se llama después de cada alta, edición o
@@ -128,7 +134,7 @@ export async function updateQuote(id: string, formData: FormData) {
   // Cómo está ahora, para saber después si de verdad cambió algo (ver más abajo).
   const { data: antesRaw } = await supabase
     .from("quotes")
-    .select("client_name,client_phone,client_email,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,valid_until,notes,price_blocks,rooms_json,manual_price_note,pdf_path")
+    .select("client_name,client_phone,client_email,route_id,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,valid_until,notes,price_blocks,rooms_json,manual_price_note,pdf_path")
     .eq("id", id)
     .maybeSingle();
   const antes = (antesRaw ?? null) as Record<string, unknown> | null;
@@ -160,6 +166,11 @@ export async function updateQuote(id: string, formData: FormData) {
     client_phone: str(formData.get("client_phone")),
     client_email: str(formData.get("client_email")),
     route_name: str(formData.get("route_name")),
+    // La ruta del catálogo detrás del nombre. Se escribe SIEMPRE que el editor la mande: sin
+    // esto, cambiar la ruta cambiaba solo el nombre y la cotización seguía atada a la ruta
+    // vieja por `route_id` —que es por donde la resuelven las bicis, el correo a Pilgrim, la
+    // documentación de viaje y el estado que le devuelve BayMax—.
+    ...(formData.has("route_id") ? { route_id: str(formData.get("route_id")) } : {}),
     start_date: str(formData.get("start_date")),
     end_date: str(formData.get("end_date")),
     people: num(formData.get("people")),
@@ -808,4 +819,100 @@ export async function eliminarDocumentoPilgrim(quoteId: string, fileId: string) 
 
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
+}
+
+// ===================== ITINERARIO DE LA COTIZACIÓN =====================
+
+/**
+ * Guarda el itinerario pactado con ESTE cliente en `condiciones_json.etapas`.
+ *
+ * Existe para no tener que crear una ruta nueva en el catálogo cada vez que un viaje se
+ * personaliza —una etapa más, otro pueblo, un día partido—. El catálogo describe la ruta
+ * que se vende muchas veces; esto describe el viaje de una persona.
+ *
+ * Mueve también `end_date`, porque una etapa más es un día más de viaje y esa fecha la leen
+ * el calendario, el contrato, el correo a Pilgrim y la documentación. Lo que NO toca es el
+ * precio: una etapa a medida no tiene tarifa en el catálogo, así que la cifra la pone Nico
+ * en «Datos de la cotización» (es lo mismo que pasa con una ruta sin tarifas del año).
+ */
+export async function guardarItinerarioCotizacion(quoteId: string, etapas: EtapaItinerario[]) {
+  const supabase = await createCommercialClient();
+  const caminadas = etapasCaminadas(etapas);
+  if (caminadas.length === 0) {
+    return { error: "El itinerario necesita al menos una etapa con kilómetros. Sin eso el PDF no dibuja nada." };
+  }
+  const sinDestino = caminadas.filter((e) => !e.to_place);
+  if (sinDestino.length > 0) {
+    return { error: `Falta el pueblo de llegada en ${sinDestino.length === 1 ? "una etapa" : `${sinDestino.length} etapas`}.` };
+  }
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("condiciones_json,start_date,end_date")
+    .eq("id", quoteId)
+    .maybeSingle();
+  if (!quote) return { error: "Cotización no encontrada." };
+
+  // Se conserva el resto de las condiciones particulares: acá solo mandan las etapas.
+  const condiciones = {
+    ...((quote.condiciones_json ?? {}) as Record<string, unknown>),
+    etapas: caminadas,
+  };
+
+  const parche: Record<string, unknown> = { condiciones_json: condiciones };
+  const nuevoFin = fechaFinDeItinerario(quote.start_date as string | null, caminadas);
+  const cambiaFin = !!nuevoFin && nuevoFin !== quote.end_date;
+  if (cambiaFin) parche.end_date = nuevoFin;
+
+  const { error } = await supabase.from("quotes").update(parche).eq("id", quoteId);
+  if (error) return { error: mensajeError(error) };
+
+  const pdf = await renderAndStoreQuotePdf(supabase, quoteId);
+  const avisoPdf = "error" in pdf && pdf.error ? "Se guardó, pero el PDF no se pudo regenerar." : null;
+
+  revalidatePath(`/seguimiento/${quoteId}`);
+  revalidatePath("/calendario");
+  const { dias, noches } = resumenItinerario(caminadas);
+  return {
+    ok: true as const,
+    aviso: [
+      `${caminadas.length} etapas · ${dias} días · ${noches} noches.`,
+      cambiaFin ? `La fecha de fin pasó a ${nuevoFin}.` : null,
+      avisoPdf,
+    ].filter(Boolean).join(" "),
+  };
+}
+
+/**
+ * Suelta el itinerario propio: la cotización vuelve al del catálogo de su ruta.
+ *
+ * Borra solo la clave `etapas`; las demás condiciones particulares (plazos de pago,
+ * cancelación) se quedan. Si no queda ninguna, el campo vuelve a NULL, que es como el PDF
+ * sabe que esta cotización no pactó nada distinto.
+ */
+export async function usarItinerarioDelCatalogo(quoteId: string) {
+  const supabase = await createCommercialClient();
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("condiciones_json")
+    .eq("id", quoteId)
+    .maybeSingle();
+  if (!quote) return { error: "Cotización no encontrada." };
+
+  const resto = { ...((quote.condiciones_json ?? {}) as Record<string, unknown>) };
+  delete resto.etapas;
+  const condiciones = Object.keys(resto).length > 0 ? resto : null;
+
+  const { error } = await supabase.from("quotes").update({ condiciones_json: condiciones }).eq("id", quoteId);
+  if (error) return { error: mensajeError(error) };
+
+  const pdf = await renderAndStoreQuotePdf(supabase, quoteId);
+  revalidatePath(`/seguimiento/${quoteId}`);
+  revalidatePath("/calendario");
+  return {
+    ok: true as const,
+    aviso: "error" in pdf && pdf.error
+      ? "Volvió al itinerario del catálogo, pero el PDF no se pudo regenerar."
+      : "La cotización volvió al itinerario del catálogo. La fecha de fin no se tocó.",
+  };
 }

@@ -8,6 +8,8 @@ import { CATALOG_BASE_YEAR, optionalPricesForYear, quoteYear } from "@/lib/prici
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import QuoteEditor, { type CompanyLite } from "./QuoteEditor";
+import ItineraryCard from "./ItineraryCard";
+import { etapasCaminadas, etapasDeCondiciones, type EtapaItinerario } from "@/lib/quotes/itinerario";
 import ClientPaymentsCard from "./ClientPaymentsCard";
 import ProviderPaymentsCard from "./ProviderPaymentsCard";
 import DocumentsCard from "./DocumentsCard";
@@ -150,7 +152,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   ] = await Promise.all([
     supabase.from("quotes").select("*").eq("id", id).maybeSingle(),
     // `modality` viene de acá: es lo que decide si esta cotización es de camino en bici.
-    supabase.from("routes").select("id,name,days,nights,origin,destination,modality").order("name"),
+    supabase.from("routes").select("id,name,family,days,nights,km,origin,destination,modality,active").order("name"),
     supabase
       .from("pricing")
       // Todos los años: el editor filtra por el año de salida de la cotización.
@@ -390,6 +392,27 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       )
     : [];
 
+  // El itinerario: el del catálogo de la ruta y el pactado con este cliente, si lo hay.
+  // Se consulta acá porque la ruta solo se conoce después de leer la cotización.
+  let etapasCatalogo: EtapaItinerario[] = [];
+  if (routeRow?.id) {
+    const { data: st } = await supabase
+      .from("route_stages")
+      .select("day,from_place,to_place,km,accommodation")
+      .eq("route_id", routeRow.id)
+      .order("day");
+    etapasCatalogo = etapasCaminadas(
+      ((st || []) as Array<{ day: number; from_place: string | null; to_place: string | null; km: number | string | null; accommodation: string | null }>).map((e) => ({
+        day: e.day,
+        from_place: e.from_place,
+        to_place: e.to_place,
+        km: e.km != null ? Number(e.km) : null,
+        accommodation: e.accommodation,
+      })),
+    );
+  }
+  const etapasPropias = etapasDeCondiciones(quote.condiciones_json);
+
   // De qué cotización nació esta. Se consulta aparte porque el id del padre solo se conoce
   // después de leer la cotización.
   let parentQuote: { id: string; code: string } | null = null;
@@ -460,6 +483,15 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         pricing={pricingFlat}
         seasonConfig={seasonConfig}
         company={(company as CompanyLite | null) ?? null}
+      />
+
+      <ItineraryCard
+        quoteId={id}
+        routeName={quote.route_name}
+        startDate={quote.start_date}
+        endDate={quote.end_date}
+        etapasCatalogo={etapasCatalogo}
+        etapasPropias={etapasPropias}
       />
 
       <OptionalsCard

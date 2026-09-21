@@ -35,6 +35,7 @@ type Quote = {
   client_name: string | null;
   client_phone: string | null;
   client_email: string | null;
+  route_id?: string | null;
   route_name: string | null;
   start_date: string | null;
   end_date: string | null;
@@ -73,6 +74,25 @@ export type CompanyLite = {
   rep_document_type: string | null;
   rep_document_number: string | null;
 };
+
+/**
+ * La ruta del catálogo, con lo que el editor necesita para elegirla: la familia (el Camino)
+ * para agrupar el desplegable y los días para recalcular la fecha de fin.
+ */
+export type RouteLite = {
+  id: string;
+  name: string;
+  family?: string | null;
+  days?: number | null;
+  km?: number | string | null;
+  active?: boolean | null;
+};
+
+// Mismas etiquetas que el asistente (@/app/(dashboard)/cotizaciones/nueva/Wizard.tsx).
+const SIN_FAMILIA = "Sin Camino";
+// Escape para las cotizaciones viejas cuya ruta no está en el catálogo ("Portugues desde
+// Tui", sin tilde): abre el texto libre de siempre en vez de obligar a cambiarles la ruta.
+const RUTA_LIBRE = "__libre__";
 
 type PricingRow = {
   route_id: string;
@@ -140,7 +160,7 @@ export default function QuoteEditor({
   company = null,
 }: {
   quote: Quote;
-  routes: { id: string; name: string }[];
+  routes: RouteLite[];
   pricing: PricingRow[];
   seasonConfig: SeasonSupplements;
   company?: CompanyLite | null;
@@ -152,8 +172,57 @@ export default function QuoteEditor({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Estado controlado para auto-fill
+  // ---- Ruta ----
+  //
+  // La ruta se ELIGE del catálogo (Camino → desde dónde), igual que en el asistente, y se
+  // guarda también su `route_id`. Antes era un `<input list>` de texto libre: el desplegable
+  // solo ofrecía lo que ya estaba escrito —o sea nada—, así que en la práctica no se podía
+  // cambiar la ruta de una cotización; y si se escribía a mano, un acento de menos dejaba el
+  // nombre sin ruta del catálogo detrás y el PDF salía sin etapas ni tarjetas de precio.
+  const rutaGuardada = useMemo(
+    () => routes.find((r) => (quote.route_id ? r.id === quote.route_id : r.name === quote.route_name)) ?? null,
+    [routes, quote.route_id, quote.route_name],
+  );
   const [routeName, setRouteName] = useState(quote.route_name ?? "");
+  const [routeId, setRouteId] = useState<string | null>(rutaGuardada?.id ?? null);
+  // Arranca en el Camino de la ruta guardada. Si esa ruta no está en el catálogo, arranca en
+  // texto libre: abrir el expediente no puede cambiarle la ruta a nadie.
+  const [family, setFamily] = useState<string>(() => {
+    if (!rutaGuardada) return quote.route_name ? RUTA_LIBRE : "";
+    return rutaGuardada.family || SIN_FAMILIA;
+  });
+  const rutaLibre = family === RUTA_LIBRE;
+
+  const families = useMemo(() => {
+    const set = new Set<string>();
+    let hayHuerfanas = false;
+    for (const r of routes) {
+      if (r.active === false && r.id !== rutaGuardada?.id) continue;
+      if (r.family) set.add(r.family);
+      else hayHuerfanas = true;
+    }
+    const list = [...set].sort();
+    if (hayHuerfanas) list.push(SIN_FAMILIA);
+    return list;
+  }, [routes, rutaGuardada]);
+
+  // Las rutas del Camino elegido. La ruta actual va siempre primera aunque sea de otro
+  // Camino o esté inactiva: mientras no se elija otra, el desplegable muestra la que hay.
+  const rutasDelCamino = useMemo(() => {
+    if (!family || rutaLibre) return [];
+    const lista = routes
+      .filter((r) => r.active !== false && (family === SIN_FAMILIA ? !r.family : r.family === family))
+      .sort((a, b) => (Number(b.days) || 0) - (Number(a.days) || 0));
+    if (routeName && !lista.some((r) => r.name === routeName)) {
+      const actual = routes.find((r) => r.name === routeName);
+      if (actual) return [actual, ...lista];
+    }
+    return lista;
+  }, [routes, family, rutaLibre, routeName]);
+  const selectedRoute = useMemo(
+    () => routes.find((r) => (routeId ? r.id === routeId : r.name === routeName)) ?? null,
+    [routes, routeId, routeName],
+  );
 
   // ---- Lo guardado, leído una sola vez ----
   const storedPeople = Math.max(1, Number(quote.people) || 1);
@@ -188,6 +257,23 @@ export default function QuoteEditor({
   const [startDate, setStartDate] = useState<string>(quote.start_date ?? "");
   const [endDate, setEndDate] = useState<string>(quote.end_date ?? "");
   const [autoLink, setAutoLink] = useState(true); // true = recalcular cuando cambian ruta/modalidad/personas
+
+  /**
+   * Cambiar de ruta: nombre, `route_id` y la fecha de fin, que es la que depende de los días
+   * de la ruta. Se recalcula acá y no en un efecto para que abrir un expediente no le mueva
+   * la fecha a nadie: solo se mueve cuando de verdad se elige otra ruta (mismo criterio que
+   * el del autorrelleno de precios, §2.4). Los precios los recalcula `firmaTarifa`.
+   */
+  function elegirRuta(nombre: string) {
+    const r = routes.find((x) => x.name === nombre) ?? null;
+    setRouteName(nombre);
+    setRouteId(r?.id ?? null);
+    const dias = Number(r?.days) || 0;
+    if (dias > 0 && startDate) {
+      const fin = new Date(new Date(startDate + "T00:00:00").getTime() + (dias - 1) * 86400000);
+      setEndDate(fin.toISOString().slice(0, 10));
+    }
+  }
 
   // Detección de temporada según fechas actuales — se recalcula al cambiar start/end/people
   const season = useMemo(
@@ -418,6 +504,9 @@ export default function QuoteEditor({
     formData.set("cost_base_eur", costBaseEur.toFixed(2));
     formData.set("people", String(people));
     formData.set("route_name", routeName);
+    // La ruta del catálogo detrás del nombre: de acá salen las etapas del PDF, las bicis,
+    // el pedido a Pilgrim y la documentación de viaje. Vacío = ruta de texto libre.
+    formData.set("route_id", routeId ?? "");
     formData.set("start_date", startDate);
     formData.set("end_date", endDate);
     formData.set("season_supplement_eur", seasonSuppCs.toFixed(2));
@@ -619,20 +708,63 @@ export default function QuoteEditor({
           )}
         </div>
 
-        <div className="md:col-span-2">
-          <label className="block">
+        {/* Ruta: Camino → desde dónde, igual que el asistente. Cambiarla vuelve a tarifar
+            con el catálogo del año de salida y recalcula la fecha de fin con sus días. */}
+        <label className="block">
+          <span className="text-xs text-muted">Camino</span>
+          <select
+            value={family}
+            onChange={(e) => setFamily(e.target.value)}
+            className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
+          >
+            <option value="">— Elegí un Camino —</option>
+            {families.map((f) => <option key={f} value={f}>{f}</option>)}
+            <option value={RUTA_LIBRE}>Ruta fuera del catálogo (texto libre)</option>
+          </select>
+        </label>
+
+        {rutaLibre ? (
+          <label className="block md:col-span-2">
             <span className="text-xs text-muted">Ruta</span>
             <input
               value={routeName}
-              onChange={(e) => setRouteName(e.target.value)}
-              list="routes-datalist"
+              onChange={(e) => { setRouteName(e.target.value); setRouteId(null); }}
               className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
             />
+            <span className="text-[11px] text-dorado-oscuro mt-0.5 inline-block">
+              Escrita a mano: el PDF sale sin etapas ni tarjetas de precio, y no hay tarifas del catálogo.
+            </span>
           </label>
-          <datalist id="routes-datalist">
-            {routes.map((r) => <option key={r.id} value={r.name} />)}
-          </datalist>
-        </div>
+        ) : (
+          <label className="block md:col-span-2">
+            <span className="text-xs text-muted">Desde</span>
+            <select
+              value={routeName}
+              onChange={(e) => elegirRuta(e.target.value)}
+              disabled={!family}
+              className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="">{family ? "— Elegí desde dónde —" : "Primero elegí un Camino"}</option>
+              {rutasDelCamino.map((r) => {
+                // La ruta de ahora sale marcada cuando es de otro Camino: así se ve que el
+                // desplegable todavía muestra la que hay y que no cambió nada por filtrar.
+                const deOtroCamino = family === SIN_FAMILIA ? !!r.family : r.family !== family;
+                return (
+                  <option key={r.id} value={r.name}>
+                    {r.name}{r.days ? ` · ${r.days} días` : ""}{r.km ? ` · ${r.km} km` : ""}
+                    {deOtroCamino ? " · la de ahora" : ""}
+                  </option>
+                );
+              })}
+            </select>
+            {selectedRoute && (
+              <span className="text-[11px] text-bosque mt-0.5 inline-block">
+                {selectedRoute.days ? `${selectedRoute.days} días · ` : ""}etapas del catálogo
+                {routeName !== (quote.route_name ?? "") ? " · se vuelve a tarifar al guardar" : ""}
+              </span>
+            )}
+          </label>
+        )}
 
         <label className="block">
           <span className="text-xs text-muted">Estado</span>

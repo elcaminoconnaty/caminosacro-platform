@@ -136,14 +136,6 @@ export async function renderAndStoreQuotePdf(
         ...x,
         km: x.km != null ? Number(x.km) : null,
       }));
-      // El itinerario pactado manda sobre el del catálogo: el catálogo describe la ruta
-      // genérica y el operador puede confirmarle a un grupo otros pueblos. Los km del
-      // encabezado se recalculan con él, o el cuadro de stats diría los del catálogo
-      // mientras la tabla de etapas debajo suma otra cosa.
-      if (condiciones?.etapas?.length) {
-        stages = condiciones.etapas;
-        route.km = stages.reduce((a, st) => a + (Number(st.km) || 0), 0);
-      }
       // Tarifas del año de salida (migración 0017): una salida 2027 no se compara contra
       // precios 2026. Sin tarifas del año no hay tarjeta comparativa, que es lo correcto.
       const { data: prc } = await supabase
@@ -156,6 +148,21 @@ export async function renderAndStoreQuotePdf(
         .map((p) => ({ modality: p.modality, price_cs: Number(p.price_cs) || 0 }))
         .filter((p) => p.price_cs > 0);
     }
+  }
+
+  // El itinerario pactado manda sobre el del catálogo: el catálogo describe la ruta genérica
+  // y el operador puede confirmarle a un grupo otros pueblos, o una etapa más. Los km del
+  // encabezado se recalculan con él, o el cuadro de stats diría los del catálogo mientras la
+  // tabla de etapas debajo suma otra cosa.
+  //
+  // Va FUERA del bloque de la ruta a propósito: una cotización cuya ruta no está en el
+  // catálogo —por un nombre escrito a mano— es justo la que más necesita su propio
+  // itinerario, y adentro se lo perdía. Sin ruta, los días y los km salen igual de las
+  // etapas (ver `stagesCount` en @/lib/quotePdf).
+  if (condiciones?.etapas?.length) {
+    stages = condiciones.etapas;
+    const kmItinerario = stages.reduce((a, st) => a + (Number(st.km) || 0), 0);
+    if (route) route.km = kmItinerario;
   }
 
   // Override por cotización (migración 0016): si la cotización trae precios propios —el caso

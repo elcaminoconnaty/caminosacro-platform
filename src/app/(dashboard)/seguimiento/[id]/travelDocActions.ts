@@ -14,6 +14,7 @@ import {
 } from "@/lib/travelDocs/render";
 import { enviarCorreoDocumentacionViaje } from "@/lib/travelDocs/email";
 import { hotelParaLugar } from "@/lib/travelDocs/lugares";
+import { etapasDeCondiciones } from "@/lib/quotes/itinerario";
 
 /**
  * Acciones del expediente de documentación de viaje de una cotización.
@@ -26,34 +27,43 @@ import { hotelParaLugar } from "@/lib/travelDocs/lugares";
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 
 /**
- * Propone las noches del viaje a partir del itinerario del catálogo.
+ * Propone las noches del viaje a partir del itinerario.
  *
  * No guarda: devuelve filas para que se revisen y se elija el hotel de cada una. Trae
- * día, etapa y kilómetros de route_stages, y propone un hotel del catálogo cuando la
- * localidad de la etapa coincide con la ciudad de una ficha.
+ * día, etapa y kilómetros, y propone un hotel del catálogo cuando la localidad de la etapa
+ * coincide con la ciudad de una ficha.
+ *
+ * Manda el itinerario pactado con este cliente (`condiciones_json.etapas`) si lo tiene, y
+ * solo si no, el del catálogo: si el grupo compró una etapa más, las noches que se reservan
+ * son las suyas, no las de la ruta genérica. Es el mismo criterio del PDF.
  */
 export async function prefillTravelNights(quoteId: string) {
   const supabase = await createCommercialClient();
   const { data: quote } = await supabase
     .from("quotes")
-    .select("route_name,start_date,people,modality")
+    .select("route_name,start_date,people,modality,condiciones_json")
     .eq("id", quoteId)
     .maybeSingle();
   if (!quote?.route_name) return { error: "La cotización no tiene ruta asignada." };
 
-  const { data: r } = await supabase.from("routes").select("id").eq("name", quote.route_name).maybeSingle();
-  if (!r) return { error: "No encontré la ruta en el catálogo." };
-
-  const { data: st } = await supabase
-    .from("route_stages")
-    .select("day,from_place,to_place,km,accommodation")
-    .eq("route_id", r.id)
-    .order("day");
-
   type Etapa = { day: number; from_place: string | null; to_place: string | null; km: number | string | null; accommodation: string | null };
+
+  let crudas: Etapa[] = etapasDeCondiciones(quote.condiciones_json);
+  if (crudas.length === 0) {
+    const { data: r } = await supabase.from("routes").select("id").eq("name", quote.route_name).maybeSingle();
+    if (!r) return { error: "No encontré la ruta en el catálogo." };
+
+    const { data: st } = await supabase
+      .from("route_stages")
+      .select("day,from_place,to_place,km,accommodation")
+      .eq("route_id", r.id)
+      .order("day");
+    crudas = (st || []) as Etapa[];
+  }
+
   // Una noche por etapa CON alojamiento: las etapas de "fin de servicios" no lo traen.
-  const etapas = ((st || []) as Etapa[]).filter((s) => s.accommodation);
-  if (etapas.length === 0) return { error: "La ruta no tiene etapas con alojamiento cargadas en el catálogo." };
+  const etapas = crudas.filter((s) => s.accommodation);
+  if (etapas.length === 0) return { error: "El itinerario no tiene etapas con alojamiento cargadas." };
 
   // .order("name"): con dos fichas en la misma localidad el desempate lo hace hotelParaLugar
   // con el primero del array, y sin orden explícito ese primero lo decide Postgres — un UPDATE
