@@ -32,6 +32,14 @@ function mensajeFaltantes(faltas: { campo: string; texto: string }[]): string {
   return `Antes de firmar te falta ${textos.slice(0, -1).join(", ")} y ${ultimo}.`;
 }
 
+/** Copia suelta de lo validado en el paso 1: al firmar se le cambia el pasaporte por el
+ *  comprimido, y el original queda intacto por si hay que volver a intentarlo. */
+function copiaDatos(fd: FormData): FormData {
+  const copia = new FormData();
+  fd.forEach((valor, clave) => copia.append(clave, valor));
+  return copia;
+}
+
 /**
  * La ubicación aproximada, si el firmante la concede. Nunca bloquea la firma: si el
  * navegador no la tiene, la niega o tarda más de seis segundos, se firma sin ella.
@@ -173,6 +181,12 @@ export default function SignForm({
   const [faltantes, setFaltantes] = useState<Record<string, boolean>>({});
   const enviando = pending || preparando;
   const formRef = useRef<HTMLFormElement>(null);
+  // Lo que se validó en el paso 1, guardado tal cual. Apenas se pide el código los campos
+  // quedan dentro de un <fieldset disabled>, y un control deshabilitado NO entra en
+  // `new FormData(form)`: si al firmar volviéramos a leer el formulario, el nombre, el
+  // documento y la aceptación llegarían vacíos y el firmante vería "te falta…" con todo
+  // lleno en pantalla. Se firma esta copia, que es además lo que el código confirma.
+  const datosPasoUno = useRef<FormData | null>(null);
 
   const claseCampo = (campo: string) =>
     `mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white ${
@@ -233,7 +247,13 @@ export default function SignForm({
   function pedir() {
     setError(null);
     setAviso(null);
-    if (!validarPasoUno()) return;
+    // Reenviar el código ("no me llegó") no revalida: los campos ya están bloqueados y
+    // lo que se firma quedó guardado al pedir el primero.
+    if (!codigoPedido) {
+      const fd = validarPasoUno();
+      if (!fd) return;
+      datosPasoUno.current = fd;
+    }
     startTransition(async () => {
       try {
         const r = await pedirCodigo(token);
@@ -255,7 +275,7 @@ export default function SignForm({
     setError(null);
     if (!codigoPedido) return pedir();
 
-    const fd = validarPasoUno();
+    const fd = datosPasoUno.current ? copiaDatos(datosPasoUno.current) : validarPasoUno();
     if (!fd) return;
     if (codigo.replace(/\D/g, "").length !== 6) {
       setFaltantes({ codigo: true });
