@@ -22,9 +22,12 @@ import PilgrimFilesCard, { type PilgrimFile } from "./PilgrimFilesCard";
 import { type EnvioResumen } from "./EstadoEnvio";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
+import WhatsAppCard from "./WhatsAppCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
 import { buildDefaultVariables, getFirmantes } from "@/lib/contracts/render";
 import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
+import { habitacionesDeCotizacion, mensajeWhatsAppCotizacion, nombrePila } from "@/lib/quotes/mensajeWhatsApp";
+import { getTravelDocTexts } from "@/lib/travelDocs/texts";
 
 function basename(p: string | null): string | null {
   if (!p) return null;
@@ -207,7 +210,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     // las pruebas: son justo lo que hace dudar de si el correo de verdad ya salió.
     supabase
       .from("email_log")
-      .select("tipo,prueba,created_at,estado")
+      // `token` es el de la versión web del correo (/correo/[token]): el mensaje de
+      // WhatsApp lo ofrece como "verla en línea, sin descargar nada".
+      .select("tipo,prueba,created_at,estado,token")
       .eq("quote_id", id)
       .neq("estado", "error")
       .order("created_at", { ascending: false }),
@@ -253,9 +258,13 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
   // El correo a Pilgrim se arma en el servidor a partir del costo ya corregido y de
   // los viajeros con su pasaporte; en la tarjeta se puede editar antes de enviar.
-  const [pilgrimSettings, pilgrimArmado] = await Promise.all([
+  // `travelDocTexts` se trae por el contacto: la web y el WhatsApp de la agencia viven en
+  // settings, no en el código, y son los mismos que ya usan el correo de cotización y la
+  // documentación de viaje. Un dato, un lugar.
+  const [pilgrimSettings, pilgrimArmado, travelDocTexts] = await Promise.all([
     getPilgrimSettings(supabase),
     armarCorreoPilgrim(supabase, id),
+    getTravelDocTexts(supabase),
   ]);
   const pilgrimMail = pilgrimArmado.ok
     ? pilgrimArmado.correo
@@ -264,7 +273,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // Resumen de envíos por tipo de correo. La marca de "enviado" NO sale de aquí sino de
   // las columnas del expediente (`quotes.email_sent_at`, `travel_docs.sent_at`), que son
   // las que solo se escriben en un envío real; del registro solo se cuentan las pruebas.
-  type FilaEnvio = { tipo: string; prueba: boolean; created_at: string };
+  type FilaEnvio = { tipo: string; prueba: boolean; created_at: string; token: string | null };
   const filasEnvio = ((envios as FilaEnvio[] | null) || []);
   function resumenEnvio(tipo: string, enviadoAt: string | null): EnvioResumen {
     const pruebas = filasEnvio.filter((e) => e.tipo === tipo && e.prueba);
@@ -422,6 +431,34 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   }
   const hijas = ((childQuotes as unknown) as Array<{ id: string; code: string }> | null) || [];
 
+  // El mensaje de WhatsApp para el peregrino. Se arma acá, con los datos ya resueltos de
+  // esta cotización (la ruta con su origen, el reparto de habitaciones con su precio por
+  // persona, el total) y en la tarjeta se edita antes de mandarlo.
+  //
+  // El enlace de "verla en línea" es el del ÚLTIMO correo real que se le mandó al cliente
+  // —`filasEnvio` viene ordenado del más nuevo al más viejo—, nunca el de una prueba: el
+  // de una prueba muestra el correo con [PRUEBA] en el asunto.
+  const tokenVersionWeb = filasEnvio.find((e) => e.tipo === "cliente" && !e.prueba && e.token)?.token ?? null;
+  const rutaMeta = findRouteMeta(routes, quote.route_name);
+  const mensajeWhatsApp = mensajeWhatsAppCotizacion({
+    cliente: quote.client_name ?? null,
+    ruta: quote.route_name ?? null,
+    origen: rutaMeta?.origin ?? null,
+    fechaInicio: quote.start_date ?? null,
+    fechaFin: quote.end_date ?? null,
+    dias: rutaMeta?.days ?? null,
+    noches: rutaMeta?.nights ?? (rutaMeta?.days ? rutaMeta.days - 1 : null),
+    personas: Number(quote.people) || 1,
+    alojamiento: quote.modality ?? null,
+    totalEur: total,
+    habitaciones: habitacionesDeCotizacion(quote.rooms_json),
+    validoHasta: (quote.valid_until as string | null) ?? null,
+    emailCliente: quote.client_email ?? null,
+    enlaceCotizacion: tokenVersionWeb ? `${appBaseUrl}/correo/${tokenVersionWeb}` : null,
+    asesor: nombrePila(firmantes[0]?.nombre) || "Nicolás",
+    web: travelDocTexts.contacto.web || "www.caminosacro.com",
+  });
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
@@ -535,6 +572,17 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           emailTpl?.body_md || "Hola {{nombre}}, te envío la cotización adjunta.\n\nBuen Camino,\nCamino Sacro",
           buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name), cobrado),
         )}
+      />
+
+      {/* Pegada al correo del cliente porque es el mismo encargo por el otro canal: a la
+          gente que cotizó en la web sin precio se le escribe por WhatsApp, y ahí hay que
+          repetirle lo que dice el correo. Nace plegada. */}
+      <WhatsAppCard
+        telefonoInicial={quote.client_phone || ""}
+        mensajeInicial={mensajeWhatsApp}
+        pdfPath={quote.pdf_path ?? null}
+        pdfNombre={`Cotizacion-${quote.code}.pdf`}
+        envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
       />
 
       <ContractCard

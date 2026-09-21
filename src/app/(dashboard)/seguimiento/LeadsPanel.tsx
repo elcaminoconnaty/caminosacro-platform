@@ -14,6 +14,9 @@ import {
 } from "@/lib/leads/webLeads";
 import type { SolicitudPrecio } from "@/lib/leads/solicitudPrecio";
 import { enviarSolicitudPrecioPilgrim, marcarLeadAtendido } from "./leadsActions";
+// El normalizador del teléfono vive en @/lib/whatsapp: lo comparte con la tarjeta del
+// mensaje al peregrino del expediente. Estaba escrito dos veces.
+import { telefonoWhatsApp } from "@/lib/whatsapp";
 
 /**
  * Los leads del cotizador de la web que se quedaron sin precio.
@@ -25,22 +28,6 @@ import { enviarSolicitudPrecioPilgrim, marcarLeadAtendido } from "./leadsActions
  * desaparecer del panel entero: quedaban en `comercial.web_leads` y en el correo, y en
  * ninguna pantalla.
  */
-
-/** Solo dígitos: wa.me no acepta espacios ni signos. */
-function soloDigitos(tel: string): string {
-  return tel.replace(/\D/g, "");
-}
-
-/**
- * Colombia sin indicativo. La web recoge el teléfono a mano y hay filas de 10 dígitos
- * que empiezan por 3 (`3138865707`) y otras que ya vienen completas (`573105385516`).
- * Sin esto, el enlace de WhatsApp de la mitad de los leads no abre ningún chat.
- */
-function telefonoWhatsApp(tel: string): string {
-  const d = soloDigitos(tel);
-  if (d.length === 10 && d.startsWith("3")) return `57${d}`;
-  return d;
-}
 
 export default function LeadsPanel({
   leads,

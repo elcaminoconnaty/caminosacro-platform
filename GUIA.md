@@ -371,6 +371,31 @@ viajeros adjuntos, pidiendo el link de pago. Asunto y cuerpo son editables antes
 - Para ensayar con 1, 2, 3 y 20 personas:
   `npx tsx scripts/seed_pruebas.ts tucorreo@gmail.com` (y `--limpiar` para borrarlas).
 
+### D6. Mensaje de WhatsApp al peregrino
+Card **"Mensaje de WhatsApp"** en el seguimiento, **plegada** (se abre con clic en la
+cabecera). Es para la gente que cotizó en caminosacro.com, se quedó sin precio, se lo
+pedimos a Pilgrim y ahora hay que escribirle por WhatsApp, que es donde contesta.
+
+El texto se arma solo con los datos de la cotización: presentación ("Soy Nicolás, de
+Camino Sacro" + la web), ruta con su origen, salida y regreso, duración, viajeros,
+alojamiento, el precio **por persona** de cada habitación, el total, hasta cuándo valen
+los precios, y el aviso de que la cotización salió por correo y va **adjunta en el chat**.
+Si el correo ya se envió, agrega el enlace de la versión web (`/correo/[token]`).
+
+- **Se edita antes de mandarlo** (es una conversación, no un envío masivo). "Restablecer"
+  devuelve el texto estándar.
+- El teléfono sale de `client_phone` y también se puede cambiar ahí mismo. Un número
+  colombiano de 10 dígitos se completa solo con el 57; **uno extranjero hay que escribirlo
+  con su indicativo**.
+- "Descargar PDF" baja la cotización con su nombre para arrastrarla al chat: el adjunto
+  **no** viaja en el enlace de WhatsApp.
+- "Abrir WhatsApp" abre el chat con el mensaje escrito. **No envía nada**: el envío lo da
+  una persona. Enviar solo se automatiza con la API de negocio de Meta.
+- Si el correo de la cotización todavía no ha salido, la tarjeta lo avisa en ámbar: el
+  mensaje dice "te envié la cotización al correo" y esa frase tiene que ser cierta.
+- Quién firma sale de `settings.firmantes` (ver D3c) y la web, de `settings.travel_doc`
+  → `contacto.web`. El texto está en `src/lib/quotes/mensajeWhatsApp.ts`.
+
 ### E. Cambiar suplementos de temporada
 ```sql
 update comercial.settings set value = jsonb_set(value, '{high_season,price_cs}', '90'::jsonb)
