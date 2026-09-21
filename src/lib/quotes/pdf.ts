@@ -516,11 +516,18 @@ export async function renderAndStoreQuotePdf(
     await supabase.storage.from("comercial-quotes").remove([sinBucket(quote.pdf_path)]).catch(() => {});
   }
 
-  // cacheControl "no-cache": la ruta del archivo es determinista (mismo nombre al regenerar),
-  // así que sin esto la CDN/URL firmada seguiría sirviendo el PDF viejo tras regenerar.
+  // cacheControl "0" —no "no-cache"—: la ruta del archivo es determinista (mismo nombre al
+  // regenerar), así que sin esto la CDN seguiría sirviendo el PDF viejo.
+  //
+  // El valor importa. Supabase compone la cabecera como `max-age=<lo que le pases>`, así
+  // que "no-cache" producía `max-age=no-cache`, que no es un número y por tanto no es una
+  // cabecera válida: el objeto se quedaba cacheado igual. Se vio midiendo (21-sep-2026):
+  // tras regenerar un PDF, `storage.download()` seguía devolviendo los bytes viejos
+  // mientras la propia ficha del archivo ya declaraba el tamaño nuevo. Con "0" el borde se
+  // revalida en cada lectura.
   const { error: upErr } = await supabase.storage
     .from("comercial-quotes")
-    .upload(sinBucket(pdfPath), buffer, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+    .upload(sinBucket(pdfPath), buffer, { contentType: "application/pdf", upsert: true, cacheControl: "0" });
   if (upErr) return { error: mensajeError(upErr) };
 
   const { error: dbErr } = await supabase.from("quotes").update({ pdf_path: pdfPath }).eq("id", quoteId);

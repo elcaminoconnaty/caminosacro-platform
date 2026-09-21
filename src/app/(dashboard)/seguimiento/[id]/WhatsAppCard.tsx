@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { MessageCircle, ChevronDown, ChevronRight, Copy, RotateCcw, FileDown, ExternalLink } from "lucide-react";
 import { enlaceWhatsApp, telefonoWhatsApp } from "@/lib/whatsapp";
-import { getSignedUrl } from "./actions";
+import { getSignedUrl, registrarEntregaWhatsApp } from "./actions";
 import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
 
 /**
@@ -24,6 +24,7 @@ import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
  * factura).
  */
 export default function WhatsAppCard({
+  quoteId,
   telefonoInicial,
   mensajeInicial,
   enlaceCotizacion,
@@ -31,6 +32,7 @@ export default function WhatsAppCard({
   pdfNombre,
   envio,
 }: {
+  quoteId: string;
   /** `quotes.client_phone`, tal como está escrito en el expediente. */
   telefonoInicial: string;
   mensajeInicial: string;
@@ -73,6 +75,14 @@ export default function WhatsAppCard({
     copia
       ?.then(() => setAviso("✓ Se abrió WhatsApp con el mensaje escrito. También quedó copiado: si la caja sale vacía, pégalo con ⌘V."))
       .catch(() => setAviso("Se abrió WhatsApp con el mensaje escrito, pero no pude copiarlo al portapapeles."));
+
+    // Se congela la cotización que el peregrino va a ver al abrir el enlace: desde este
+    // momento, regenerarla no le cambia el documento debajo de los pies. Queda en el
+    // historial de entregas del expediente.
+    startTransition(async () => {
+      const r = await registrarEntregaWhatsApp(quoteId, telefono);
+      if (r?.error) setError(`${r.error} El mensaje se abrió igual, pero esta entrega no quedó en el historial.`);
+    });
   }
 
   async function copiar() {

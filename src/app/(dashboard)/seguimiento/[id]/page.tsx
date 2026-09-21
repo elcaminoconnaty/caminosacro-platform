@@ -23,6 +23,7 @@ import { type EnvioResumen } from "./EstadoEnvio";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
 import WhatsAppCard from "./WhatsAppCard";
+import EntregasCard, { type EntregaVista } from "./EntregasCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
 import { buildDefaultVariables, getFirmantes } from "@/lib/contracts/render";
 import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
@@ -30,6 +31,7 @@ import { habitacionesDeCotizacion, mensajeWhatsAppCotizacion, nombrePila } from 
 import { getTravelDocTexts } from "@/lib/travelDocs/texts";
 import { getMensajes } from "@/lib/mensajes/settings";
 import { asegurarShareCode, urlCorta } from "@/lib/quotes/shareLink";
+import { entregasDe } from "@/lib/quotes/entregas";
 
 function basename(p: string | null): string | null {
   if (!p) return null;
@@ -440,7 +442,10 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // 0048), no la versión web del correo: aquella solo existe si el correo ya salió —y esta
   // tarjeta se usa justo antes—, y medía 48 caracteres de token. El código se crea la
   // primera vez que se abre el expediente y no cambia nunca más.
-  const shareCode = await asegurarShareCode(supabase, id, (quote.share_code as string | null) ?? null);
+  const [shareCode, entregas] = await Promise.all([
+    asegurarShareCode(supabase, id, (quote.share_code as string | null) ?? null),
+    entregasDe(supabase, id),
+  ]);
   const enlaceCotizacion = shareCode ? urlCorta(shareCode) : null;
   const rutaMeta = findRouteMeta(routes, quote.route_name);
   const mensajeWhatsApp = mensajeWhatsAppCotizacion({
@@ -581,6 +586,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           gente que cotizó en la web sin precio se le escribe por WhatsApp, y ahí hay que
           repetirle lo que dice el correo. Nace plegada. */}
       <WhatsAppCard
+        quoteId={id}
         telefonoInicial={quote.client_phone || ""}
         mensajeInicial={mensajeWhatsApp}
         enlaceCotizacion={enlaceCotizacion}
@@ -588,6 +594,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         pdfNombre={`Cotizacion-${quote.code}.pdf`}
         envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
       />
+
+      <EntregasCard entregas={entregas as unknown as EntregaVista[]} totalActual={total} />
 
       <ContractCard
         quoteId={id}

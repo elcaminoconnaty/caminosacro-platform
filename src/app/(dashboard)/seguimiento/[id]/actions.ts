@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
+import { congelarEntrega } from "@/lib/quotes/entregas";
 import { upsertCompany, companyDeFormData } from "@/lib/quotes/company";
 import { DEFAULT_STATUS, isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
@@ -915,4 +916,24 @@ export async function usarItinerarioDelCatalogo(quoteId: string) {
       ? "Volvió al itinerario del catálogo, pero el PDF no se pudo regenerar."
       : "La cotización volvió al itinerario del catálogo. La fecha de fin no se tocó.",
   };
+}
+
+/**
+ * Registra que la cotización se compartió por WhatsApp (migración 0049).
+ *
+ * Lo dispara el botón "Enviar por WhatsApp" de la tarjeta, que abre el chat con el mensaje
+ * escrito. La plataforma NO puede saber si después se pulsó enviar —eso pasa dentro de
+ * WhatsApp—, así que el historial lo dice como es: "compartida por WhatsApp", con la hora y
+ * el número. Lo que sí queda garantizado es lo importante: el PDF que el peregrino verá al
+ * abrir el enlace queda congelado en este momento y ya no cambia si luego se regenera.
+ */
+export async function registrarEntregaWhatsApp(quoteId: string, telefono: string) {
+  const supabase = await createCommercialClient();
+  const entrega = await congelarEntrega(supabase, quoteId, {
+    canal: "whatsapp",
+    destinatario: telefono.trim() || null,
+  });
+  if (!entrega) return { error: "No pude registrar la entrega." };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true as const, version: entrega.version };
 }

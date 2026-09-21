@@ -9,6 +9,7 @@ import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { armarHtmlCotizacion } from "@/lib/quotes/correoCotizacion";
 import { registrarEnvio } from "@/lib/email/log";
+import { congelarEntrega } from "@/lib/quotes/entregas";
 import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
 import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 import { mensajeError } from "@/lib/errors";
@@ -223,7 +224,7 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
   // el registro es la única forma de contestar después "¿esto se envió, y a qué correo?".
   // `registrarEnvio` nunca lanza, y el estado que escribe distingue `confirmado` (Brevo
   // devolvió messageId) de `aceptado` (el workflow terminó pero no hay prueba).
-  await registrarEnvio(supabase, {
+  const envioId = await registrarEnvio(supabase, {
     quoteId: quote.id,
     code: quote.code,
     tipo: "cliente",
@@ -240,7 +241,12 @@ export async function crearCotizacionPublica(entrada: SolicitudPublica): Promise
   // Nace en `sin_enviar` como todas; si el correo salió, pasa a `enviada`. Antes este
   // camino ni siquiera escribía `email_sent_at`, así que en el CRM una cotización del
   // cotizador público figuraba como no enviada para siempre.
-  if (emailEnviado) await marcarCotizacionEnviada(supabase, quote.id);
+  if (emailEnviado) {
+    await marcarCotizacionEnviada(supabase, quote.id);
+    // Y se congela lo entregado (migración 0049), por lo mismo que la fila de `email_log`:
+    // nadie mira este camino, y el PDF vivo se sobrescribe en cuanto alguien regenere.
+    await congelarEntrega(supabase, quote.id, { canal: "correo", destinatario: datos.email, emailLogId: envioId });
+  }
 
   return { ok: true, code: quote.code, totalEur, pdfUrl, emailEnviado };
 }

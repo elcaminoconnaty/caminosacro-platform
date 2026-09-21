@@ -6,6 +6,7 @@ import { armarCorreoCotizacion } from "@/lib/quotes/quoteEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { armarHtmlCotizacion } from "@/lib/quotes/correoCotizacion";
 import { registrarEnvio } from "@/lib/email/log";
+import { congelarEntrega } from "@/lib/quotes/entregas";
 import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
 import { DEFAULT_STATUS } from "@/lib/quoteStatus";
 import { mensajeError } from "@/lib/errors";
@@ -264,7 +265,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   });
   // Mismo motivo que en /cotizar: nadie mira este envío, así que la fila de `email_log`
   // es todo el rastro que va a quedar del correo que recibió el cliente de WordPress.
-  await registrarEnvio(supabase, {
+  const envioId = await registrarEnvio(supabase, {
     quoteId: quote.id,
     code: quote.code,
     tipo: "cliente",
@@ -278,7 +279,12 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   });
   const emailSent = envio.ok;
 
-  if (emailSent) await marcarCotizacionEnviada(supabase, quote.id);
+  if (emailSent) {
+    await marcarCotizacionEnviada(supabase, quote.id);
+    // El cotizador de la web entrega igual que el CRM: se congela lo que recibió esta
+    // persona (migración 0049). Acá importa más todavía, porque nadie mira este envío.
+    await congelarEntrega(supabase, quote.id, { canal: "correo", destinatario: datos.email, emailLogId: envioId });
+  }
 
   return { ok: true, code: quote.code, pdf_url: pdfUrl, email_sent: emailSent, breakdown: desglose };
 }

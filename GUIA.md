@@ -439,6 +439,38 @@ acá y el cambio vale desde el siguiente mensaje, sin desplegar. Hay tres, cada 
   (`NICOLÁS VILLA POSADA` → `Nicolás Villa Posada`): en el contrato va a gritos, en un
   correo no.
 
+### D8. Historial de entregas (lo que recibió el peregrino)
+Card **"Historial de entregas"** en el expediente, plegada. Cada vez que la cotización
+**sale** se congela una copia intocable del PDF y una foto de las cifras de ese momento
+(migración 0049, tabla `comercial.quote_deliveries`).
+
+**Por qué:** el PDF vive en una ruta fija y se sube con `upsert`, así que regenerarlo lo
+sobrescribe — del documento que alguien recibió el martes no quedaba nada el miércoles. Y
+el contrato dice que la cotización "hace parte integral de este Contrato como Anexo No. 1":
+adjuntando el archivo vivo, una regeneración posterior a la firma dejaba el contrato
+apuntando a otro documento.
+
+- **Qué cuenta como entrega:** correo al cliente (desde el CRM, desde `/cotizar` y desde el
+  cotizador de WordPress), mensaje de WhatsApp, y el Anexo 1 de los correos del contrato.
+  **Regenerar el PDF no es una entrega**: los tanteos no son historia.
+- **El enlace corto sirve la ÚLTIMA ENTREGA**, no el archivo vivo: si corriges la cotización
+  y no se la has reenviado, el peregrino sigue viendo lo que se le prometió. Al reenviarla
+  se congela una entrega nueva y el mismo enlace pasa a mostrarla.
+- **Aviso en ámbar** cuando la cotización cambió desde la última entrega, con las dos cifras.
+- Reenviar el mismo documento crea una entrega nueva que **apunta al archivo de la
+  anterior**: dos entregas, un archivo. Los recordatorios del contrato no registran entrega
+  si el documento no cambió (`soloSiCambia`).
+- Las pruebas de correo **no** congelan nada: van a la dirección del equipo, no al cliente.
+- Las copias viven en `comercial-quotes/<año>/<código>/entregas/v1-CS-….pdf`.
+
+**Ojo con la caché de Storage:** el PDF se sube con `cacheControl: "0"`. Supabase compone
+`max-age=<valor>`, así que el `"no-cache"` que había antes producía `max-age=no-cache` —
+inválido, y el archivo se quedaba cacheado: `storage.download()` devolvía los bytes viejos
+después de regenerar. Por eso el congelado lee por URL firmada y no con `download()`.
+**Ese `cacheControl: "no-cache"` sigue en otros doce puntos del código** (pasaportes,
+contratos firmados, documentación de viaje): no se tocaron en este cambio, pero conviene
+revisarlos.
+
 ### E. Cambiar suplementos de temporada
 ```sql
 update comercial.settings set value = jsonb_set(value, '{high_season,price_cs}', '90'::jsonb)

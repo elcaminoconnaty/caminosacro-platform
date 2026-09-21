@@ -35,15 +35,20 @@ export type EnvioRegistrado = {
   html?: string | null;
 };
 
+/**
+ * Devuelve el id de la fila insertada (o `null` si no se pudo registrar), para que quien
+ * envía pueda colgar de ese correo lo que venga después —hoy, la entrega congelada de la
+ * cotización (migración 0049)—. Sigue sin lanzar: el envío manda sobre su registro.
+ */
 export async function registrarEnvio(
   supabase: ComercialClient,
   envio: EnvioRegistrado,
-): Promise<void> {
+): Promise<string | null> {
   // El estado dice exactamente lo que se sabe, ni más ni menos: 'confirmado' solo
   // cuando Brevo devolvió un messageId.
   const estado = envio.error ? "error" : envio.messageId ? "confirmado" : "aceptado";
   try {
-    await supabase.from("email_log").insert({
+    const { data } = await supabase.from("email_log").insert({
       quote_id: envio.quoteId ?? null,
       code: envio.code ?? null,
       tipo: envio.tipo,
@@ -56,9 +61,11 @@ export async function registrarEnvio(
       prueba: envio.prueba ?? false,
       token: envio.token ?? null,
       html: envio.html ?? null,
-    });
+    }).select("id").maybeSingle();
+    return (data?.id as string | undefined) ?? null;
   } catch (e) {
     console.warn("[correo] no pude registrar el envío en email_log:", e);
+    return null;
   }
 }
 

@@ -1,6 +1,7 @@
 import "server-only";
 
-import { firmarPdf } from "@/lib/quotes/pdfUrl";
+import { firmarPdf, firmarRuta } from "@/lib/quotes/pdfUrl";
+import { congelarEntrega } from "@/lib/quotes/entregas";
 import type { ComercialClient } from "@/lib/quotes/pdf";
 
 // Adjuntos de los correos del contrato: el contrato y, con él, la cotización.
@@ -31,9 +32,26 @@ export async function adjuntosContrato(
   const lista: { url: string; name: string }[] = [];
   if (contrato.url) lista.push({ url: contrato.url, name: contrato.name });
 
+  // El Anexo 1 va CONGELADO (migración 0049), no leyendo el archivo vivo.
+  //
+  // El contrato dice que la cotización "hace parte integral de este Contrato" y que el
+  // cliente "declara haber recibido copia". Adjuntando el PDF vivo, una regeneración
+  // posterior a la firma dejaba el contrato apuntando a un documento distinto del que se
+  // firmó. Ahora se adjunta la copia entregada, que no la toca nadie.
+  //
+  // `soloSiCambia` para que los recordatorios —que reenvían el mismo contrato cada pocos
+  // días— no llenen el historial de entregas idénticas.
+  //
   // Si la cotización no tiene PDF (o el enlace no se pudo firmar) el correo sale igual,
   // solo con el contrato: un anexo que falta no puede frenar una copia firmada.
-  const cotizacionUrl = quoteId ? await firmarPdf(supabase, quoteId).catch(() => null) : null;
+  const entrega = quoteId
+    ? await congelarEntrega(supabase, quoteId, { canal: "contrato", soloSiCambia: true }).catch(() => null)
+    : null;
+  const cotizacionUrl = entrega
+    ? await firmarRuta(supabase, entrega.pdf_path).catch(() => null)
+    : quoteId
+      ? await firmarPdf(supabase, quoteId).catch(() => null)
+      : null;
   if (cotizacionUrl) lista.push({ url: cotizacionUrl, name: `Anexo-1-Cotizacion-${codigo}.pdf` });
 
   return {

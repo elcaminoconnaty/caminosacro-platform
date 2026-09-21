@@ -8,6 +8,7 @@ import { correoCotizacionHtml } from "@/lib/quotes/emailHtml";
 import { nuevoTokenCorreo, urlVersionWeb } from "@/lib/email/versionWeb";
 import { getTravelDocTexts } from "@/lib/travelDocs/texts";
 import { marcarCotizacionEnviada } from "@/lib/quotes/marcarEnviada";
+import { congelarEntrega } from "@/lib/quotes/entregas";
 
 /**
  * Envío del correo de cotización al cliente, con su PDF adjunto.
@@ -143,7 +144,7 @@ export async function enviarCorreoCliente(
       `Respondiendo a este mensaje le escribes directo al cliente.`,
     ].join("\n"),
   });
-  await registrarEnvio(supabase, {
+  const envioId = await registrarEnvio(supabase, {
     quoteId,
     code: quote.code,
     tipo: "cliente",
@@ -158,6 +159,14 @@ export async function enviarCorreoCliente(
   });
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
 
-  if (!esPrueba) await marcarCotizacionEnviada(supabase, quoteId);
+  if (!esPrueba) {
+    await marcarCotizacionEnviada(supabase, quoteId);
+    // Se congela lo que acaba de recibir: el PDF exacto y las cifras de este momento
+    // (migración 0049). El archivo vivo se sobrescribe al regenerar; esto no.
+    //
+    // Una prueba no congela nada: va a la dirección del equipo, no al cliente, y llenaría
+    // el historial de entregas que nunca ocurrieron.
+    await congelarEntrega(supabase, quoteId, { canal: "correo", destinatario: email, emailLogId: envioId });
+  }
   return { ok: true, email };
 }

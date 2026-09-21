@@ -1,10 +1,12 @@
-// Enlace corto de una cotización: /c/[code] → el PDF de esa cotización.
+// Enlace corto de una cotización: /c/[code] → el PDF que se le entregó al peregrino.
 //
-// Es el enlace que se le manda al peregrino por WhatsApp. Sirve el PDF VIGENTE: si la
-// cotización se corrige y se regenera, quien abra el enlace de ayer ve la versión buena, no
-// una copia congelada. Eso es lo contrario de /correo/[token] —que sirve el correo exacto
-// que se envió— y es a propósito: aquello es el registro de lo que se mandó; esto es "mira
-// tu cotización".
+// Sirve la ÚLTIMA ENTREGA (migración 0049), no el archivo vivo: si la cotización se corrige
+// y todavía no se le ha vuelto a enviar, el peregrino tiene que seguir viendo lo que se le
+// prometió, y no un precio nuevo del que nadie le ha hablado. En cuanto se le reenvía —por
+// correo o por WhatsApp— se congela una entrega nueva y este mismo enlace pasa a mostrarla.
+//
+// Antes de la primera entrega cae en el PDF vigente: el enlace existe desde que se abre el
+// expediente y tiene que abrir algo aunque todavía no se haya mandado nada.
 //
 // Sin sesión: el código de la URL hace de autenticación, igual que /contrato/[token] y
 // /documentacion/[token]. Son 10 caracteres de un alfabeto de 56 (~8 × 10^17).
@@ -16,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
+import { ultimaEntrega } from "@/lib/quotes/entregas";
 
 export const dynamic = "force-dynamic";
 
@@ -65,9 +68,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ code: s
     .maybeSingle();
   if (!quote) return noValido();
 
-  // Sin PDF se genera al vuelo. Pasa una sola vez por cotización: al terminar queda
-  // `pdf_path` guardado y las siguientes visitas solo firman la URL.
-  let pdfPath = (quote.pdf_path as string | null) ?? null;
+  // Lo entregado manda. Solo si nunca se le ha mandado nada se cae en el archivo vivo.
+  const entrega = await ultimaEntrega(supabase, quote.id as string);
+  let pdfPath = entrega?.pdf_path ?? (quote.pdf_path as string | null) ?? null;
   if (!pdfPath) {
     // El cliente admin es uno de los dos que `ComercialClient` admite: el render no
     // necesita sesión, y acá no la hay por definición.

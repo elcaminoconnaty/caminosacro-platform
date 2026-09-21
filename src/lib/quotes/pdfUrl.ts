@@ -19,3 +19,17 @@ export async function firmarPdf(supabase: ComercialClient, quoteId: string): Pro
   const { data: signed } = await supabase.storage.from("comercial-quotes").createSignedUrl(filePath, PDF_URL_TTL);
   return signed?.signedUrl ?? null;
 }
+
+/**
+ * URL firmada de un archivo concreto del bucket de cotizaciones.
+ *
+ * Existe para las copias congeladas de `quote_deliveries` (migración 0049): ahí la ruta ya
+ * se conoce y NO hay que releer `quotes.pdf_path` —que es justo el archivo que puede haber
+ * cambiado—. `firmarPdf` sigue sirviendo para el PDF vigente.
+ */
+export async function firmarRuta(supabase: ComercialClient, storagePath: string): Promise<string | null> {
+  if (!storagePath) return null;
+  const [bucket, ...resto] = storagePath.split("/");
+  const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(resto.join("/"), PDF_URL_TTL);
+  return signed?.signedUrl ?? null;
+}
