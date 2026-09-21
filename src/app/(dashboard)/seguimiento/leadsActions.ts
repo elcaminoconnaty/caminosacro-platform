@@ -7,6 +7,7 @@ import { getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { registrarEnvio } from "@/lib/email/log";
 import { fugaDeContacto } from "@/lib/leads/solicitudPrecio";
+import { correoPilgrimHtml } from "@/lib/quotes/pilgrimHtml";
 
 /**
  * Cierra (o reabre) un lead de la web desde el panel de Seguimiento.
@@ -89,6 +90,17 @@ export async function enviarSolicitudPrecioPilgrim(
   }
 
   const prefijo = esPrueba ? "[PRUEBA] " : "";
+  // Igual que en la reserva: el HTML se interpreta desde el cuerpo final, que es editable.
+  const cuerpo = esPrueba
+    ? `(Correo de PRUEBA. El destinatario real sería ${ajustes.email || "—"}.)\n\n${body}`
+    : body;
+  const html = correoPilgrimHtml({
+    cuerpo,
+    code: lead.code || "",
+    ruta: lead.route_name ?? lead.route_slug,
+    adjuntos: 0,
+    esPrueba,
+  });
   const envio = await enviarCorreoWebhook({
     code: lead.code || "",
     nombre: ajustes.contacto || ajustes.nombre || "Pilgrim",
@@ -101,9 +113,8 @@ export async function enviarSolicitudPrecioPilgrim(
     total_eur: null,
     pdf_url: null,
     subject: `${prefijo}${subject}`,
-    body: esPrueba
-      ? `(Correo de PRUEBA. El destinatario real sería ${ajustes.email || "—"}.)\n\n${body}`
-      : body,
+    body: cuerpo,
+    html,
     // Avisa a reservas@, igual que la reserva a Pilgrim y al revés que el resto de lo que
     // se dispara desde el CRM. Mismo motivo que allá: lo manda Brevo, no el correo de
     // Nico, así que no deja copia en ningún buzón. En agosto de 2026 tres solicitudes a
@@ -137,6 +148,7 @@ export async function enviarSolicitudPrecioPilgrim(
     messageId: envio.messageId ?? null,
     error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
     prueba: esPrueba,
+    html,
   });
 
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };

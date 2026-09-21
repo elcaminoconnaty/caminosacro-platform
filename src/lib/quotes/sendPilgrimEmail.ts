@@ -3,6 +3,7 @@ import "server-only";
 import { enviarCorreoWebhook } from "@/lib/email/webhook";
 import { registrarEnvio, adjuntosNoSoportados } from "@/lib/email/log";
 import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
+import { correoPilgrimHtml } from "@/lib/quotes/pilgrimHtml";
 import { EMAIL_PDF_TTL } from "@/lib/quotes/clientEmail";
 import type { ComercialClient } from "@/lib/quotes/pdf";
 
@@ -70,6 +71,19 @@ export async function enviarCorreoAPilgrim(
   }
 
   const prefijo = esPrueba ? "[PRUEBA] " : "";
+  // El cuerpo final, el que de verdad se manda: el HTML se interpreta DESDE ÉL, nunca se
+  // arma aparte. El cuerpo es editable antes de enviar, así que armarlo por separado
+  // dejaría a Pilgrim leyendo algo distinto de lo que se revisó en pantalla.
+  const cuerpo = esPrueba
+    ? `(Correo de PRUEBA. El destinatario real sería ${ajustes.email || "—"}.)\n\n${body}`
+    : body;
+  const html = correoPilgrimHtml({
+    cuerpo,
+    code: quote.code,
+    ruta: quote.route_name ?? null,
+    adjuntos: attachments.length,
+    esPrueba,
+  });
   const envio = await enviarCorreoWebhook({
     code: quote.code,
     nombre: ajustes.contacto || ajustes.nombre || "Pilgrim",
@@ -86,9 +100,8 @@ export async function enviarCorreoAPilgrim(
     attachment_name: attachments[0]?.name,
     attachments,
     subject: `${prefijo}${subject}`,
-    body: esPrueba
-      ? `(Correo de PRUEBA. El destinatario real sería ${ajustes.email || "—"}.)\n\n${body}`
-      : body,
+    body: cuerpo,
+    html,
     // Este SÍ avisa a reservas@, al revés que los demás correos del CRM. La razón:
     // es el único que no deja copia en ningún buzón (lo manda Brevo, no el correo
     // de Nico) y es el de más plata en juego. En agosto de 2026 se dieron por
@@ -122,6 +135,7 @@ export async function enviarCorreoAPilgrim(
     messageId: envio.messageId ?? null,
     error: envio.ok ? null : (envio.error ?? "No se pudo enviar el correo."),
     prueba: esPrueba,
+    html,
   });
   if (!envio.ok) return { error: envio.error ?? "No se pudo enviar el correo." };
 
