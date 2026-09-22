@@ -1,5 +1,6 @@
-// Le cambia el logo del proveedor por el nuestro a las etiquetas de equipaje QUE YA ESTÁN
-// CARGADAS, las de antes del módulo.
+// Le quita el logo del proveedor a las etiquetas de equipaje QUE YA ESTÁN CARGADAS, las de
+// antes del módulo. En el hueco queda lo que diga la preferencia guardada (la misma que se
+// elige desde la tarjeta del expediente): nuestra marca, o nada.
 //
 //   npx tsx --tsconfig scripts/tsconfig.json scripts/etiquetas_remarcar.ts            ← ensayo
 //   npx tsx --tsconfig scripts/tsconfig.json scripts/etiquetas_remarcar.ts --aplicar  ← de verdad
@@ -19,7 +20,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
-import { ponerNuestraMarca } from "../src/lib/etiquetas/logoProveedor";
+import { quitarLogoProveedor } from "../src/lib/etiquetas/logoProveedor";
 import { rutaEtiquetaEquipajeOriginal, sinBucket } from "../src/lib/storage/paths";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
@@ -37,8 +38,12 @@ const supabase = createClient(
 // La memoria de logos vive en `settings`, igual que en la app. Se lee tal cual para que el
 // relleno use exactamente el mismo criterio que una subida normal.
 async function memoria() {
-  const { leerMemoriaLogos } = await import("../src/lib/etiquetas/memoria");
-  return leerMemoriaLogos(supabase as never);
+  const { leerMemoriaLogos, leerModoLogo } = await import("../src/lib/etiquetas/memoria");
+  const [logos, modo] = await Promise.all([
+    leerMemoriaLogos(supabase as never),
+    leerModoLogo(supabase as never),
+  ]);
+  return { logos, modo };
 }
 
 async function main() {
@@ -57,7 +62,8 @@ async function main() {
   }[]).filter((f) => SOLO.length === 0 || SOLO.includes(f.quotes?.code ?? ""));
 
   console.log(`${filas.length} etiqueta(s)${APLICAR ? "" : " · ENSAYO, no se escribe nada"}\n`);
-  const conocidos = await memoria();
+  const { logos: conocidos, modo } = await memoria();
+  console.log(`en el hueco del logo: ${modo === "sin-logo" ? "nada" : "la marca de Camino Sacro"}\n`);
 
   for (const fila of filas) {
     const code = fila.quotes?.code ?? fila.quote_id;
@@ -74,11 +80,11 @@ async function main() {
     if (bajarErr || !archivo) { console.log(`   ✗ no pude bajarla: ${bajarErr?.message}\n`); continue; }
     const bytes = new Uint8Array(await archivo.arrayBuffer());
 
-    const { pdf, informe } = await ponerNuestraMarca(bytes, conocidos);
+    const { pdf, informe } = await quitarLogoProveedor(bytes, conocidos, modo);
     console.log(`   ${informe.detalle.join(" ")}`);
     if (!pdf) { console.log("   → se queda como está.\n"); continue; }
 
-    const previa = path.join(OUT, `${code}-etiqueta-CS.pdf`);
+    const previa = path.join(OUT, `${code}-etiqueta-${modo === "sin-logo" ? "sin-logo" : "CS"}.pdf`);
     writeFileSync(previa, pdf);
     console.log(`   → vista previa: ${previa}`);
 

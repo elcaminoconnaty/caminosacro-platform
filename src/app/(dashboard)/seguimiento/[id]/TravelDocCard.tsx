@@ -7,6 +7,7 @@ import {
 import { getSignedUrl } from "./actions";
 import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
 import {
+  cambiarLogoEtiqueta,
   dejarEtiquetaOriginal,
   enviarCorreoDocumentacion,
   generateTravelDoc,
@@ -36,7 +37,7 @@ export type NocheInicial = {
 };
 
 /**
- * Lo que hizo el módulo de etiquetas al cambiarle el logo del proveedor a la etiqueta de
+ * Lo que hizo el módulo de etiquetas al quitarle el logo del proveedor a la etiqueta de
  * equipaje. Viene de `travel_docs.luggage_tag_brand`; ver `src/lib/etiquetas/`.
  */
 export type MarcadoEtiqueta = {
@@ -45,6 +46,8 @@ export type MarcadoEtiqueta = {
   /** false = el logo que se quitó no estaba en la lista conocida; conviene mirarla. */
   reconocido: boolean;
   detalle: string[];
+  /** Qué quedó en el hueco. Las etiquetas de antes de poder elegir no lo traen: eran marca. */
+  modo?: "marca" | "sin-logo";
   cuando?: string;
 };
 
@@ -435,7 +438,7 @@ export default function TravelDocCard({
 
         <ArchivoSubible
           titulo="Etiqueta de transporte de equipaje"
-          detalle="La emite el transportista; el viajero la imprime y la pega en la mochila. Al subirla le cambiamos el logo del proveedor por el nuestro."
+          detalle="La emite el transportista; el viajero la imprime y la pega en la mochila. Al subirla le quitamos el logo del proveedor."
           path={estado.luggageTagPath}
           quoteId={quoteId}
           tipo="etiqueta"
@@ -615,12 +618,17 @@ function ArchivoSubible({
 }
 
 /**
- * Qué se le hizo al logo de la etiqueta, y las dos salidas por si se hizo mal.
+ * Qué se le hizo al logo de la etiqueta, qué queda en su lugar, y las salidas por si se
+ * hizo mal.
  *
  * Solo levanta la voz cuando hace falta: si el logo que se quitó ya estaba reconocido, una
  * línea gris y ya. La primera vez que aparece una plantilla nueva de un proveedor sale en
  * ámbar pidiendo que se mire la etiqueta antes de mandarla, porque ahí es donde un
  * reconocimiento equivocado haría daño de verdad.
+ *
+ * El logo del proveedor se va siempre; lo que se elige acá es qué queda en el hueco, y se
+ * elige sobre la etiqueta ya hecha —se ve el resultado y se cambia de opinión— en vez de
+ * preguntarlo antes de subir, cuando todavía no hay nada que mirar.
  */
 function MarcaEtiqueta({
   quoteId, marcado, originalPath, onVerOriginal, onError,
@@ -629,10 +637,26 @@ function MarcaEtiqueta({
   onVerOriginal: () => void; onError: (e: string | null) => void;
 }) {
   const [pending, startTransition] = useTransition();
+  // Los tres botones comparten la transición, así que hay que saber cuál se pulsó para que
+  // solo ese diga que está trabajando.
+  const [haciendo, setHaciendo] = useState<"modo" | "original" | null>(null);
   if (!marcado) return null;
 
   const marcada = marcado.reemplazos > 0;
   const revisar = marcada && !marcado.reconocido;
+  // Las etiquetas procesadas antes de que se pudiera elegir llevan siempre nuestra marca.
+  const modo = marcado.modo ?? "marca";
+  const otro = modo === "marca" ? "sin-logo" : "marca";
+
+  function correr(cual: "modo" | "original", accion: () => Promise<{ error?: string } | void>) {
+    onError(null);
+    setHaciendo(cual);
+    startTransition(async () => {
+      const r = await accion();
+      if (r?.error) onError(r.error);
+      setHaciendo(null);
+    });
+  }
 
   return (
     <div className={`mt-2.5 pt-2.5 border-t border-border text-xs ${revisar ? "text-amber-700" : "text-muted"}`}>
@@ -647,29 +671,48 @@ function MarcaEtiqueta({
       )}
 
       {marcada && originalPath && (
-        <div className="flex flex-wrap gap-2 mt-2">
-          <button
-            onClick={onVerOriginal}
-            disabled={pending}
-            className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
-          >
-            Ver la original
-          </button>
-          <button
-            onClick={() => {
-              if (!confirm("La etiqueta volverá a tener el logo del proveedor, y no se lo volveré a quitar a las etiquetas que traigan ese mismo logo. ¿Seguir?")) return;
-              onError(null);
-              startTransition(async () => {
-                const r = await dejarEtiquetaOriginal(quoteId);
-                if (r?.error) onError(r.error);
-              });
-            }}
-            disabled={pending}
-            className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
-          >
-            {pending ? "Restaurando…" : "Dejar la original"}
-          </button>
-        </div>
+        <>
+          <p className="mt-1 text-muted">
+            {modo === "sin-logo"
+              ? "En el hueco no quedó nada. Las próximas etiquetas también saldrán sin logo."
+              : "En el hueco quedó la marca de Camino Sacro. Las próximas etiquetas también la llevarán."}
+          </p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <button
+              onClick={() => correr("modo", () => cambiarLogoEtiqueta(quoteId, otro))}
+              disabled={pending}
+              title={
+                otro === "sin-logo"
+                  ? "Quita también nuestra marca: la etiqueta queda igual que la del transportista, pero sin logo de nadie."
+                  : "Pone la marca de Camino Sacro donde estaba el logo del proveedor."
+              }
+              className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+            >
+              {pending && haciendo === "modo"
+                ? "Cambiando…"
+                : otro === "sin-logo"
+                  ? "Dejarla sin ningún logo"
+                  : "Poner nuestra marca"}
+            </button>
+            <button
+              onClick={onVerOriginal}
+              disabled={pending}
+              className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+            >
+              Ver la original
+            </button>
+            <button
+              onClick={() => {
+                if (!confirm("La etiqueta volverá a tener el logo del proveedor, y no se lo volveré a quitar a las etiquetas que traigan ese mismo logo. ¿Seguir?")) return;
+                correr("original", () => dejarEtiquetaOriginal(quoteId));
+              }}
+              disabled={pending}
+              className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+            >
+              {pending && haciendo === "original" ? "Restaurando…" : "Dejar la original"}
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

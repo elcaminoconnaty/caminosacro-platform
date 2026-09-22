@@ -1,6 +1,10 @@
 // Prueba el módulo de etiquetas contra un PDF local, sin tocar la base ni el storage.
 //
 //   npx tsx --tsconfig scripts/tsconfig.json scripts/etiqueta_prueba.ts <etiqueta.pdf> [más.pdf…]
+//   …                                                             --sin-logo <etiqueta.pdf>
+//
+// Con `--sin-logo` el hueco del logo queda vacío en vez de llevar nuestra marca, que es la
+// otra opción que tiene Nico en la tarjeta del expediente.
 //
 // Imprime lo que encontró en el PDF (qué imágenes hay, de qué tamaño salen impresas y cuál
 // se lleva el veredicto de "logo del proveedor"), escribe el resultado en $ETIQUETA_OUT
@@ -15,9 +19,10 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef } from "pdf-lib";
 import { invocaciones, leerFlujo } from "../src/lib/etiquetas/contenido";
-import { ponerNuestraMarca, MEMORIA_VACIA } from "../src/lib/etiquetas/logoProveedor";
+import { quitarLogoProveedor, MEMORIA_VACIA } from "../src/lib/etiquetas/logoProveedor";
 
 const OUT = process.env.ETIQUETA_OUT || "/tmp";
+const MODO = process.argv.includes("--sin-logo") ? "sin-logo" : "marca";
 
 async function inventario(bytes: Uint8Array) {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
@@ -47,7 +52,7 @@ async function inventario(bytes: Uint8Array) {
 }
 
 async function main() {
-  const archivos = process.argv.slice(2);
+  const archivos = process.argv.slice(2).filter((a) => !a.startsWith("--"));
   if (archivos.length === 0) {
     console.error("Uso: npx tsx --tsconfig scripts/tsconfig.json scripts/etiqueta_prueba.ts <etiqueta.pdf>…");
     process.exit(1);
@@ -56,10 +61,11 @@ async function main() {
     console.log(`\n═══ ${archivo}`);
     const bytes = new Uint8Array(readFileSync(archivo));
     await inventario(bytes);
-    const { pdf, informe } = await ponerNuestraMarca(bytes, MEMORIA_VACIA);
+    const { pdf, informe } = await quitarLogoProveedor(bytes, MEMORIA_VACIA, MODO);
     console.log("  informe:", JSON.stringify(informe, null, 2).replace(/\n/g, "\n  "));
     if (pdf) {
-      const destino = path.join(OUT, `${path.basename(archivo, ".pdf")}-CS.pdf`);
+      const sufijo = MODO === "sin-logo" ? "-sin-logo" : "-CS";
+      const destino = path.join(OUT, `${path.basename(archivo, ".pdf")}${sufijo}.pdf`);
       writeFileSync(destino, pdf);
       console.log(`  → ${destino} (${pdf.length} bytes, el original pesaba ${bytes.length})`);
     }

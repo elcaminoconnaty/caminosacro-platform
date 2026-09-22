@@ -1,12 +1,18 @@
 /**
- * Le quita a una etiqueta de transporte de equipaje el logo del intermediario y pone el
- * nuestro, dejando TODO lo demás byte a byte como vino.
+ * Le quita a una etiqueta de transporte de equipaje el logo del intermediario, dejando
+ * TODO lo demás byte a byte como vino.
+ *
+ * Lo que queda en su sitio lo decide Nico, no el código: o la marca de Camino Sacro, o
+ * nada —el hueco limpio, la etiqueta igualita pero sin logo de nadie—. Ver `ModoLogo` en
+ * `marca.ts` y la preferencia guardada en `memoria.ts`. Todo lo demás de este archivo es
+ * idéntico en los dos casos: lo que cambia es qué formulario se pone, no qué se quita.
  *
  * ── El problema ─────────────────────────────────────────────────────────────────────
  * Las mochilas las mueve Correos (Paq Mochila) y la reserva la hace Pilgrim, nuestro
  * operador en España. La etiqueta que Correos emite lleva, junto a su corneta, el logo de
  * Pilgrim: el peregrino que nos compró a nosotros acaba con el nombre de nuestro
- * proveedor pegado a la mochila durante todo el Camino.
+ * proveedor pegado a la mochila durante todo el Camino. Eso es lo que se quita siempre;
+ * poner el nuestro encima es una decisión aparte, y a veces la respuesta es que no.
  *
  * ── Por qué no se regenera la etiqueta entera ───────────────────────────────────────
  * Sería lo fácil de programar y lo peligroso de usar. La etiqueta amarilla es el documento
@@ -49,7 +55,7 @@ import {
   PDFRef,
 } from "pdf-lib";
 import { IDENTIDAD, Matriz, componer, invocaciones, leerFlujo, renombrarInvocaciones } from "./contenido";
-import { SELLO_MARCA, prepararMarca } from "./marca";
+import { type ModoLogo, SELLO_MARCA, prepararRelleno } from "./marca";
 
 /** Las huellas que ya sabemos qué son. Vive en `settings`; ver `memoria.ts`. */
 export type MemoriaLogos = {
@@ -70,6 +76,8 @@ export type InformeEtiqueta = {
   reconocido: boolean;
   /** Frases para la tarjeta del expediente. */
   detalle: string[];
+  /** Qué quedó en el hueco. Las etiquetas de antes de que se pudiera elegir no lo traen. */
+  modo?: ModoLogo;
 };
 
 /** A partir de esta parte de la hoja, una imagen ya no puede ser un logo: es el fondo. */
@@ -119,17 +127,19 @@ type Flujo = {
 };
 
 /**
- * Analiza el PDF y, si encuentra el logo del proveedor, devuelve una copia con nuestra
- * marca en su lugar. Si no encuentra nada que tocar devuelve `pdf: null` y el original se
- * guarda tal cual: una etiqueta sin cambiar siempre es mejor que una etiqueta rota.
+ * Analiza el PDF y, si encuentra el logo del proveedor, devuelve una copia sin él: con
+ * nuestra marca en su lugar (`modo: "marca"`) o con el hueco limpio (`modo: "sin-logo"`).
+ * Si no encuentra nada que tocar devuelve `pdf: null` y el original se guarda tal cual:
+ * una etiqueta sin cambiar siempre es mejor que una etiqueta rota.
  */
-export async function ponerNuestraMarca(
+export async function quitarLogoProveedor(
   original: Uint8Array,
   memoria: MemoriaLogos = MEMORIA_VACIA,
+  modo: ModoLogo = "marca",
 ): Promise<{ pdf: Uint8Array | null; informe: InformeEtiqueta }> {
   const sinCambios = (motivo: string): { pdf: null; informe: InformeEtiqueta } => ({
     pdf: null,
-    informe: { reemplazos: 0, huellas: [], reconocido: true, detalle: [motivo] },
+    informe: { reemplazos: 0, huellas: [], reconocido: true, detalle: [motivo], modo },
   });
 
   let doc: PDFDocument;
@@ -252,7 +262,7 @@ export async function ponerNuestraMarca(
   }
 
   // ── El cambio ────────────────────────────────────────────────────────────────────
-  const formularioPara = await prepararMarca(doc);
+  const formularioPara = await prepararRelleno(doc, modo);
   const cambiosPorFlujo = new Map<string, { ini: number; fin: number; nuevo: string }[]>();
   let n = 0;
 
@@ -294,14 +304,16 @@ export async function ponerNuestraMarca(
       reemplazos: aQuitar.reduce((total, i) => total + i.usos.length, 0),
       huellas: aQuitar.map((i) => i.huella),
       reconocido: !algunaSinConfirmar,
+      modo,
       detalle: aQuitar.map((imagen) => {
         // Las medidas se repiten (una etiqueta por viajero da la misma pareja de tamaños en
         // cada hoja): se listan las distintas, no las veces.
         const medidas = [...new Set(imagen.usos.map((u) => `${cm(u.ancho)}×${cm(u.alto)} cm`))];
         const veces = imagen.usos.length;
-        return `Logo del proveedor sustituido por nuestra marca en ${veces} ${
-          veces === 1 ? "sitio" : "sitios"
-        } (${medidas.join(" y ")}).`;
+        const sitios = `${veces} ${veces === 1 ? "sitio" : "sitios"} (${medidas.join(" y ")})`;
+        return modo === "sin-logo"
+          ? `Logo del proveedor quitado, sin poner nada en su lugar, en ${sitios}.`
+          : `Logo del proveedor sustituido por nuestra marca en ${sitios}.`;
       }),
     },
   };

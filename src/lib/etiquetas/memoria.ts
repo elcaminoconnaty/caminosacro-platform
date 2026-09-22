@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { ComercialClient } from "@/lib/quotes/pdf";
+import type { ModoLogo } from "./marca";
 import { MEMORIA_VACIA, type MemoriaLogos } from "./logoProveedor";
 
 /**
@@ -24,6 +25,32 @@ import { MEMORIA_VACIA, type MemoriaLogos } from "./logoProveedor";
  * sale reconocida sin que nadie confirme nada.
  */
 const CLAVE = "etiquetas_logos_proveedor";
+
+/**
+ * Qué se pone en el hueco del logo que se quita: `{ "modo": "marca" | "sin-logo" }`.
+ *
+ * Vive aparte de las huellas porque no es algo que la plataforma aprenda, sino algo que
+ * Nico decide. Arranca en `"marca"`, que es como se venía haciendo, y cambia desde la
+ * tarjeta del expediente: el modo con el que se deja una etiqueta queda también como el
+ * de las siguientes, para no tener que repetir la decisión etiqueta por etiqueta.
+ */
+const CLAVE_MODO = "etiquetas_modo_logo";
+
+const MODO_POR_DEFECTO: ModoLogo = "marca";
+
+/** Con qué relleno se procesa la próxima etiqueta que se suba. */
+export async function leerModoLogo(supabase: ComercialClient): Promise<ModoLogo> {
+  const { data } = await supabase.from("settings").select("value").eq("key", CLAVE_MODO).maybeSingle();
+  const guardado = (data?.value as { modo?: unknown } | null)?.modo;
+  return guardado === "sin-logo" || guardado === "marca" ? guardado : MODO_POR_DEFECTO;
+}
+
+/** Deja esa decisión como la de las próximas etiquetas. */
+export async function recordarModoLogo(supabase: ComercialClient, modo: ModoLogo): Promise<void> {
+  await supabase
+    .from("settings")
+    .upsert({ key: CLAVE_MODO, value: { modo }, updated_at: new Date().toISOString() }, { onConflict: "key" });
+}
 
 /**
  * Logo de Pilgrim tal como lo incrustan las dos plantillas de Correos que hemos visto.

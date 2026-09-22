@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { rutaEtiquetaEquipaje, rutaEtiquetaEquipajeOriginal, rutaSeguroViaje, sinBucket } from "@/lib/storage/paths";
-import { ponerNuestraMarca } from "@/lib/etiquetas/logoProveedor";
-import { leerMemoriaLogos, recordarLogos } from "@/lib/etiquetas/memoria";
+import { type InformeEtiqueta, type MemoriaLogos, quitarLogoProveedor } from "@/lib/etiquetas/logoProveedor";
+import type { ModoLogo } from "@/lib/etiquetas/marca";
+import { leerMemoriaLogos, leerModoLogo, recordarLogos, recordarModoLogo } from "@/lib/etiquetas/memoria";
 import {
   ensureTravelDoc,
   newTravelDocToken,
@@ -210,9 +211,10 @@ export async function suggestTravelServices(quoteId: string) {
  * Sube el seguro o la etiqueta de equipaje. No los generamos: los emite la aseguradora
  * y el transportista, y llegan como PDF ya hecho.
  *
- * La etiqueta, además, pasa por el módulo de marcado: se le cambia el logo del
- * intermediario (Pilgrim) por el de Camino Sacro y el archivo original se guarda al lado,
- * intacto, para poder volver a él de un clic. Ver `src/lib/etiquetas/`.
+ * La etiqueta, además, pasa por el módulo de etiquetas: se le quita el logo del
+ * intermediario (Pilgrim) y en su lugar queda lo que Nico haya elegido la última vez —la
+ * marca de Camino Sacro o nada—. El archivo original se guarda al lado, intacto, para
+ * poder volver a él o cambiar de opinión de un clic. Ver `src/lib/etiquetas/`.
  */
 export async function uploadTravelFile(quoteId: string, formData: FormData) {
   const supabase = await createCommercialClient();
@@ -242,23 +244,8 @@ export async function uploadTravelFile(quoteId: string, formData: FormData) {
     return { ok: true };
   }
 
-  const memoria = await leerMemoriaLogos(supabase);
-  // Si el marcado falla por lo que sea, la etiqueta se sube igual sin tocar: el peregrino
-  // necesita SU etiqueta mucho más de lo que nos molesta el logo del proveedor.
-  let marcado: Awaited<ReturnType<typeof ponerNuestraMarca>>;
-  try {
-    marcado = await ponerNuestraMarca(subido, memoria);
-  } catch (e) {
-    marcado = {
-      pdf: null,
-      informe: {
-        reemplazos: 0,
-        huellas: [],
-        reconocido: true,
-        detalle: [`No pude cambiarle el logo (${e instanceof Error ? e.message : "error desconocido"}); se guarda tal cual.`],
-      },
-    };
-  }
+  const [memoria, modo] = await Promise.all([leerMemoriaLogos(supabase), leerModoLogo(supabase)]);
+  const marcado = await procesarEtiqueta(subido, memoria, modo);
 
   const destino = rutaEtiquetaEquipaje(quote.code);
   const original = rutaEtiquetaEquipajeOriginal(quote.code);
@@ -285,6 +272,54 @@ export async function uploadTravelFile(quoteId: string, formData: FormData) {
       luggage_tag_original_path: marcado.pdf ? original : null,
       luggage_tag_brand: { ...marcado.informe, cuando: new Date().toISOString() },
     })
+    .eq("quote_id", quoteId);
+  if (error) return { error: mensajeError(error) };
+
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+/**
+ * Cambia de opinión sobre el hueco del logo sin volver a subir nada: la etiqueta se
+ * reprocesa desde el original guardado y queda con nuestra marca o con el hueco limpio.
+ *
+ * Se parte SIEMPRE del original y nunca de la que está publicada, porque la publicada ya
+ * no tiene el logo del proveedor: reprocesarla no encontraría nada que quitar y, si lo
+ * encontrara, sería nuestro propio relleno. Y la decisión queda además como la de las
+ * próximas etiquetas, que es lo que Nico quiere decir cuando la toma.
+ */
+export async function cambiarLogoEtiqueta(quoteId: string, modoPedido: string) {
+  if (modoPedido !== "marca" && modoPedido !== "sin-logo") return { error: "Opción no válida." };
+  const modo: ModoLogo = modoPedido;
+
+  const supabase = await createCommercialClient();
+  const { data: doc } = await supabase
+    .from("travel_docs")
+    .select("luggage_tag_pdf_path,luggage_tag_original_path")
+    .eq("quote_id", quoteId)
+    .maybeSingle();
+
+  const original = doc?.luggage_tag_original_path as string | null | undefined;
+  const destino = doc?.luggage_tag_pdf_path as string | null | undefined;
+  if (!original || !destino) return { error: "Esta etiqueta no tiene copia del original." };
+
+  const [bucket, ...resto] = original.split("/");
+  const { data: archivo, error: bajarErr } = await supabase.storage.from(bucket).download(resto.join("/"));
+  if (bajarErr || !archivo) return { error: mensajeError(bajarErr) || "No encontré el original." };
+
+  const memoria = await leerMemoriaLogos(supabase);
+  const marcado = await procesarEtiqueta(new Uint8Array(await archivo.arrayBuffer()), memoria, modo);
+  // El original sigue teniendo el logo del proveedor: si ahora no se reconoce es que algo
+  // va mal, y lo que NO se hace es publicar el original con su logo sin que nadie lo pida.
+  if (!marcado.pdf) return { error: marcado.informe.detalle.join(" ") };
+
+  const subir = await guardarPdf(supabase, destino, Buffer.from(marcado.pdf));
+  if (subir.error) return { error: subir.error };
+  await recordarModoLogo(supabase, modo);
+
+  const { error } = await supabase
+    .from("travel_docs")
+    .update({ luggage_tag_brand: { ...marcado.informe, cuando: new Date().toISOString() } })
     .eq("quote_id", quoteId);
   if (error) return { error: mensajeError(error) };
 
@@ -332,6 +367,32 @@ export async function dejarEtiquetaOriginal(quoteId: string) {
 
   revalidatePath(`/seguimiento/${quoteId}`);
   return { ok: true };
+}
+
+/**
+ * Le pasa la etiqueta al módulo. Si falla por lo que sea, devuelve `pdf: null` y arriba se
+ * guarda el archivo sin tocar: el peregrino necesita SU etiqueta mucho más de lo que nos
+ * molesta el logo del proveedor.
+ */
+async function procesarEtiqueta(
+  bytes: Uint8Array,
+  memoria: MemoriaLogos,
+  modo: ModoLogo,
+): Promise<{ pdf: Uint8Array | null; informe: InformeEtiqueta }> {
+  try {
+    return await quitarLogoProveedor(bytes, memoria, modo);
+  } catch (e) {
+    return {
+      pdf: null,
+      informe: {
+        reemplazos: 0,
+        huellas: [],
+        reconocido: true,
+        modo,
+        detalle: [`No pude quitarle el logo (${e instanceof Error ? e.message : "error desconocido"}); se guarda tal cual.`],
+      },
+    };
+  }
 }
 
 /** Sube un PDF a `comercial-docs`. `upsert` porque reemplazar es lo normal acá. */
