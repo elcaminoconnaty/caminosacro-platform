@@ -8,9 +8,17 @@
 //   …                                                                    --aplicar CS-2026-019
 //   …                                                        --modo=sin-logo --aplicar CS-2026-080
 //
+// `--modo` acepta los mismos tres estados que la tarjeta del expediente:
+//
+//   marca     el logo del proveedor se va y queda la marca de Camino Sacro
+//   sin-logo  el logo del proveedor se va y no queda nada
+//   original  la etiqueta tal como la mandó el transportista, con su logo
+//
 // Sin `--modo` se usa la preferencia guardada, la misma que se elige desde la tarjeta. Con
-// `--modo` se usa esa y ADEMÁS queda como la preferencia para las próximas (igual que el
-// botón), así la plataforma y este script nunca dicen cosas distintas.
+// `--modo=marca` o `--modo=sin-logo` se usa esa y ADEMÁS queda como la preferencia para las
+// próximas (igual que el botón), así la plataforma y este script nunca dicen cosas
+// distintas. `--modo=original` no mueve la preferencia: es una excepción para esos viajes,
+// no una instrucción para todos los que vengan.
 //
 // Una etiqueta que ya está en el modo pedido se salta; `--forzar` la rehace igual.
 //
@@ -40,8 +48,8 @@ const SOLO = process.argv.filter((a) => /^CS-/.test(a));
 const MODO_PEDIDO = (() => {
   const arg = process.argv.find((a) => a.startsWith("--modo="))?.slice("--modo=".length);
   if (!arg) return null;
-  if (arg !== "marca" && arg !== "sin-logo") {
-    console.error(`--modo solo acepta "marca" o "sin-logo" (llegó "${arg}").`);
+  if (arg !== "marca" && arg !== "sin-logo" && arg !== "original") {
+    console.error(`--modo solo acepta "marca", "sin-logo" u "original" (llegó "${arg}").`);
     process.exit(1);
   }
   return arg;
@@ -81,10 +89,17 @@ async function main() {
   }[]).filter((f) => SOLO.length === 0 || SOLO.includes(f.quotes?.code ?? ""));
 
   const { logos: conocidos, modo: preferido } = await memoria();
-  const modo = MODO_PEDIDO ?? preferido;
+  const estado = MODO_PEDIDO ?? preferido;
+  // Para saber QUÉ hay que quitar se procesa igual, aunque después se publique el original.
+  const modo = estado === "original" ? "marca" : estado;
 
+  const comoQueda = {
+    marca: "la marca de Camino Sacro donde iba el logo del proveedor",
+    "sin-logo": "nada donde iba el logo del proveedor",
+    original: "la etiqueta del transportista tal cual, con su logo",
+  }[estado];
   console.log(`${filas.length} etiqueta(s)${APLICAR ? "" : " · ENSAYO, no se escribe nada"}`);
-  console.log(`en el hueco del logo: ${modo === "sin-logo" ? "nada" : "la marca de Camino Sacro"}${MODO_PEDIDO ? " (pedido con --modo)" : " (preferencia guardada)"}\n`);
+  console.log(`va a quedar: ${comoQueda}${MODO_PEDIDO ? " (pedido con --modo)" : " (preferencia guardada)"}\n`);
 
   for (const fila of filas) {
     const code = fila.quotes?.code ?? fila.quote_id;
@@ -95,8 +110,8 @@ async function main() {
     const modoActual = fila.luggage_tag_brand
       ? (fila.luggage_tag_brand.modo ?? "marca")
       : null;
-    if (modoActual === modo && !FORZAR) {
-      console.log(`   ya está así (${modo}). Se salta; con --forzar se rehace igual.\n`);
+    if (modoActual === estado && !FORZAR) {
+      console.log(`   ya está así (${estado}). Se salta; con --forzar se rehace igual.\n`);
       continue;
     }
 
@@ -111,11 +126,19 @@ async function main() {
     if (rehacer) console.log(`   se rehace desde el original guardado${modoActual ? ` (estaba en "${modoActual}")` : ""}.`);
 
     const { pdf, informe } = await quitarLogoProveedor(bytes, conocidos, modo);
-    console.log(`   ${informe.detalle.join(" ")}`);
-    if (!pdf) { console.log("   → se queda como está.\n"); continue; }
+    console.log(
+      estado === "original"
+        // El informe de arriba es solo el sondeo: dice qué logo HAY, no qué se va a hacer.
+        ? `   va tal cual, con el logo del proveedor (el que se le quitaría estaría en ${informe.reemplazos} sitios).`
+        : `   ${informe.detalle.join(" ")}`,
+    );
+    // Pedir la original es lo único que se puede hacer aunque no se reconozca el logo: no
+    // hay que quitar nada, solo publicar lo que ya está guardado.
+    if (!pdf && estado !== "original") { console.log("   → se queda como está.\n"); continue; }
 
-    const previa = path.join(OUT, `${code}-etiqueta-${modo === "sin-logo" ? "sin-logo" : "CS"}.pdf`);
-    writeFileSync(previa, pdf);
+    const publicado = estado === "original" ? Buffer.from(bytes) : Buffer.from(pdf!);
+    const previa = path.join(OUT, `${code}-etiqueta-${estado}.pdf`);
+    writeFileSync(previa, publicado);
     console.log(`   → vista previa: ${previa}`);
 
     if (!APLICAR) { console.log("   (ensayo: no se subió nada)\n"); continue; }
@@ -133,14 +156,18 @@ async function main() {
     const [, ...destino] = fila.luggage_tag_pdf_path.split("/");
     const subir = await supabase.storage
       .from("comercial-docs")
-      .upload(destino.join("/"), Buffer.from(pdf), { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
+      .upload(destino.join("/"), publicado, { contentType: "application/pdf", upsert: true, cacheControl: "no-cache" });
     if (subir.error) { console.log(`   ✗ no pude subir la etiqueta: ${subir.error.message}\n`); continue; }
 
+    const guardado =
+      estado === "original"
+        ? { ...informe, modo: "original", reemplazos: 0, detalle: ["Va la etiqueta tal como la mandó el transportista, con el logo del proveedor."] }
+        : informe;
     const { error: actualizar } = await supabase
       .from("travel_docs")
       .update({
         luggage_tag_original_path: original,
-        luggage_tag_brand: { ...informe, cuando: new Date().toISOString() },
+        luggage_tag_brand: { ...guardado, cuando: new Date().toISOString() },
       })
       .eq("quote_id", fila.quote_id);
     if (actualizar) { console.log(`   ✗ no pude actualizar el expediente: ${actualizar.message}\n`); continue; }
@@ -150,7 +177,7 @@ async function main() {
 
   // La preferencia se mueve solo si se pidió un modo a mano, y solo si de verdad se
   // escribió: un ensayo no cambia nada, ni siquiera esto.
-  if (MODO_PEDIDO && APLICAR) {
+  if (MODO_PEDIDO && MODO_PEDIDO !== "original" && APLICAR) {
     const { recordarModoLogo } = await import("../src/lib/etiquetas/memoria");
     await recordarModoLogo(supabase as never, MODO_PEDIDO);
     console.log(`Preferencia guardada: las próximas etiquetas también saldrán en "${MODO_PEDIDO}".`);

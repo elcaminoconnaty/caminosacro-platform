@@ -280,17 +280,25 @@ export async function uploadTravelFile(quoteId: string, formData: FormData) {
 }
 
 /**
- * Cambia de opinión sobre el hueco del logo sin volver a subir nada: la etiqueta se
- * reprocesa desde el original guardado y queda con nuestra marca o con el hueco limpio.
+ * Deja la etiqueta del viajero en uno de los tres estados posibles, sin volver a subir
+ * nada y sin puertas de una sola dirección: se puede ir y volver las veces que haga falta.
  *
- * Se parte SIEMPRE del original y nunca de la que está publicada, porque la publicada ya
- * no tiene el logo del proveedor: reprocesarla no encontraría nada que quitar y, si lo
- * encontrara, sería nuestro propio relleno. Y la decisión queda además como la de las
- * próximas etiquetas, que es lo que Nico quiere decir cuando la toma.
+ *   "marca"     — el logo del proveedor se va y queda la marca de Camino Sacro.
+ *   "sin-logo"  — el logo del proveedor se va y no queda nada.
+ *   "original"  — la etiqueta tal como la mandó el transportista, con su logo y todo.
+ *
+ * Los tres se construyen SIEMPRE desde el original guardado, nunca desde la que está
+ * publicada: la publicada puede que ya no tenga el logo del proveedor, y entonces no habría
+ * nada que quitar ni forma de volver atrás. Por eso el original no se borra nunca acá.
+ *
+ * La preferencia para las próximas etiquetas solo se mueve con "marca" y "sin-logo", que
+ * son las dos formas de quitar el logo. Pedir la original es una excepción para ESTE viaje
+ * —normalmente porque algo se ve raro—, no una instrucción para todas las que vengan.
  */
 export async function cambiarLogoEtiqueta(quoteId: string, modoPedido: string) {
-  if (modoPedido !== "marca" && modoPedido !== "sin-logo") return { error: "Opción no válida." };
-  const modo: ModoLogo = modoPedido;
+  if (modoPedido !== "marca" && modoPedido !== "sin-logo" && modoPedido !== "original") {
+    return { error: "Opción no válida." };
+  }
 
   const supabase = await createCommercialClient();
   const { data: doc } = await supabase
@@ -306,20 +314,39 @@ export async function cambiarLogoEtiqueta(quoteId: string, modoPedido: string) {
   const [bucket, ...resto] = original.split("/");
   const { data: archivo, error: bajarErr } = await supabase.storage.from(bucket).download(resto.join("/"));
   if (bajarErr || !archivo) return { error: mensajeError(bajarErr) || "No encontré el original." };
+  const bytes = new Uint8Array(await archivo.arrayBuffer());
 
+  // El original se procesa también cuando lo que se pide es el original: así el informe que
+  // se guarda dice de verdad qué logo hay ahí y de qué tamaño, y el botón para volver a
+  // quitarlo sabe que tiene algo que quitar. Lo único que cambia es qué bytes se publican.
   const memoria = await leerMemoriaLogos(supabase);
-  const marcado = await procesarEtiqueta(new Uint8Array(await archivo.arrayBuffer()), memoria, modo);
-  // El original sigue teniendo el logo del proveedor: si ahora no se reconoce es que algo
-  // va mal, y lo que NO se hace es publicar el original con su logo sin que nadie lo pida.
-  if (!marcado.pdf) return { error: marcado.informe.detalle.join(" ") };
+  const modo: ModoLogo = modoPedido === "original" ? "marca" : modoPedido;
+  const marcado = await procesarEtiqueta(bytes, memoria, modo);
 
-  const subir = await guardarPdf(supabase, destino, Buffer.from(marcado.pdf));
+  if (modoPedido !== "original" && !marcado.pdf) {
+    // Lo que NO se hace es publicar el original con el logo del proveedor sin que nadie lo
+    // haya pedido: si el logo no se reconoce, se dice y la etiqueta se queda como está.
+    return { error: marcado.informe.detalle.join(" ") };
+  }
+
+  const publicado = modoPedido === "original" ? Buffer.from(bytes) : Buffer.from(marcado.pdf!);
+  const subir = await guardarPdf(supabase, destino, publicado);
   if (subir.error) return { error: subir.error };
-  await recordarModoLogo(supabase, modo);
+  if (modoPedido !== "original") await recordarModoLogo(supabase, modo);
+
+  const informe =
+    modoPedido === "original"
+      ? {
+          ...marcado.informe,
+          modo: "original",
+          reemplazos: 0,
+          detalle: ["Va la etiqueta tal como la mandó el transportista, con el logo del proveedor."],
+        }
+      : marcado.informe;
 
   const { error } = await supabase
     .from("travel_docs")
-    .update({ luggage_tag_brand: { ...marcado.informe, cuando: new Date().toISOString() } })
+    .update({ luggage_tag_brand: { ...informe, cuando: new Date().toISOString() } })
     .eq("quote_id", quoteId);
   if (error) return { error: mensajeError(error) };
 
@@ -328,11 +355,17 @@ export async function cambiarLogoEtiqueta(quoteId: string, modoPedido: string) {
 }
 
 /**
- * Deja como etiqueta buena la que subió el transportista, con su logo y todo, y anota la
- * huella para no volver a tocarla nunca.
+ * "Eso no era un logo": deshace el cambio y anota la huella para no volver a tocar esa
+ * imagen NUNCA MÁS, en esta etiqueta ni en las que vengan.
  *
- * Es la salida cuando el marcado se equivoca: en vez de esperar un arreglo, Nico recupera
- * en un clic la etiqueta que le sirve, y la plataforma aprende de paso.
+ * No confundir con `cambiarLogoEtiqueta(quoteId, "original")`, que también publica la
+ * etiqueta del transportista pero es reversible y solo afecta a este viaje. Esta de acá es
+ * la salida de emergencia para cuando el detector se equivoca de imagen —se comió un
+ * código de barras, un sello, un icono—, y por eso sí es de una sola dirección: borra la
+ * copia del original porque ya no hay nada que reprocesar, y enseña.
+ *
+ * Por eso mismo en la tarjeta solo aparece cuando lo que se quitó NO estaba reconocido,
+ * que es el único caso en que el detector puede haberse equivocado.
  */
 export async function dejarEtiquetaOriginal(quoteId: string) {
   const supabase = await createCommercialClient();
