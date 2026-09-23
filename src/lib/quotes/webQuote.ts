@@ -47,6 +47,8 @@ export type SolicitudWordPress = {
   canal?: "wordpress" | "isabel";
   /** true = cada persona en habitación individual. La web siempre reparte en pares. */
   todos_individuales?: boolean;
+  /** Solo canal isabel: lo que el viajero pidió en el chat y Nico debe revisar (p. ej. opcionales). */
+  notas_extra?: string | null;
 } & Origen;
 
 export type DesgloseWordPress = {
@@ -226,7 +228,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
       status: DEFAULT_STATUS,
       source: canal,
       notes: canal === "isabel"
-        ? "Cotización creada por Isabel en WhatsApp con los datos que el viajero le dio en el chat (aceptó términos y condiciones ahí mismo)."
+        ? ["Cotización creada por Isabel en WhatsApp con los datos que el viajero le dio en el chat (aceptó términos y condiciones ahí mismo).", datos.notas_extra?.trim()].filter(Boolean).join("\n")
         : "Cotización generada desde el cotizador de caminosacro.com (WordPress)",
       rooms_json: t.roomsJson,
       // Sin nota de año: estas cotizaciones son siempre con la tarifa del año de salida.

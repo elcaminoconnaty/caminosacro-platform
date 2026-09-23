@@ -18,6 +18,8 @@ const solicitudSchema = z.object({
   phone: z.string().trim().min(6).max(40),
   terms_accepted: z.literal(true),
   marketing_optin: z.boolean().default(false),
+  /** Lo que Nico tiene que revisar o agregar a mano (p. ej. opcionales que el viajero quiere). */
+  notas: z.string().trim().max(1000).optional(),
 });
 
 /**
@@ -53,7 +55,8 @@ export async function POST(request: Request) {
   const datos = parsed.data;
 
   try {
-    const r = await crearCotizacionWordPress({ ...datos, canal: "isabel" });
+    const { notas, ...resto } = datos;
+    const r = await crearCotizacionWordPress({ ...resto, canal: "isabel", notas_extra: notas ?? null });
     if (!r.ok) return Response.json({ ok: false, error: r.error }, { status: r.status });
 
     // Un lead que cotiza por WhatsApp también es un Lead para la pauta. Sin píxel del
