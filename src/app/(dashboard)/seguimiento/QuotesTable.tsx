@@ -47,6 +47,12 @@ export function esCotizacionBayMax(source: string | null): boolean {
   return source === "baymax";
 }
 
+// Cotizaciones que armó Isabel en una conversación de WhatsApp: el mismo flujo del
+// cotizador web (precio, PDF y correo), pero con los datos que pidió en el chat.
+export function esCotizacionIsabel(source: string | null): boolean {
+  return source === "isabel";
+}
+
 type SortKey = "code" | "client_name" | "route_name" | "start_date" | "total_eur" | "saldo" | "status";
 type SortDir = "asc" | "desc";
 
@@ -306,6 +312,9 @@ export default function QuotesTable({ rows, hoy }: { rows: QuoteRow[]; hoy: stri
                     )}
                     {esCotizacionBayMax(q.source) && (
                       <span className="ml-1.5 align-middle text-[10px] px-1.5 py-0.5 rounded bg-bosque-medio/15 text-bosque-medio font-semibold uppercase tracking-wide">BayMax</span>
+                    )}
+                    {esCotizacionIsabel(q.source) && (
+                      <span className="ml-1.5 align-middle text-[10px] px-1.5 py-0.5 rounded bg-dorado-oscuro/15 text-dorado-oscuro font-semibold uppercase tracking-wide">Isabel</span>
                     )}
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap">{q.client_name || <span className="text-muted">—</span>}</td>

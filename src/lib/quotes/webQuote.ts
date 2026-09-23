@@ -39,6 +39,14 @@ export type SolicitudWordPress = {
   marketing_optin: boolean;
   fbp?: string | null;
   fbc?: string | null;
+  /**
+   * Quién pidió la cotización. Por defecto el cotizador de caminosacro.com; `isabel` es
+   * la asesora de WhatsApp, que pide los mismos datos (y la aceptación de términos) en
+   * el chat y entrega por el mismo camino: mismo precio, mismo PDF, mismo correo.
+   */
+  canal?: "wordpress" | "isabel";
+  /** true = cada persona en habitación individual. La web siempre reparte en pares. */
+  todos_individuales?: boolean;
 } & Origen;
 
 export type DesgloseWordPress = {
@@ -54,11 +62,12 @@ export type DesgloseWordPress = {
 };
 
 export type ResultadoWordPress =
-  | { ok: true; code: string; pdf_url: string | null; email_sent: boolean; breakdown: DesgloseWordPress }
+  | { ok: true; id: string; code: string; pdf_url: string | null; email_sent: boolean; repetida?: boolean; breakdown: DesgloseWordPress }
   | { ok: false; status: number; error: string };
 
 export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promise<ResultadoWordPress> {
   const supabase = createAdminClient("comercial");
+  const canal = datos.canal ?? "wordpress";
 
   // 1. Ruta + precios de las dos modalidades (doble y single del tipo elegido).
   //    Todo se resuelve en el servidor: WordPress no manda ningún precio.
@@ -78,7 +87,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   const r = await tarifarRuta(supabase, {
     route: { id: route.id, name: route.name, days: route.days },
     tipo: datos.tipo,
-    todosIndividuales: false,
+    todosIndividuales: datos.todos_individuales === true,
     personas: datos.people,
     startDate: datos.start_date,
   });
@@ -133,7 +142,7 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
   const { data: repetida } = await supabase
     .from("quotes")
     .select("id,code,email_sent_at")
-    .eq("source", "wordpress")
+    .eq("source", canal)
     .eq("client_email", datos.email)
     .eq("route_id", route.id)
     .eq("start_date", datos.start_date)
@@ -155,6 +164,8 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     // `email_sent` dice lo que se sabe en este momento, no lo que se espera.
     return {
       ok: true,
+      id: repetida.id,
+      repetida: true,
       code: repetida.code,
       pdf_url: await firmarPdf(supabase, repetida.id),
       email_sent: !!repetida.email_sent_at,
@@ -213,8 +224,10 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
       season_supplement_cost_eur: t.suplementoCostEur,
       cost_eur: t.costEur,
       status: DEFAULT_STATUS,
-      source: "wordpress",
-      notes: "Cotización generada desde el cotizador de caminosacro.com (WordPress)",
+      source: canal,
+      notes: canal === "isabel"
+        ? "Cotización creada por Isabel en WhatsApp con los datos que el viajero le dio en el chat (aceptó términos y condiciones ahí mismo)."
+        : "Cotización generada desde el cotizador de caminosacro.com (WordPress)",
       rooms_json: t.roomsJson,
       // Sin nota de año: estas cotizaciones son siempre con la tarifa del año de salida.
       price_note: null,
@@ -286,5 +299,5 @@ export async function crearCotizacionWordPress(datos: SolicitudWordPress): Promi
     await congelarEntrega(supabase, quote.id, { canal: "correo", destinatario: datos.email, emailLogId: envioId });
   }
 
-  return { ok: true, code: quote.code, pdf_url: pdfUrl, email_sent: emailSent, breakdown: desglose };
+  return { ok: true, id: quote.id, code: quote.code, pdf_url: pdfUrl, email_sent: emailSent, breakdown: desglose };
 }
