@@ -7,6 +7,8 @@
 import { useState, useTransition } from "react";
 import { enviarCorreoPilgrim, buscarHilosPilgrim, enlazarHiloPilgrim, desenlazarHiloPilgrim } from "./actions";
 import type { HiloOutlook } from "@/lib/email/outlook";
+import { useRouter } from "next/navigation";
+import EstadoEnvio, { type EnvioResumen } from "./EstadoEnvio";
 import { savePilgrimRef } from "./travelDocActions";
 import { aplicarReferenciaPilgrim, asuntoDelHilo } from "@/lib/quotes/pilgrimRef";
 
@@ -30,7 +32,10 @@ export default function PilgrimEmailCard({
   pendientes,
   pilgrimRef = null,
   hilo = null,
+  envio = null,
 }: {
+  /** Si la reserva ya le salió a Pilgrim de verdad, y cuántas pruebas hubo. */
+  envio?: EnvioResumen | null;
   /** Hilo de correo con Pilgrim enlazado (migración 0055). Null = sale por Brevo como correo nuevo. */
   hilo?: { subject: string | null; linkedAt: string | null } | null;
   /** Referencia de reserva de Pilgrim (quotes.pilgrim_ref): la misma de la documentación de viaje. */
@@ -48,6 +53,14 @@ export default function PilgrimEmailCard({
   const [body, setBody] = useState(bodyInicial);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const [enviando, startEnvio] = useTransition();
+  const router = useRouter();
+  // El envío real se refleja al instante, sin esperar a que se recargue la página.
+  const [enviadoAhora, setEnviadoAhora] = useState<string | null>(null);
+  const estadoEnvio: EnvioResumen = {
+    enviadoAt: enviadoAhora ?? envio?.enviadoAt ?? sentAt ?? null,
+    pruebas: envio?.pruebas ?? 0,
+    ultimaPruebaAt: envio?.ultimaPruebaAt ?? null,
+  };
   const [referencia, setReferencia] = useState(pilgrimRef ?? "");
   const [refGuardada, setRefGuardada] = useState(pilgrimRef ?? "");
   const [guardandoRef, startRef] = useTransition();
@@ -151,6 +164,8 @@ export default function PilgrimEmailCard({
     }
     startEnvio(async () => {
       const r = await enviarCorreoPilgrim(quoteId, { subject, body, pruebaEmail: prueba || null });
+      if (r.ok && !prueba) setEnviadoAhora(new Date().toISOString());
+      if (r.ok) router.refresh();
       // "Enviado" solo si el proveedor devolvió el id del mensaje. Sin eso, lo
       // único cierto es que la petición se encoló: decir "✓ Enviado" ahí fue como
       // se dieron por buenas tres solicitudes a Pilgrim que nunca llegaron.
@@ -180,8 +195,10 @@ export default function PilgrimEmailCard({
           <h2 className="font-display text-lg text-bosque">Correo a Pilgrim</h2>
           <p className="text-xs text-muted mt-0.5">
             La reserva a precios de ellos, con los pasaportes adjuntos, pidiendo el link de pago.
-            {sentAt ? ` Último envío: ${fechaEnvio(sentAt)}.` : ""}
           </p>
+          <div className="mt-2">
+            <EstadoEnvio resumen={estadoEnvio} que="la reserva" a="a Pilgrim" nota={hilo ? "dentro del hilo" : null} />
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => copy("cuerpo", body)} className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition">

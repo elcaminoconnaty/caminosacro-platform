@@ -21,7 +21,19 @@ export type EnvioResumen = {
   ultimaPruebaAt: string | null;
 };
 
-export default function EstadoEnvio({ resumen, que }: { resumen: EnvioResumen; que: string }) {
+export default function EstadoEnvio({
+  resumen,
+  que,
+  a = "al cliente",
+  nota = null,
+}: {
+  resumen: EnvioResumen;
+  que: string;
+  /** A quién va: "al cliente" (por defecto) o "a Pilgrim". */
+  a?: string;
+  /** Detalle junto a "Enviado el …" (p. ej. "dentro del hilo"). */
+  nota?: string | null;
+}) {
   const { enviadoAt, pruebas, ultimaPruebaAt } = resumen;
 
   if (enviadoAt) {
@@ -29,8 +41,9 @@ export default function EstadoEnvio({ resumen, que }: { resumen: EnvioResumen; q
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full bg-bosque/10 text-bosque font-medium">
           <span className="w-1.5 h-1.5 rounded-full bg-bosque" />
-          Enviado el {fechaHora(enviadoAt)}
+          Enviado {a} el {fechaHora(enviadoAt)}
         </span>
+        {nota && <span className="text-[11px] text-bosque">{nota}</span>}
         {pruebas > 0 && (
           <span className="text-[11px] text-muted">
             {pruebas === 1 ? "1 prueba antes" : `${pruebas} pruebas antes`}
@@ -44,12 +57,12 @@ export default function EstadoEnvio({ resumen, que }: { resumen: EnvioResumen; q
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium">
         <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-        Sin enviar al cliente
+        Sin enviar {a}
       </span>
       {pruebas > 0 && ultimaPruebaAt && (
         <span className="text-[11px] text-amber-700">
           {pruebas === 1 ? "Hay 1 prueba" : `Hay ${pruebas} pruebas`} (la última el{" "}
-          {fechaHora(ultimaPruebaAt)}), pero {que} todavía no le ha llegado al cliente.
+          {fechaHora(ultimaPruebaAt)}), pero {que} todavía no le ha llegado {a}.
         </span>
       )}
     </div>
