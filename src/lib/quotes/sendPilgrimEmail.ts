@@ -6,6 +6,12 @@ import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmai
 import { correoPilgrimHtml } from "@/lib/quotes/pilgrimHtml";
 import { EMAIL_PDF_TTL } from "@/lib/quotes/clientEmail";
 import type { ComercialClient } from "@/lib/quotes/pdf";
+import { outlookConfigurado, responderEnHilo, type AdjuntoOutlook } from "@/lib/email/outlook";
+
+const TIPO_POR_EXTENSION: Record<string, string> = {
+  pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+  webp: "image/webp", heic: "image/heic", heif: "image/heif",
+};
 
 /**
  * Le envía a Pilgrim el detalle de la reserva a sus precios, con los pasaportes de
@@ -22,7 +28,7 @@ export async function enviarCorreoAPilgrim(
   supabase: ComercialClient,
   quoteId: string,
   mensaje: { subject: string; body: string; pruebaEmail?: string | null },
-): Promise<{ ok?: true; email?: string; adjuntos?: number; confirmado?: boolean; error?: string }> {
+): Promise<{ ok?: true; email?: string; adjuntos?: number; confirmado?: boolean; enHilo?: boolean; error?: string }> {
   const subject = mensaje.subject.trim();
   const body = mensaje.body.trim();
   if (!subject) return { error: "El asunto no puede estar vacío." };
@@ -30,7 +36,7 @@ export async function enviarCorreoAPilgrim(
 
   const { data: quote } = await supabase
     .from("quotes")
-    .select("id,code,client_name,client_phone,route_name,start_date,people,modality,cost_eur")
+    .select("id,code,client_name,client_phone,route_name,start_date,people,modality,cost_eur,pilgrim_thread_message_id,pilgrim_thread_subject")
     .eq("id", quoteId)
     .maybeSingle();
   if (!quote) return { error: "No encontré la cotización." };
@@ -46,6 +52,23 @@ export async function enviarCorreoAPilgrim(
   // pasaportes no debe serlo.
   const armado = await armarCorreoPilgrim(supabase, quoteId);
   if (!armado.ok) return { error: armado.error };
+
+  // ---- Con hilo enlazado: respuesta DENTRO del hilo, desde el buzón de reservas@ ----
+  // La prueba NO va por aquí: una prueba en el hilo le llegaría a Pilgrim. Sigue por Brevo.
+  if (quote.pilgrim_thread_message_id && !esPrueba && outlookConfigurado()) {
+    return enviarEnHiloPilgrim(supabase, {
+      quote: {
+        id: quote.id as string,
+        code: quote.code as string,
+        route_name: (quote.route_name as string | null) ?? null,
+        mensajeId: quote.pilgrim_thread_message_id as string,
+        asuntoHilo: (quote.pilgrim_thread_subject as string | null) ?? null,
+      },
+      destino,
+      body,
+      adjuntos: armado.correo.adjuntos,
+    });
+  }
 
   const attachments: { url: string; name: string }[] = [];
   for (const a of armado.correo.adjuntos) {
@@ -143,4 +166,61 @@ export async function enviarCorreoAPilgrim(
     await supabase.from("quotes").update({ pilgrim_email_sent_at: new Date().toISOString() }).eq("id", quoteId);
   }
   return { ok: true, email: destino, adjuntos: attachments.length, confirmado: !!envio.messageId };
+}
+
+/**
+ * El correo de reserva como respuesta en el hilo de la cotización con Pilgrim.
+ *
+ * Los pasaportes se bajan del almacenamiento y viajan dentro del correo (Outlook no toma
+ * adjuntos por URL). El asunto es el del hilo ("RE: …"): cambiarlo lo sacaría del hilo en
+ * algunos clientes de correo. La referencia de Pilgrim va igual en los datos del cuerpo.
+ *
+ * Sin aviso interno a reservas@: el correo sale DESDE reservas@, así que la copia ya está
+ * en sus Enviados y en el hilo. El aviso existía justo porque Brevo no dejaba copia.
+ */
+async function enviarEnHiloPilgrim(
+  supabase: ComercialClient,
+  o: {
+    quote: { id: string; code: string; route_name: string | null; mensajeId: string; asuntoHilo: string | null };
+    destino: string;
+    body: string;
+    adjuntos: { path: string; nombre: string }[];
+  },
+): Promise<{ ok?: true; email?: string; adjuntos?: number; confirmado?: boolean; enHilo?: boolean; error?: string }> {
+  const archivos: AdjuntoOutlook[] = [];
+  for (const a of o.adjuntos) {
+    const [bucket, ...rest] = a.path.split("/");
+    const { data, error } = await supabase.storage.from(bucket).download(rest.join("/"));
+    if (error || !data) return { error: `No pude leer el pasaporte ${a.nombre} para adjuntarlo. Revísalo en el contrato del viajero.` };
+    const ext = (a.nombre.split(".").pop() || "").toLowerCase();
+    archivos.push({ nombre: a.nombre, tipo: TIPO_POR_EXTENSION[ext] || "application/octet-stream", contenido: Buffer.from(await data.arrayBuffer()) });
+  }
+
+  const html = correoPilgrimHtml({
+    cuerpo: o.body,
+    code: o.quote.code,
+    ruta: o.quote.route_name,
+    adjuntos: archivos.length,
+    esPrueba: false,
+  });
+  const r = await responderEnHilo({ mensajeId: o.quote.mensajeId, html, adjuntos: archivos });
+  const asunto = o.quote.asuntoHilo ? `RE: ${o.quote.asuntoHilo.replace(/^(re|rv|fw|fwd):\s*/i, "")}` : `Reserva ${o.quote.code}`;
+
+  await registrarEnvio(supabase, {
+    quoteId: o.quote.id,
+    code: o.quote.code,
+    tipo: "pilgrim",
+    destinatario: o.destino,
+    asunto,
+    adjuntos: archivos.length,
+    // Outlook no devuelve id al enviar; la prueba del envío es que está en Enviados.
+    messageId: r.ok ? `outlook:${r.threadId ?? "hilo"}` : null,
+    error: r.ok ? null : r.error,
+    prueba: false,
+    html,
+  });
+  if (!r.ok) return { error: r.error };
+
+  await supabase.from("quotes").update({ pilgrim_email_sent_at: new Date().toISOString() }).eq("id", o.quote.id);
+  return { ok: true, email: o.destino, adjuntos: archivos.length, confirmado: true, enHilo: true };
 }

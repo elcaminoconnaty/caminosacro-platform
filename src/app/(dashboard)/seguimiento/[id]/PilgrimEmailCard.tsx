@@ -5,7 +5,8 @@
 // correo al cliente: asunto y cuerpo editables antes de enviar.
 
 import { useState, useTransition } from "react";
-import { enviarCorreoPilgrim } from "./actions";
+import { enviarCorreoPilgrim, buscarHilosPilgrim, enlazarHiloPilgrim, desenlazarHiloPilgrim } from "./actions";
+import type { HiloOutlook } from "@/lib/email/outlook";
 import { savePilgrimRef } from "./travelDocActions";
 import { aplicarReferenciaPilgrim } from "@/lib/quotes/pilgrimRef";
 
@@ -28,7 +29,10 @@ export default function PilgrimEmailCard({
   adjuntos,
   pendientes,
   pilgrimRef = null,
+  hilo = null,
 }: {
+  /** Hilo de correo con Pilgrim enlazado (migración 0055). Null = sale por Brevo como correo nuevo. */
+  hilo?: { subject: string | null; linkedAt: string | null } | null;
   /** Referencia de reserva de Pilgrim (quotes.pilgrim_ref): la misma de la documentación de viaje. */
   pilgrimRef?: string | null;
   quoteId: string;
@@ -48,6 +52,52 @@ export default function PilgrimEmailCard({
   const [refGuardada, setRefGuardada] = useState(pilgrimRef ?? "");
   const [guardandoRef, startRef] = useTransition();
   const [avisoRef, setAvisoRef] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  // ---- Hilo con Pilgrim ----
+  const [buscando, startBusqueda] = useTransition();
+  const [hilos, setHilos] = useState<HiloOutlook[] | null>(null);
+  const [elegido, setElegido] = useState<string | null>(null);
+  const [avisoHilo, setAvisoHilo] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  function buscarHilos() {
+    setAvisoHilo(null);
+    startBusqueda(async () => {
+      const r = await buscarHilosPilgrim(quoteId);
+      if (!r.ok) {
+        setAvisoHilo({ ok: false, texto: r.error });
+        return;
+      }
+      setHilos(r.hilos);
+      setElegido(r.hilos[0]?.coincide ? r.hilos[0].threadId : null);
+      if (r.hilos.length === 0) setAvisoHilo({ ok: false, texto: "No encontré correos con Pilgrim en el buzón de reservas@." });
+    });
+  }
+
+  function enlazar() {
+    const h = hilos?.find((x) => x.threadId === elegido);
+    if (!h) return;
+    startBusqueda(async () => {
+      const r = await enlazarHiloPilgrim(quoteId, {
+        threadId: h.threadId,
+        // Se le responde al último mensaje de Pilgrim: así la respuesta les cae en la bandeja.
+        messageId: h.lastIncomingMessageId ?? h.lastMessageId,
+        subject: h.subject,
+      });
+      if (r.error) setAvisoHilo({ ok: false, texto: r.error });
+      else {
+        setHilos(null);
+        setAvisoHilo({ ok: true, texto: "✓ Hilo enlazado: el correo saldrá como respuesta dentro de ese hilo." });
+      }
+    });
+  }
+
+  function desenlazar() {
+    startBusqueda(async () => {
+      const r = await desenlazarHiloPilgrim(quoteId);
+      if (r.error) setAvisoHilo({ ok: false, texto: r.error });
+      else setAvisoHilo({ ok: true, texto: "Hilo quitado: el correo saldrá como correo nuevo." });
+    });
+  }
 
   /**
    * Guarda la referencia (es el mismo dato que sale en la documentación de viaje) y la
@@ -77,6 +127,8 @@ export default function PilgrimEmailCard({
   // marca la cotización como ya enviada. Permite ensayar con 1, 2, 3 o 20 viajeros.
   const [modoPrueba, setModoPrueba] = useState(false);
   const [emailPrueba, setEmailPrueba] = useState("");
+  // La prueba nunca va por el hilo: le llegaría a Pilgrim.
+  const enHilo = !!hilo && !modoPrueba;
 
   async function copy(label: string, text: string) {
     try {
@@ -105,7 +157,9 @@ export default function PilgrimEmailCard({
         r.ok
           ? {
               ok: true,
-              texto: r.confirmado
+              texto: r.enHilo
+                ? `✓ Respondido dentro del hilo con Pilgrim (${r.adjuntos ?? 0} pasaporte(s) adjunto(s)). Queda en Enviados de reservas@.`
+                : r.confirmado
                 ? `✓ Enviado a ${detalle}`
                 : `⏳ En cola para ${detalle} — el proveedor todavía no confirmó el envío. Revisa el panel de Brevo si es urgente.`,
             }
@@ -137,7 +191,7 @@ export default function PilgrimEmailCard({
             title={puedeEnviar ? undefined : "Configura el correo de Pilgrim en Configuración"}
             className="text-xs px-3 py-1.5 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {enviando ? "Enviando…" : modoPrueba ? "Enviar prueba" : "Enviar a Pilgrim"}
+            {enviando ? "Enviando…" : modoPrueba ? "Enviar prueba" : enHilo ? "Responder en el hilo" : "Enviar a Pilgrim"}
           </button>
         </div>
       </div>
@@ -203,14 +257,109 @@ export default function PilgrimEmailCard({
           </p>
         </div>
 
+        <div className="rounded-lg border border-border px-3 py-2.5 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs">
+              <span className="text-muted">Hilo con Pilgrim: </span>
+              {hilo ? (
+                <>
+                  <span className="font-medium">{hilo.subject || "(sin asunto)"}</span>
+                  <span className="text-muted">
+                    {" "}— el correo sale desde reservas@ como respuesta dentro de este hilo.
+                  </span>
+                </>
+              ) : (
+                <span className="text-muted">sin enlazar — sale por Brevo como correo nuevo.</span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={buscarHilos}
+                disabled={buscando}
+                className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+              >
+                {buscando && !hilos ? "Buscando…" : hilo ? "Cambiar hilo" : "Enlazar hilo con Pilgrim"}
+              </button>
+              {hilo && (
+                <button
+                  type="button"
+                  onClick={desenlazar}
+                  disabled={buscando}
+                  className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                >
+                  Quitar
+                </button>
+              )}
+            </div>
+          </div>
+
+          {hilos && hilos.length > 0 && (
+            <div className="space-y-1.5">
+              <ul className="max-h-72 overflow-y-auto divide-y divide-border border border-border rounded-md">
+                {hilos.map((h) => (
+                  <li key={h.threadId}>
+                    <label className="flex items-start gap-2.5 px-3 py-2 cursor-pointer hover:bg-taupe/20">
+                      <input
+                        type="radio"
+                        name="hilo-pilgrim"
+                        checked={elegido === h.threadId}
+                        onChange={() => setElegido(h.threadId)}
+                        className="mt-1"
+                      />
+                      <span className="flex-1 min-w-0 text-xs">
+                        <span className="font-medium">{h.subject}</span>
+                        {h.coincide && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-bosque text-white">es de esta cotización</span>
+                        )}
+                        <span className="block text-muted">
+                          {fechaEnvio(h.date)} · {h.messageCount} mensaje(s)
+                          {h.snippet ? ` · ${h.snippet}` : ""}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={enlazar}
+                  disabled={!elegido || buscando}
+                  className="text-xs px-3 py-1.5 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+                >
+                  Enlazar este hilo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHilos(null)}
+                  className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          {avisoHilo && (
+            <p className={`text-xs ${avisoHilo.ok ? "text-bosque" : "text-red-600"}`}>{avisoHilo.texto}</p>
+          )}
+        </div>
+
         <div>
           <label className="text-xs text-muted mb-0.5 block" htmlFor="pilgrim-asunto">Asunto</label>
           <input
             id="pilgrim-asunto"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            className="w-full font-medium bg-crema border border-border rounded-md px-3 py-2 focus:outline-none focus:border-bosque"
+            disabled={enHilo}
+            className="w-full font-medium bg-crema border border-border rounded-md px-3 py-2 focus:outline-none focus:border-bosque disabled:opacity-60"
           />
+          {enHilo && (
+            <p className="text-xs text-muted mt-1">
+              Al responder en el hilo, el asunto es el del hilo («RE: {hilo?.subject?.replace(/^(re|rv|fw|fwd):\s*/i, "")}»):
+              cambiarlo lo sacaría del hilo. La referencia de Pilgrim va igual en los datos del correo.
+            </p>
+          )}
         </div>
 
         <div>

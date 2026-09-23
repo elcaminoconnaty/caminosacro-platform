@@ -18,6 +18,8 @@ import {
 import type { OpcionalLibre } from "@/lib/quotes/opcionalLibre";
 import { enviarCorreoCliente } from "@/lib/quotes/clientEmail";
 import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
+import { getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
+import { buscarHilos, outlookConfigurado } from "@/lib/email/outlook";
 import { duplicarCotizacion } from "@/lib/quotes/duplicar";
 import { esEstadoVenta, registrarVentaMeta } from "@/lib/marketing/ventaMeta";
 import { resolverPagoCliente, esMonedaPago, type MonedaPago } from "@/lib/quotes/pagoCliente";
@@ -686,12 +688,61 @@ export async function enviarCorreoCotizacion(
 export async function enviarCorreoPilgrim(
   quoteId: string,
   mensaje: { subject: string; body: string; pruebaEmail?: string | null },
-): Promise<{ ok?: true; email?: string; adjuntos?: number; confirmado?: boolean; error?: string }> {
+): Promise<{ ok?: true; email?: string; adjuntos?: number; confirmado?: boolean; enHilo?: boolean; error?: string }> {
   const supabase = await createCommercialClient();
   const r = await enviarCorreoAPilgrim(supabase, quoteId, mensaje);
   // En prueba no se marca el expediente, así que tampoco hay nada que revalidar.
   if (r.ok && !mensaje.pruebaEmail?.trim()) revalidatePath(`/seguimiento/${quoteId}`);
   return r;
+}
+
+// ---------------- HILO DE CORREO CON PILGRIM (migración 0055) ----------------
+//
+// El correo de reserva se responde DENTRO del hilo donde se cotizó con Pilgrim, desde el
+// buzón reservas@ (Outlook). Aquí se busca ese hilo y se enlaza a la cotización.
+
+/** Los hilos del buzón con Pilgrim, primero los que nombran el código o al cliente. */
+export async function buscarHilosPilgrim(quoteId: string) {
+  const supabase = await createCommercialClient();
+  const [{ data: q }, ajustes] = await Promise.all([
+    supabase.from("quotes").select("code,client_name").eq("id", quoteId).maybeSingle(),
+    getPilgrimSettings(supabase),
+  ]);
+  if (!q) return { ok: false as const, error: "No encontré la cotización." };
+  if (!ajustes.email) return { ok: false as const, error: "Falta el correo de Pilgrim en Configuración." };
+  if (!outlookConfigurado()) return { ok: false as const, error: "La conexión con Outlook no está configurada en el servidor." };
+  return buscarHilos({ email: ajustes.email, codigo: q.code, cliente: q.client_name });
+}
+
+export async function enlazarHiloPilgrim(
+  quoteId: string,
+  hilo: { threadId: string; messageId: string; subject: string },
+) {
+  if (!hilo.threadId || !hilo.messageId) return { error: "Elige un hilo." };
+  const supabase = await createCommercialClient();
+  const { error } = await supabase
+    .from("quotes")
+    .update({
+      pilgrim_thread_id: hilo.threadId,
+      pilgrim_thread_message_id: hilo.messageId,
+      pilgrim_thread_subject: hilo.subject || null,
+      pilgrim_thread_linked_at: new Date().toISOString(),
+    })
+    .eq("id", quoteId);
+  if (error) return { error: mensajeError(error) };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
+}
+
+export async function desenlazarHiloPilgrim(quoteId: string) {
+  const supabase = await createCommercialClient();
+  const { error } = await supabase
+    .from("quotes")
+    .update({ pilgrim_thread_id: null, pilgrim_thread_message_id: null, pilgrim_thread_subject: null, pilgrim_thread_linked_at: null })
+    .eq("id", quoteId);
+  if (error) return { error: mensajeError(error) };
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true };
 }
 
 // El listado de hoteles vivía acá: una tabla de texto libre por cotización y un PDF con
