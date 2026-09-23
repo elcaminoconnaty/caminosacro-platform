@@ -11,4 +11,14 @@ export function autorizadoAgente(request: Request): boolean {
   return autorizadoCon(request, "AGENTE_API_SECRET");
 }
 
+/**
+ * Endpoints de SOLO LECTURA que también consulta Isabel (la asesora de WhatsApp):
+ * aceptan el secreto de BayMax o el de Isabel (ISABEL_API_SECRET). Isabel tiene su
+ * propia llave para poder revocarla sin tumbar a BayMax, y esa llave no abre ningún
+ * endpoint que escriba en el CRM.
+ */
+export function autorizadoLectura(request: Request): boolean {
+  return autorizadoCon(request, "AGENTE_API_SECRET") || autorizadoCon(request, "ISABEL_API_SECRET");
+}
+
 export { noAutorizado };

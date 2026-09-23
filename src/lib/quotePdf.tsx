@@ -537,7 +537,7 @@ function buildItinerarioStages(
   return rows;
 }
 
-const INCLUIDO_DEFAULT = (n: number) => [
+export const INCLUIDO_DEFAULT = (n: number) => [
   `${n} noches en acomodación privada con baño privado (doble o individual según opción)`,
   `${n} desayunos incluidos`,
   "Traslado de mochilas entre etapas — máx. 15 kg por persona, exclusivamente en las etapas del itinerario",
@@ -550,7 +550,7 @@ const INCLUIDO_DEFAULT = (n: number) => [
 // `porContratar`: en una ruta en bici sin bicicleta contratada, el alquiler es la ausencia
 // más cara de la lista y tiene que estar nombrada acá, no solo en el bloque de más abajo.
 // La columna "NO INCLUIDO" es lo que el peregrino revisa cuando compara cotizaciones.
-const NO_INCLUIDO_DEFAULT = (porContratar = false) => [
+export const NO_INCLUIDO_DEFAULT = (porContratar = false) => [
   ...(porContratar
     ? [`Alquiler de la bicicleta y su fianza de ${FIANZA_POR_BICI_EUR} € — se contrata aparte (ver "Alquiler de bicicletas")`]
     : []),
