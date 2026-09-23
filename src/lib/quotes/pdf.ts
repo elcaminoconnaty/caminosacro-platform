@@ -8,6 +8,7 @@ import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from
 import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
 import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 import { leerFilasHabitacion, personasDeFila, roomRowLabel } from "@/lib/quotes/rooms";
+import { extrasDeLineas, habitacionesDelGrupo } from "@/lib/quotes/extrasItinerario";
 import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice, type BikeRow } from "@/lib/bikes/catalog";
 
 /**
@@ -339,31 +340,12 @@ export async function renderAndStoreQuotePdf(
   for (const o of (optionalsRaw || []) as Array<{ id: string; category: string }>) {
     categoryById.set(o.id, o.category);
   }
-  // Habitaciones del reparto: convierten "cantidad = habitaciones × noches" en noches.
-  const roomsCount = customRooms.length > 0
-    ? customRooms.reduce((a, r) => a + r.habitaciones, 0)
-    : roomBreakdown
-      ? roomBreakdown.dobles + roomBreakdown.individuales
-      : chosenSlug
-        ? (chosenSlug.endsWith("single") ? peopleCount : Math.ceil(peopleCount / 2))
-        : 1;
-  const roomsSafe = Math.max(1, roomsCount);
-  let extraNights = 0;
-  let extraNightTipo: "pension" | "hotel" = "pension";
-  const tours: string[] = [];
-  for (const l of ((selectedLines || []) as Array<{ description: string; quantity: number | string; reference_id: string | null }>)) {
-    const cat = l.reference_id ? categoryById.get(l.reference_id) : undefined;
-    if (cat === "noche_extra") {
-      extraNights += Math.round((Number(l.quantity) || 0) / roomsSafe);
-      if (/hotel|casa rural/i.test(l.description)) extraNightTipo = "hotel";
-    } else if (cat === "tour") {
-      // El nombre viene como "Tour X (por persona)"; quito la unidad entre paréntesis.
-      tours.push(l.description.replace(/\s*\([^)]*\)\s*$/, "").trim());
-    }
-  }
-  const itineraryExtras = extraNights > 0 || tours.length > 0
-    ? { extraNights, extraNightTipo, tours }
-    : null;
+  // Mismo cálculo que usa la carta de bienvenida (ver @/lib/quotes/extrasItinerario).
+  const itineraryExtras = extrasDeLineas(
+    (selectedLines || []) as Array<{ description: string; quantity: number | string; reference_id: string | null }>,
+    categoryById,
+    habitacionesDelGrupo(quote),
+  );
 
   // ===== Flota de bicicletas (migración 0021) =====
   // Se carga en las rutas en bici y, por si acaso, en cualquier cotización que ya tenga una

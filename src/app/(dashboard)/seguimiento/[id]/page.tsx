@@ -13,6 +13,8 @@ import { etapasCaminadas, etapasDeCondiciones, type EtapaItinerario } from "@/li
 import ClientPaymentsCard from "./ClientPaymentsCard";
 import ProviderPaymentsCard from "./ProviderPaymentsCard";
 import DocumentsCard from "./DocumentsCard";
+import WelcomeLetterCard from "./WelcomeLetterCard";
+import { datosCartaBienvenida } from "@/lib/bienvenida/render";
 import EmailPreviewCard from "./EmailPreviewCard";
 import OptionalsCard, { type OptionalCatalog, type OptionalLine } from "./OptionalsCard";
 import BikesCard, { type BikeLine } from "./BikesCard";
@@ -437,6 +439,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   }
   const etapasPropias = etapasDeCondiciones(quote.condiciones_json);
 
+  // La carta de bienvenida: solo lo que la tarjeta muestra; el PDF se arma al abrirla.
+  const carta = await datosCartaBienvenida(supabase, id);
+
   // De qué cotización nació esta. Se consulta aparte porque el id del padre solo se conoce
   // después de leer la cotización.
   let parentQuote: { id: string; code: string } | null = null;
@@ -589,6 +594,20 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           quoteId={id}
           storagePath={quote.pdf_path}
           filename={basename(quote.pdf_path)}
+        />
+      </Plegable>
+
+      <Plegable seccion="carta-bienvenida" titulo="la carta de bienvenida">
+        <WelcomeLetterCard
+          // Al cambiar el itinerario cambian los textos sugeridos: se remonta para no
+          // quedarse con los de antes en el formulario.
+          key={"datos" in carta ? `${carta.datos.titulo}|${carta.datos.intro}` : "sin-itinerario"}
+          quoteId={id}
+          titulo={"datos" in carta ? carta.datos.titulo : null}
+          intro={"datos" in carta ? carta.datos.intro : null}
+          cifras={"datos" in carta ? carta.datos.cifras : null}
+          fuente={"datos" in carta ? carta.datos.fuente : null}
+          error={"error" in carta ? carta.error : null}
         />
       </Plegable>
 
