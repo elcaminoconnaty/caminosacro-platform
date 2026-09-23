@@ -38,6 +38,12 @@ import {
   enviarFichaViajero,
   enviarFichasATodos,
   setOrgSignerForQuote,
+  createJointContract,
+  refreshJointParties,
+  deleteJointContract,
+  sendJointLink,
+  revokeJointLink,
+  sealJointContract,
   type ContractRow,
   type TravelerRow,
 } from "./contractActions";
@@ -48,7 +54,33 @@ import {
   type PaymentPlan,
   type Cuota,
   type Firmante,
+  PLAZO_FIRMA_CONJUNTO_DIAS,
 } from "@/lib/contracts/template";
+
+/** Un firmante del contrato conjunto, tal como lo lee la página (migración 0054). */
+export type FirmanteFila = {
+  id: string;
+  contract_id: string;
+  traveler_id: string;
+  position: number;
+  nombre: string;
+  email: string | null;
+  token: string | null;
+  token_expires_at: string | null;
+  sent_at: string | null;
+  last_reminder_at: string | null;
+  reminder_count: number;
+  signed_at: string | null;
+  passport_path: string | null;
+};
+
+/** ¿Ya pasó esa fecha? Fuera del componente: la hora actual no es parte del render. */
+function yaPaso(d: Date): boolean {
+  return d.getTime() < Date.now();
+}
+
+const fechaCorta = (iso: string) =>
+  new Date(iso).toLocaleDateString("es-CO", { day: "numeric", month: "short", timeZone: "America/Bogota" });
 
 // Igual que MAX_RECORDATORIOS en /api/cron/recordatorios-contrato: solo para el rótulo.
 const MAX_RECORDATORIOS = 5;
@@ -201,6 +233,7 @@ export default function ContractCard({
   totalEur,
   companyName = null,
   firmantes = [],
+  signers = [],
 }: {
   quoteId: string;
   quoteCode: string;
@@ -213,6 +246,8 @@ export default function ContractCard({
   companyName?: string | null;
   /** Quiénes pueden firmar por Camino Sacro (settings.firmantes). */
   firmantes?: Firmante[];
+  /** Firmantes del contrato conjunto, si la cotización lo tiene. */
+  signers?: FirmanteFila[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -263,6 +298,10 @@ export default function ContractCard({
   // Modalidad: la marca la cotización (tiene empresa) o un contrato de empresa ya creado.
   const contratoEmpresa = contracts.find((c) => c.kind === "empresa") ?? null;
   const modoEmpresa = !!companyName || !!contratoEmpresa;
+  // Contrato conjunto: uno solo, todos los viajeros como parte, cada uno con su enlace.
+  const contratoConjunto = modoEmpresa ? null : contracts.find((c) => c.kind === "conjunto") ?? null;
+  const modoConjunto = !!contratoConjunto;
+  const firmasConjunto = signers.filter((s) => s.signed_at).length;
 
   const firmados = contracts.filter((c) => c.status === "firmado").length;
   const sinContrato = travelers.filter((t) => !porViajero.has(t.id)).length;
@@ -519,6 +558,208 @@ export default function ContractCard({
     );
   }
 
+  /**
+   * El contrato conjunto: una fila para el documento y una por firmante. Mientras nadie
+   * firme se puede actualizar o deshacer; con una firma adentro el texto queda congelado.
+   */
+  function bloqueConjunto() {
+    const c = contratoConjunto;
+    if (!c) return null;
+    const chip = STATUS_CHIP[c.status];
+    const nadieFirmo = firmasConjunto === 0;
+    const todosFirmaron = signers.length > 0 && firmasConjunto === signers.length;
+    const plazo = c.status === "enviado" && c.token_expires_at ? new Date(c.token_expires_at) : null;
+    const plazoVencido = !!plazo && yaPaso(plazo);
+    return (
+      <div className="border border-border rounded-lg">
+        <div className="px-3 py-2.5 flex flex-wrap items-center gap-2 border-b border-border bg-taupe/20">
+          <div className="flex-1 min-w-[12rem]">
+            <div className="text-sm font-medium">Contrato conjunto · {signers.length} firmantes</div>
+            <div className={`text-[11px] ${plazoVencido ? "text-red-700" : "text-muted"}`}>
+              {c.status === "firmado"
+                ? `Firmado por todos${c.signed_at ? ` el ${fechaCorta(c.signed_at)}` : ""}.`
+                : `${firmasConjunto} de ${signers.length} firmas`}
+              {plazo && c.status !== "firmado"
+                ? plazoVencido
+                  ? ` · el plazo de ${PLAZO_FIRMA_CONJUNTO_DIAS} días venció el ${fechaCorta(plazo.toISOString())}: las firmas quedaron sin efecto`
+                  : ` · plazo para firmar hasta el ${fechaCorta(plazo.toISOString())}`
+                : ""}
+            </div>
+          </div>
+          <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${chip.cls}`}>{chip.label}</span>
+          <div className="flex flex-wrap gap-1.5">
+            {c.status === "firmado" ? (
+              <>
+                <button
+                  onClick={() => abrirArchivo(c.signed_pdf_path)}
+                  disabled={pending || !c.signed_pdf_path}
+                  className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+                >
+                  Ver contrato firmado
+                </button>
+                <button
+                  onClick={() => abrirArchivo(c.signed_pdf_path, `Contrato-${quoteCode}-firmado.pdf`)}
+                  disabled={pending || !c.signed_pdf_path}
+                  className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                >
+                  Descargar
+                </button>
+                {c.doc_hash && (
+                  <a
+                    href={`/verificar/${c.doc_hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition"
+                  >
+                    Verificar
+                  </a>
+                )}
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => verVistaPrevia(c)}
+                  disabled={pending}
+                  className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                >
+                  Vista previa
+                </button>
+                {todosFirmaron && (
+                  <button
+                    onClick={() =>
+                      run(async () => {
+                        const r = await sealJointContract(c.id);
+                        if (r.error) return r;
+                        setInfo(r.mensaje ?? "Contrato cerrado.");
+                      })
+                    }
+                    disabled={pending}
+                    className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+                    title="Ya firmaron todos pero el documento no se cerró: vuelve a generarlo y a mandar las copias"
+                  >
+                    Cerrar y sellar
+                  </button>
+                )}
+                {nadieFirmo && (
+                  <>
+                    <button
+                      onClick={() => run(() => refreshJointParties(c.id), "Partes del contrato actualizadas desde la lista de viajeros.")}
+                      disabled={pending}
+                      className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                      title="Vuelve a copiar nombres, pasaportes, correos y autorizaciones de la lista de viajeros"
+                    >
+                      Actualizar las partes del contrato
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!window.confirm("¿Borrar el contrato conjunto? Los enlaces que ya hayan salido dejan de servir. Después puedes crear los contratos por viajero.")) return;
+                        run(() => deleteJointContract(c.id), "Contrato conjunto borrado.");
+                      }}
+                      disabled={pending}
+                      className="text-xs px-2.5 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 transition disabled:opacity-50"
+                    >
+                      Deshacer (volver a uno por viajero)
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="divide-y divide-border">
+          {signers.map((f) => {
+            const recordatorio =
+              !f.signed_at && f.reminder_count
+                ? `Recordatorio ${f.reminder_count}/${MAX_RECORDATORIOS}${f.last_reminder_at ? ` · ${fechaCorta(f.last_reminder_at)}` : ""}`
+                : null;
+            return (
+              <div key={f.id} className="px-3 py-2 flex flex-wrap items-center gap-2">
+                <div className="flex-1 min-w-[12rem]">
+                  <div className="text-sm">
+                    {f.position}. {f.nombre}
+                  </div>
+                  <div className="text-[11px] text-muted">
+                    {f.email || <span className="text-amber-700">sin correo</span>}
+                    {f.sent_at && !f.signed_at ? ` · enviado el ${fechaCorta(f.sent_at)}` : ""}
+                    {recordatorio ? ` · ${recordatorio}` : ""}
+                  </div>
+                </div>
+                {f.signed_at ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider bg-bosque text-white">
+                    Firmó {fechaCorta(f.signed_at)}
+                  </span>
+                ) : f.token ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider bg-amber-100 text-amber-800">
+                    Esperando firma
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider bg-taupe/60 text-fg">
+                    Sin enviar
+                  </span>
+                )}
+                {!f.signed_at && c.status !== "firmado" && !plazoVencido && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() =>
+                        run(async () => {
+                          if (modoPrueba && !pruebaEmail) return { error: "Escribe el correo de prueba." };
+                          const r = await sendJointLink(f.id, { email: true, pruebaEmail });
+                          if (r.error && !r.url) return r;
+                          setInfo(
+                            r.emailEnviado
+                              ? `Contrato enviado a ${pruebaEmail || f.email} para firma.`
+                              : `El correo no salió (${r.error ?? "revisa el webhook n8n"}); envíale este link: ${r.url}`,
+                          );
+                        })
+                      }
+                      disabled={pending}
+                      className="text-xs px-2.5 py-1 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+                    >
+                      {f.token ? "Reenviar" : "Enviar para firma"}
+                    </button>
+                    {f.token && (
+                      <>
+                        <button
+                          onClick={() =>
+                            run(async () => {
+                              const r = await sendJointLink(f.id, { email: false });
+                              if (r.error) return r;
+                              if (r.url) {
+                                await navigator.clipboard.writeText(r.url).catch(() => {});
+                                setInfo(`Link de ${f.nombre} copiado: ${r.url}`);
+                              }
+                            })
+                          }
+                          disabled={pending}
+                          className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+                        >
+                          Copiar link
+                        </button>
+                        <button
+                          onClick={() => run(() => revokeJointLink(f.id), "Link anulado.")}
+                          disabled={pending}
+                          className="text-xs px-2.5 py-1 rounded-md border border-red-200 text-red-700 hover:bg-red-50 transition disabled:opacity-50"
+                        >
+                          Anular
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="px-3 py-2 text-[11px] text-muted border-t border-border">
+          Un solo contrato, con las {signers.length} personas como parte: responden solidariamente por el valor total y
+          cada una firma desde su enlace. Se cierra cuando firma la última, y a todas les llega la copia con todas las
+          firmas. Desde la primera firma el texto ya no se puede cambiar.
+        </p>
+      </div>
+    );
+  }
+
   function subirPasaporte(travelerId: string, archivo: File) {
     const fd = new FormData();
     fd.set("pasaporte", archivo);
@@ -558,6 +799,12 @@ export default function ContractCard({
                     ? "Firmado."
                     : "Todavía sin firmar."
                   : "Todavía no está creado."}
+              </>
+            ) : modoConjunto ? (
+              <>
+                Un solo contrato para los {signers.length} viajeros, que responden solidariamente por el total; cada uno
+                firma desde su enlace. {firmasConjunto} de {signers.length} firma(s)
+                {contratoConjunto?.status === "firmado" ? " · cerrado." : "."}
               </>
             ) : (
               <>
@@ -988,7 +1235,7 @@ export default function ContractCard({
       <div className="px-5 py-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-            {modoEmpresa ? "Contrato de la empresa" : "Contratos"}
+            {modoEmpresa ? "Contrato de la empresa" : modoConjunto ? "Contrato conjunto" : "Contratos"}
           </h3>
           <div className="flex flex-wrap gap-2">
             {modoEmpresa && !contratoEmpresa && (
@@ -1016,7 +1263,35 @@ export default function ContractCard({
                 Actualizar la lista de viajeros del anexo
               </button>
             )}
-            {!modoEmpresa && sinContrato > 0 && (
+            {!modoEmpresa && !modoConjunto && travelers.length >= 2 && firmados === 0 && (
+              <button
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      `Un solo contrato para los ${travelers.length} viajeros: todos son parte, responden solidariamente ` +
+                        `por el valor total y cada uno firma desde su propio enlace. Sirve cuando compran un único plan ` +
+                        `juntos. Necesita que cada viajero tenga su propio correo y su número de pasaporte.` +
+                        (contracts.length > 0 ? `\n\nLos ${contracts.length} contrato(s) por viajero en borrador se borran.` : "") +
+                        `\n\n¿Crear el contrato conjunto?`,
+                    )
+                  )
+                    return;
+                  run(async () => {
+                    const r = await createJointContract(quoteId, vars, plan, firmanteActual);
+                    if (r.error) return r;
+                    setInfo(
+                      `Contrato conjunto creado.${r.borrados ? ` Se quitaron ${r.borrados} borrador(es) por viajero.` : ""} Revísalo con «Vista previa» antes de enviarlo.`,
+                    );
+                  });
+                }}
+                disabled={pending}
+                className="text-xs px-3 py-1.5 rounded-md border border-bosque text-bosque hover:bg-taupe/40 transition disabled:opacity-50"
+                title="Un solo contrato con todos los viajeros como parte, obligados solidariamente por el total"
+              >
+                Un solo contrato para todos
+              </button>
+            )}
+            {!modoEmpresa && !modoConjunto && sinContrato > 0 && (
               <button
                 onClick={() =>
                   run(async () => {
@@ -1090,7 +1365,9 @@ export default function ContractCard({
 
         {modoEmpresa && contratoEmpresa && filaContratoEmpresa()}
 
-        {!modoEmpresa && (
+        {modoConjunto && bloqueConjunto()}
+
+        {!modoEmpresa && !modoConjunto && (
         <div className="divide-y divide-border">
           {travelers.map((t) => {
             const c = porViajero.get(t.id);

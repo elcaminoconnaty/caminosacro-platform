@@ -34,9 +34,13 @@ import { comoSeSaluda, correoCodigoFirmaHtml } from "@/lib/contracts/otpHtml";
 import { correoContratoFirmado } from "@/lib/contracts/correos";
 import type { FirmanteInforme, InformeFirmasProps } from "@/lib/contracts/informeFirmas";
 import { baseUrlApp } from "@/lib/email/versionWeb";
+import { cifrasConjunto } from "@/lib/contracts/cifrasConjunto";
+import { mismoDocumento, sellarContratoConjunto, firmasEnOrden, SIGNER_COLUMNS, type SignerRow } from "@/lib/contracts/conjunto";
 
 export type ResultadoFirma =
   | { ok: true; emailEnviado: boolean; huella: string; urlVerificacion: string }
+  // Contrato conjunto: esta firma quedó, pero faltan otras. No es "contrato firmado".
+  | { ok: true; parcial: true; faltan: string[] }
   | { ok: false; error: string };
 
 export type ResultadoCodigo = { ok: true; correo: string } | { ok: false; error: string };
@@ -84,10 +88,19 @@ async function huellaDelPedido(): Promise<Huella> {
 type Admin = ReturnType<typeof createAdminClient>;
 
 /** Deja constancia en la bitácora. Nunca tumba una firma por no poder anotar. */
-async function anotar(supabase: Admin, contractId: string, event: string, huella?: Huella, detail?: unknown) {
+async function anotar(
+  supabase: Admin,
+  contractId: string,
+  event: string,
+  huella?: Huella,
+  detail?: unknown,
+  signerId?: string | null,
+) {
   try {
     await supabase.from("contract_events").insert({
       contract_id: contractId,
+      // Solo si hay firmante: los contratos de siempre no tocan la columna de la 0054.
+      ...(signerId ? { signer_id: signerId } : {}),
       event,
       ip: huella?.ip ?? null,
       user_agent: huella?.userAgent ?? null,
@@ -103,20 +116,37 @@ const zonaBogota = new Intl.DateTimeFormat("es-CO", {
 });
 const enBogota = (d: Date | string) => zonaBogota.format(typeof d === "string" ? new Date(d) : d);
 
+const COLUMNAS_CONTRATO =
+  "id,quote_id,traveler_id,company_id,status,token_expires_at,variables_json,payment_plan_json,kind,travelers_json,org_signer,created_at,sent_at";
+
 /** El contrato que hay detrás de un token, si está habilitado para firmar. */
 async function contratoFirmable(supabase: Admin, token: string) {
-  const { data: c } = await supabase
+  const { data: directo } = await supabase
     .from("contracts")
-    .select("id,quote_id,traveler_id,company_id,status,token_expires_at,variables_json,payment_plan_json,kind,travelers_json,org_signer,created_at,sent_at")
+    .select(COLUMNAS_CONTRATO)
     .eq("token", token)
     .maybeSingle();
+  let c = directo;
+  // Contrato conjunto: el token es de un firmante (migración 0054).
+  let firmante: SignerRow | null = null;
+  if (!c) {
+    const { data: s } = await supabase.from("contract_signers").select(SIGNER_COLUMNS).eq("token", token).maybeSingle();
+    if (s) {
+      firmante = (s as unknown) as SignerRow;
+      ({ data: c } = await supabase.from("contracts").select(COLUMNAS_CONTRATO).eq("id", firmante.contract_id).maybeSingle());
+      if (c && firmante.signed_at) return { error: "Tu firma ya quedó registrada. Falta que firmen los demás." };
+      if (c && firmante.token_expires_at && new Date(firmante.token_expires_at).getTime() < Date.now()) {
+        return { error: "Venció el plazo para firmar este contrato. Escríbenos a reservas@caminosacro.com." };
+      }
+    }
+  }
   if (!c) return { error: "Este enlace de firma no existe o fue anulado." };
   if (c.status === "firmado") return { error: "Este contrato ya fue firmado." };
   if (c.status !== "enviado") return { error: "Este contrato no está habilitado para firma." };
   if (c.token_expires_at && new Date(c.token_expires_at).getTime() < Date.now()) {
     return { error: "El enlace venció. Escríbenos a reservas@caminosacro.com y te enviamos uno nuevo." };
   }
-  return { c, error: null };
+  return { c, firmante, error: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -136,18 +166,21 @@ export async function pedirCodigo(token: string): Promise<ResultadoCodigo> {
   const c = r.c;
 
   const vars = c.variables_json as ContractVariables;
-  const { email, nombre } = destinatarioContrato(vars);
+  const f = r.firmante;
+  // En el conjunto el código va al correo de ESTE firmante, no al de la primera parte.
+  const { email, nombre } = f ? { email: f.email || "", nombre: f.nombre } : destinatarioContrato(vars);
   if (!email) {
     return { ok: false, error: "Este contrato no tiene un correo de notificaciones. Escríbenos a reservas@caminosacro.com." };
   }
 
-  // Freno por contrato, en la base: sobrevive a un reinicio del servidor.
+  // Freno por contrato (o por firmante), en la base: sobrevive a un reinicio del servidor.
   const haceUnaHora = new Date(Date.now() - 3600_000).toISOString();
-  const { count } = await supabase
+  const consultaOtps = supabase
     .from("contract_otps")
     .select("id", { count: "exact", head: true })
     .eq("contract_id", c.id)
     .gte("created_at", haceUnaHora);
+  const { count } = f ? await consultaOtps.eq("signer_id", f.id) : await consultaOtps;
   if ((count ?? 0) >= OTP_MAX_POR_HORA) {
     return { ok: false, error: "Pediste muchos códigos en la última hora. Espera un rato y vuelve a intentarlo." };
   }
@@ -155,6 +188,7 @@ export async function pedirCodigo(token: string): Promise<ResultadoCodigo> {
   const codigo = nuevoCodigo();
   const { error: errOtp } = await supabase.from("contract_otps").insert({
     contract_id: c.id,
+    ...(f ? { signer_id: f.id } : {}),
     code_hash: hashCodigo(codigo, c.id),
     expires_at: new Date(Date.now() + OTP_VIGENCIA_MIN * 60_000).toISOString(),
   });
@@ -170,7 +204,7 @@ export async function pedirCodigo(token: string): Promise<ResultadoCodigo> {
       code,
       nombre: nombre || primerNombre,
       email,
-      telefono: (esEmpresa(vars) ? vars.empresa_telefono : vars.viajero_telefono) || null,
+      telefono: f ? f.signer_phone : (esEmpresa(vars) ? vars.empresa_telefono : vars.viajero_telefono) || null,
       ruta: vars.ruta_nombre || null,
       fecha_inicio: vars.fecha_inicio || null,
       personas: Number(vars.num_personas) || 1,
@@ -209,7 +243,7 @@ export async function pedirCodigo(token: string): Promise<ResultadoCodigo> {
     { supabase, quoteId: c.quote_id },
   );
 
-  await anotar(supabase, c.id, envio.ok ? "otp_enviado" : "otp_fallido", huella, envio.ok ? { correo: email } : { error: envio.error });
+  await anotar(supabase, c.id, envio.ok ? "otp_enviado" : "otp_fallido", huella, envio.ok ? { correo: email } : { error: envio.error }, f?.id);
   if (!envio.ok) {
     console.error("[firma] el código no salió:", envio.error);
     return { ok: false, error: "No pudimos enviar el código a tu correo. Inténtalo de nuevo en un momento." };
@@ -242,6 +276,7 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   const r = await contratoFirmable(supabase, token);
   if (r.error || !r.c) return { ok: false, error: r.error ?? "Enlace no válido." };
   const c = r.c;
+  if (r.firmante) return firmarParteConjunta(supabase, c, r.firmante, formData, huella);
 
   // ---- Entradas del formulario ----
   const signerName = String(formData.get("signer_name") || "").trim();
@@ -566,4 +601,204 @@ export async function firmarContrato(token: string, formData: FormData): Promise
   // peregrino y la página se recargaría, tapando la pantalla de éxito. Seguimiento es
   // dinámico y verá el contrato firmado en la próxima carga sin necesidad de revalidar.
   return { ok: true, emailEnviado, huella: huellaLegible(docHash), urlVerificacion };
+}
+
+// ---------------------------------------------------------------------------
+// Contrato conjunto: la firma de UNA de las partes (migración 0054)
+// ---------------------------------------------------------------------------
+
+type ContratoFirmable = NonNullable<Awaited<ReturnType<typeof contratoFirmable>>["c"]>;
+
+/**
+ * Registra la firma de un viajero del contrato conjunto. El documento no se sella acá: se
+ * sella cuando firma el último (`sellarContratoConjunto`), y hasta entonces a nadie se le
+ * dice "contrato firmado".
+ *
+ * Diferencias con la firma de un contrato por viajero, todas a propósito:
+ *  - el número de pasaporte que escribe tiene que COINCIDIR con el del contrato: el texto
+ *    ya lo firmaron otros con ese número y no puede cambiar entre una firma y la siguiente;
+ *  - acepta la solidaridad en su propia casilla, que queda en el consentimiento archivado;
+ *  - el pasaporte es opcional si ya lo teníamos.
+ */
+async function firmarParteConjunta(
+  supabase: Admin,
+  c: ContratoFirmable,
+  f: SignerRow,
+  formData: FormData,
+  huella: Huella,
+): Promise<ResultadoFirma> {
+  const signerName = String(formData.get("signer_name") || "").trim();
+  const signerDocument = String(formData.get("signer_document") || "").trim();
+  const signature = String(formData.get("signature") || "");
+  const codigo = String(formData.get("codigo") || "").replace(/\D/g, "");
+  const geoCrudo = String(formData.get("geo") || "");
+  const passport = formData.get("passport") as File | null;
+
+  const vars = c.variables_json as ContractVariables;
+  const plan = c.payment_plan_json as PaymentPlan;
+  const parte = (vars.partes ?? []).find((p) => p.position === f.position);
+  if (!parte) return { ok: false, error: "No encontramos tus datos en este contrato. Escríbenos a reservas@caminosacro.com." };
+
+  if (!formData.get("accept")) return { ok: false, error: "Debes aceptar la declaración para firmar." };
+  if (!formData.get("accept_solidaridad")) {
+    return { ok: false, error: "Debes aceptar que respondes por el valor total del plan para firmar." };
+  }
+  if (signerName.length < 5) return { ok: false, error: "Escribe tu nombre completo." };
+  if (!mismoDocumento(signerDocument, parte.documento)) {
+    const cola = parte.documento.replace(/[^0-9a-z]/gi, "").slice(-4);
+    return {
+      ok: false,
+      error:
+        `El número que escribiste no coincide con el pasaporte que aparece en el contrato (termina en ${cola}). ` +
+        `Revísalo; si el del contrato está mal, escríbenos a reservas@caminosacro.com y lo corregimos antes de que firmes.`,
+    };
+  }
+  const trazo = trazoValido(signature);
+  if (!trazo.ok) return { ok: false, error: trazo.error };
+  if (codigo.length !== 6) return { ok: false, error: "Escribe el código de seis dígitos que te llegó al correo." };
+  const geo = ubicacionPlausible(geoCrudo) ? geoCrudo : null;
+
+  const { data: viajero } = await supabase
+    .from("quote_travelers")
+    .select("passport_path")
+    .eq("id", f.traveler_id)
+    .maybeSingle();
+  const tienePasaporte = !!viajero?.passport_path;
+  const conArchivo = !!passport && passport.size > 0;
+  let ext = "";
+  if (!conArchivo && !tienePasaporte) return { ok: false, error: "Falta la foto de tu pasaporte." };
+  if (conArchivo) {
+    ext = PASSPORT_TYPES[passport!.type];
+    if (!ext) return { ok: false, error: "El pasaporte debe ser una imagen (JPG, PNG, WebP) o un PDF." };
+    if (passport!.size > PASSPORT_MAX_BYTES) return { ok: false, error: "El archivo del pasaporte supera 12 MB." };
+  }
+
+  // ---- El código, que es de esta persona ----
+  const { data: otp } = await supabase
+    .from("contract_otps")
+    .select("id, code_hash, expires_at, attempts, consumed_at")
+    .eq("contract_id", c.id)
+    .eq("signer_id", f.id)
+    .is("consumed_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!otp) return { ok: false, error: "Primero pide el código a tu correo." };
+  if (new Date(otp.expires_at) < new Date()) return { ok: false, error: "El código venció. Pide uno nuevo." };
+  if (otp.attempts >= OTP_MAX_INTENTOS) return { ok: false, error: "Demasiados intentos con ese código. Pide uno nuevo." };
+  if (!mismoHash(hashCodigo(codigo, c.id), otp.code_hash)) {
+    await supabase.from("contract_otps").update({ attempts: otp.attempts + 1 }).eq("id", otp.id);
+    await anotar(supabase, c.id, "otp_fallido", huella, { intento: otp.attempts + 1 }, f.id);
+    const quedan = OTP_MAX_INTENTOS - otp.attempts - 1;
+    return {
+      ok: false,
+      error: quedan > 0 ? `El código no coincide. Te quedan ${quedan} intentos.` : "Se acabaron los intentos. Pide un código nuevo.",
+    };
+  }
+  await supabase.from("contract_otps").update({ consumed_at: new Date().toISOString() }).eq("id", otp.id);
+  await anotar(supabase, c.id, "otp_validado", huella, undefined, f.id);
+
+  const code = vars.codigo_cotizacion || c.quote_id;
+  const signedAt = new Date().toISOString();
+
+  // ---- El documento tal como se le presentó: con las firmas que ya había ----
+  let presentado: string | null = null;
+  try {
+    const { data: otros } = await supabase.from("contract_signers").select(SIGNER_COLUMNS).eq("contract_id", c.id);
+    const orgSignature = await getOrgSignature(supabase, c.org_signer as string | null);
+    const pdf = await renderContractPdfBuffer(vars, plan, null, orgSignature, null, {
+      numero: c.id,
+      firmasPartes: firmasEnOrden(vars, ((otros ?? []) as unknown) as SignerRow[]),
+    });
+    presentado = sha256Hex(pdf);
+  } catch (e) {
+    // La huella del documento final es la que vale; esta es evidencia adicional.
+    console.error("[firma conjunta] no pude calcular la huella del documento presentado:", e);
+  }
+
+  // ---- Pasaporte (si lo subió) ----
+  let passportPath: string | null = null;
+  if (conArchivo) {
+    passportPath = rutaPasaporte(code, ext);
+    const { error: passErr } = await supabase.storage
+      .from("comercial-passports")
+      .upload(sinBucket(passportPath), Buffer.from(await passport!.arrayBuffer()), {
+        contentType: passport!.type, upsert: true, cacheControl: "no-cache",
+      });
+    if (passErr) {
+      console.error("[firma conjunta] subida de pasaporte falló:", passErr);
+      return { ok: false, error: "No pudimos guardar el pasaporte. Inténtalo de nuevo." };
+    }
+  }
+
+  // Palabra por palabra lo que vio en la página (misma función, mismos datos).
+  const cifras = cifrasConjunto(vars, parte.nombre);
+  const consentimiento = textoConsentimiento({
+    empresa: false,
+    financiado: false,
+    conjunto: { total: cifras.total, cuota: cifras.cuota, otros: cifras.otros },
+  });
+
+  // ---- Su firma (condicionada a que no haya firmado ya) ----
+  const { data: registrada, error: updErr } = await supabase
+    .from("contract_signers")
+    .update({
+      signer_name: signerName,
+      signer_document: signerDocument,
+      signer_email: f.email,
+      signer_phone: parte.telefono || null,
+      signature_image: signature,
+      signed_at: signedAt,
+      signer_ip: huella.ip ?? "desconocida",
+      signer_user_agent: huella.userAgent,
+      signer_geo: geo,
+      signer_auth_method: "otp_email",
+      consent_text: consentimiento,
+      otp_id: otp.id,
+      passport_path: passportPath,
+      pdf_presentado_sha256: presentado,
+    })
+    .eq("id", f.id)
+    .is("signed_at", null)
+    .select("id")
+    .maybeSingle();
+  if (updErr || !registrada) {
+    console.error("[firma conjunta] no pude registrar la firma:", updErr);
+    if (passportPath) await supabase.storage.from("comercial-passports").remove([sinBucket(passportPath)]).catch(() => {});
+    return { ok: false, error: "No pudimos registrar la firma. Inténtalo de nuevo." };
+  }
+  await anotar(supabase, c.id, "firmado", huella, { presentado, geo, parcial: true }, f.id);
+
+  // El pasaporte nuevo pasa a la ficha del viajero, de donde lo toma el correo a Pilgrim.
+  if (passportPath) {
+    const { error: viajeroErr } = await supabase
+      .from("quote_travelers")
+      .update({ passport_path: passportPath, updated_at: signedAt })
+      .eq("id", f.traveler_id);
+    if (viajeroErr) console.error("[firma conjunta] no se pudo actualizar el viajero:", viajeroErr);
+  }
+
+  // ---- ¿Era la última? Entonces se sella y les llega la copia a todos ----
+  const sello = await sellarContratoConjunto(supabase, c.id);
+  if (sello.ok && sello.sellado) {
+    return {
+      ok: true,
+      emailEnviado: sello.correos > 0,
+      huella: huellaLegible(sello.docHash),
+      urlVerificacion: `${baseUrlApp()}/verificar/${sello.docHash}`,
+    };
+  }
+  if (!sello.ok) console.error("[firma conjunta] el sellado falló; se reintenta desde el CRM:", sello.error);
+
+  const { data: pendientes } = await supabase
+    .from("contract_signers")
+    .select("nombre,signed_at")
+    .eq("contract_id", c.id)
+    .order("position");
+  const faltan = (pendientes ?? []).filter((p) => !p.signed_at).map((p) => String(p.nombre));
+  // Si ya no falta nadie pero el sellado falló, no se le dice que falta alguien: la firma de
+  // todos está y el equipo cierra el documento desde el CRM.
+  return faltan.length > 0
+    ? { ok: true, parcial: true, faltan }
+    : { ok: true, parcial: true, faltan: ["cerrar el documento (lo hacemos nosotros)"] };
 }

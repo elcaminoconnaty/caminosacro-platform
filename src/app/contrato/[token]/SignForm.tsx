@@ -153,6 +153,8 @@ export default function SignForm({
   empresa = false,
   razonSocial = null,
   correoContrato = "",
+  conjunto = null,
+  pasaporteOpcional = false,
 }: {
   token: string;
   defaultName: string;
@@ -164,6 +166,14 @@ export default function SignForm({
   razonSocial?: string | null;
   /** Correo de notificaciones del contrato: ahí llega el código. */
   correoContrato?: string;
+  /**
+   * Contrato conjunto: el valor por el que responde cada uno y con quién firma. Se le
+   * explica aparte y se le pide aceptarlo en su propia casilla (art. 37 de la Ley 1480):
+   * una solidaridad enterrada en la cláusula cuarta no se sostiene.
+   */
+  conjunto?: { total: string; cuota: string; otros: string[]; firmadas: number; n: number } | null;
+  /** Ya tenemos su pasaporte: subirlo de nuevo es opcional. */
+  pasaporteOpcional?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [preparando, setPreparando] = useState(false);
@@ -193,7 +203,12 @@ export default function SignForm({
       faltantes[campo] ? "border-red-400 ring-1 ring-red-200" : "border-border"
     }`;
 
-  const consentimiento = textoConsentimiento({ empresa, financiado, razonSocial });
+  const consentimiento = textoConsentimiento({
+    empresa,
+    financiado,
+    razonSocial,
+    conjunto: conjunto ? { total: conjunto.total, cuota: conjunto.cuota, otros: conjunto.otros } : null,
+  });
 
   /** Revisa el paso 1 completo y señala lo que falta. Devuelve el FormData listo, o null. */
   function validarPasoUno(): FormData | null {
@@ -212,8 +227,11 @@ export default function SignForm({
     }
     // En el contrato de empresa nadie sube pasaporte acá: los de los viajeros los carga el
     // equipo desde el CRM (la empresa los manda por correo).
-    if (!empresa && !archivo) faltas.push({ campo: "passport", texto: "la foto de tu pasaporte" });
+    if (!empresa && !archivo && !pasaporteOpcional) faltas.push({ campo: "passport", texto: "la foto de tu pasaporte" });
     if (!signature) faltas.push({ campo: "signature", texto: "tu firma (dibújala en el recuadro)" });
+    if (conjunto && !fd.get("accept_solidaridad")) {
+      faltas.push({ campo: "accept_solidaridad", texto: "aceptar que respondes por el valor total" });
+    }
     if (!fd.get("accept")) faltas.push({ campo: "accept", texto: "aceptar la declaración" });
 
     // Problemas del archivo: mensaje propio en vez de un rechazo del servidor.
@@ -324,6 +342,20 @@ export default function SignForm({
     });
   }
 
+  if (done?.ok && "parcial" in done) {
+    // No se le dice "contrato firmado": todavía no lo está (revisión legal, sep-2026).
+    return (
+      <div className="px-6 py-12 text-center">
+        <p className="text-xs uppercase tracking-[0.18em] text-dorado-oscuro">Tu firma quedó registrada</p>
+        <p className="font-display text-3xl text-bosque mt-2">Falta {done.faltan.length === 1 ? "una firma" : `${done.faltan.length} firmas`}</p>
+        <p className="text-sm text-muted mt-3 max-w-md mx-auto">
+          El contrato se celebra cuando firmen todos. Todavía falta {done.faltan.join(" y ")}. Apenas firme, les
+          llega a cada uno la copia del contrato con todas las firmas a su correo.
+        </p>
+      </div>
+    );
+  }
+
   if (done?.ok) {
     return (
       <div className="px-6 py-12 text-center">
@@ -409,6 +441,7 @@ export default function SignForm({
           <label className="text-xs block">
             <span className="text-muted">
               Foto o escaneo de tu pasaporte (página de datos) — debe coincidir con el número de arriba
+              {pasaporteOpcional && <span className="text-bosque"> · ya lo tenemos: súbelo solo si cambió</span>}
             </span>
             <input
               name="passport"
@@ -436,6 +469,34 @@ export default function SignForm({
             invalido={!!faltantes.signature}
           />
         </div>
+
+        {conjunto && (
+          <div
+            className={`rounded-md border px-4 py-3 text-sm ${
+              faltantes.accept_solidaridad ? "border-red-300 bg-red-50" : "border-dorado bg-crema"
+            }`}
+          >
+            <p className="text-xs uppercase tracking-[0.18em] text-dorado-oscuro">Antes de firmar: un solo contrato para todos</p>
+            <p className="mt-2 text-fg">
+              Este contrato lo firmas tú y lo firma {conjunto.otros.join(" y ")}. El valor es el del plan completo,{" "}
+              <strong>{conjunto.total}</strong>. Tu parte es <strong>{conjunto.cuota}</strong>, pero respondes{" "}
+              <strong>solidariamente por el total</strong>: si alguien del grupo no paga su parte, Camino Sacro
+              puede cobrártela a ti (y tú, cobrársela después a esa persona).
+            </p>
+            <p className="mt-2 text-[12px] text-muted">
+              Solo es solidario el precio del plan. Lo demás es de cada uno: tu documentación, tus gastos, los daños que
+              cause cada quien y lo que cancele o cambie cada uno para sí. El contrato se celebra cuando firmen los{" "}
+              {conjunto.n}; van {conjunto.firmadas} de {conjunto.n}.
+            </p>
+            <label className="mt-3 flex items-start gap-2.5 text-xs text-fg">
+              <input type="checkbox" name="accept_solidaridad" className="mt-0.5" />
+              <span>
+                Entiendo y acepto que respondo por el valor total del plan ({conjunto.total}) y no solo por mi parte (
+                {conjunto.cuota}).
+              </span>
+            </label>
+          </div>
+        )}
 
         <label
           className={`flex items-start gap-2.5 text-xs text-fg rounded-md ${

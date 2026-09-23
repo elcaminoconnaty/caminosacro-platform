@@ -17,6 +17,8 @@ export type OpcionesConsentimiento = {
   /** El paquete incluye el pagaré en blanco con su carta de instrucciones. */
   financiado: boolean;
   razonSocial?: string | null;
+  /** Contrato conjunto: con quién se firma y por cuánto responde cada uno. */
+  conjunto?: { total: string; cuota: string; otros: string[] } | null;
 };
 
 export function textoConsentimiento(o: OpcionesConsentimiento): string {
@@ -45,6 +47,12 @@ export function textoConsentimiento(o: OpcionesConsentimiento): string {
     `1999 y Decreto 2364 de 2012). Acepto que este método de firma electrónica constituye mi firma y me ` +
     `obliga en los mismos términos que una firma manuscrita, y entiendo que quedan registrados mi ` +
     `nombre, mi documento, la fecha y hora, mi dirección IP, el dispositivo desde el que firmo, mi ` +
-    `ubicación aproximada si la autorizo y la huella digital del documento.`
+    `ubicación aproximada si la autorizo y la huella digital del documento.` +
+    (o.conjunto
+      ? ` Declaro además que, antes de firmar, se me informó de manera expresa y por separado que este es ` +
+        `un contrato conjunto con ${o.conjunto.otros.join(", ") || "los demás viajeros"}, que respondo ` +
+        `solidariamente por el valor total del plan (${o.conjunto.total}) y no solo por mi cuota parte ` +
+        `(${o.conjunto.cuota}), y que lo acepto libremente.`
+      : "")
   );
 }

@@ -139,7 +139,15 @@ export type DatosParaFirma = {
   conCotizacion: boolean;
   /** Envío de prueba desde el CRM: la línea que lo avisa. */
   avisoPrueba?: string | null;
+  /** Contrato conjunto: los demás que firman el mismo contrato. */
+  cofirmantes?: string[];
 };
+
+/** "Ana", "Ana y Luisa", "Ana, Luisa y Marta". */
+function enumerar(nombres: string[]): string {
+  if (nombres.length <= 1) return nombres[0] ?? "";
+  return `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+}
 
 export function correoContratoParaFirma(d: DatosParaFirma): { texto: string; html: string } {
   const anexo1 = d.conCotizacion ? " Adjuntamos también la cotización, que es el Anexo No. 1 del contrato." : "";
@@ -150,8 +158,14 @@ export function correoContratoParaFirma(d: DatosParaFirma): { texto: string; htm
     `La relación de viajeros beneficiarios va en el Anexo No. 2 del propio contrato. Vale la pena revisarla antes de firmar: es la que usamos para las reservas.${anexo1}`,
     `En este enlace puede revisar el documento completo y firmarlo digitalmente el representante legal:`,
   ];
+  const conjunto = (d.cofirmantes?.length ?? 0) > 0;
   const parrafosViajero = [
     `¡Buenas noticias! Tu reserva del ${d.ruta || "Camino de Santiago"} está lista para el último paso: la firma del contrato de servicios.`,
+    ...(conjunto
+      ? [
+          `Es un solo contrato para el viaje de ustedes: lo firmas tú y lo firma ${enumerar(d.cofirmantes!)}, cada quien desde su propio enlace. El valor es el total del plan y cada firmante responde por el total. Cuando firmen todos, a cada uno le llega la copia firmada.`,
+        ]
+      : []),
     `En este enlace puedes revisar el contrato, firmarlo digitalmente y subir la foto de tu pasaporte (la necesitamos para gestionar tus reservas):`,
   ];
   const cierreEmpresa = [
@@ -160,7 +174,9 @@ export function correoContratoParaFirma(d: DatosParaFirma): { texto: string; htm
     `Quedamos atentos a cualquier duda.`,
   ];
   const cierreViajero = [
-    `El enlace es personal y vence en ${d.dias} días. Al firmar te llegará una copia del contrato a este correo.${anexo1}`,
+    conjunto
+      ? `El enlace es personal y vence en ${d.dias} días. Cuando firmen todos te llegará una copia del contrato a este correo.${anexo1}`
+      : `El enlace es personal y vence en ${d.dias} días. Al firmar te llegará una copia del contrato a este correo.${anexo1}`,
     `Si tienes cualquier duda, respóndenos por aquí.`,
   ];
   const cuerpo = d.empresa ? parrafosEmpresa : parrafosViajero;
@@ -307,6 +323,8 @@ export type DatosFirmado = {
   fechaInicio?: string | null;
   personas?: number | null;
   conCotizacion: boolean;
+  /** Contrato conjunto: los demás que lo firmaron. */
+  cofirmantes?: string[];
 };
 
 export function correoContratoFirmado(d: DatosFirmado): { texto: string; html: string } {
@@ -319,6 +337,11 @@ export function correoContratoFirmado(d: DatosFirmado): { texto: string; html: s
     ? [
         frase(`¡Listo! El contrato de ${d.razonSocial || "la empresa"} quedó firmado el ${d.fechaFirma}`),
         `Adjunto encuentras la copia del Acuerdo de Prestación de Servicios Turísticos No. ${d.code}, con la relación de viajeros en el Anexo No. 2 y el Informe de Firmas en la última página${anexo1}.`,
+      ]
+    : d.cofirmantes?.length
+    ? [
+        frase(`¡Listo! El contrato quedó firmado por todos el ${d.fechaFirma}: por ti y por ${enumerar(d.cofirmantes)}`),
+        `Adjunto encuentras tu copia del Acuerdo de Prestación de Servicios Turísticos No. ${d.code}, con todas las firmas y el Informe de Firmas en la última página${anexo1}.`,
       ]
     : [
         frase(`¡Listo! Tu contrato quedó firmado el ${d.fechaFirma}`),

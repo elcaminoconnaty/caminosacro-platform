@@ -114,6 +114,58 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: "No se pudo consultar los contratos." }, { status: 500 });
   }
 
+  // Contratos conjuntos (0054): el enlace es de cada firmante, así que el recordatorio
+  // también. Solo a quien no ha firmado, y nunca más allá del plazo de firma del contrato.
+  const { data: firmantesPendientes, error: firmantesErr } = await supabase
+    .from("contract_signers")
+    .select(
+      "id,nombre,email,token,token_expires_at,sent_at,created_at,last_reminder_at,reminder_count," +
+        "contracts!inner(id,quote_id,status,pdf_path,variables_json,quotes(start_date))",
+    )
+    .is("signed_at", null)
+    .not("token", "is", null)
+    .eq("contracts.status", "enviado");
+  if (firmantesErr) console.error("[recordatorios] no se pudo consultar los firmantes:", firmantesErr);
+
+  type Pendiente = {
+    tabla: "contracts" | "contract_signers";
+    id: string;
+    quote_id: string;
+    token: string;
+    pdf_path: string | null;
+    variables_json: unknown;
+    sent_at: string | null;
+    created_at: string | null;
+    last_reminder_at: string | null;
+    reminder_count: number | null;
+    quotes?: unknown;
+    /** Solo firmantes del conjunto: a quién se le escribe. */
+    destinatario?: { email: string; nombre: string };
+  };
+  const unoDe = <T,>(x: T | T[] | null | undefined): T | null => (Array.isArray(x) ? x[0] ?? null : x ?? null);
+  const todos: Pendiente[] = [
+    ...(pendientes ?? []).map((c) => ({ ...c, tabla: "contracts" as const }) as Pendiente),
+    ...((firmantesPendientes ?? []) as unknown as Record<string, unknown>[])
+      .filter((f) => !f.token_expires_at || new Date(String(f.token_expires_at)).getTime() > ahora)
+      .map((f) => {
+        const c = unoDe(f.contracts as Record<string, unknown> | Record<string, unknown>[]) ?? {};
+        return {
+          tabla: "contract_signers" as const,
+          id: String(f.id),
+          quote_id: String(c.quote_id),
+          token: String(f.token),
+          pdf_path: (c.pdf_path as string | null) ?? null,
+          variables_json: c.variables_json,
+          sent_at: (f.sent_at as string | null) ?? null,
+          created_at: (f.created_at as string | null) ?? null,
+          last_reminder_at: (f.last_reminder_at as string | null) ?? null,
+          reminder_count: (f.reminder_count as number | null) ?? 0,
+          quotes: c.quotes,
+          destinatario: { email: String(f.email ?? ""), nombre: String(f.nombre ?? "") },
+        };
+      }),
+  ];
+
   // El filtro de los 4 días se hace acá y no en SQL porque la referencia es
   // "el último contacto": el recordatorio anterior o, si no hubo, el envío del enlace.
   //
@@ -158,7 +210,7 @@ export async function POST(request: Request) {
     return null;
   }
 
-  const toca = (pendientes ?? [])
+  const toca = todos
     .map((c) => {
       const salida = salidaDe(c);
       const dias = diasParaSalir(salida);
@@ -187,7 +239,7 @@ export async function POST(request: Request) {
     const code = vars.codigo_cotizacion || c.quote_id;
     // El contrato de empresa se le recuerda a la empresa, por su correo de notificaciones:
     // ahí `viajero_email` está vacío y el recordatorio no llegaría a ninguna parte.
-    const { email: correoParte, nombre: nombreParte } = destinatarioContrato(vars);
+    const { email: correoParte, nombre: nombreParte } = c.destinatario ?? destinatarioContrato(vars);
     try {
       if (!correoParte) {
         errores.push({ code, motivo: "el contrato no tiene correo del destinatario" });
@@ -199,18 +251,22 @@ export async function POST(request: Request) {
       // Un aviso de salida no es "el último de la escalera": la escalera ya se acabó, o ni
       // siquiera aplica. Pero sí avisa a reservas@, porque es de los que piden llamar.
       const esUltimo = hito == null && numero >= MAX_RECORDATORIOS;
-      const primerNombre = saludoContrato(vars) || "peregrino";
+      const primerNombre = (c.destinatario ? nombreParte.trim().split(/\s+/)[0] : saludoContrato(vars)) || "peregrino";
       const { etiqueta, entrada } = tono(numero, primerNombre, vars.ruta_nombre, hito);
       const url = `${base}/contrato/${c.token}`;
 
-      // El enlace del correo nunca debe salir vencido: se le renuevan los 21 días.
-      const nuevoVencimiento = new Date(ahora + TOKEN_TTL_DAYS * 86400000).toISOString();
-      const { error: tokenErr } = await supabase
-        .from("contracts")
-        .update({ token_expires_at: nuevoVencimiento })
-        .eq("id", c.id)
-        .eq("status", "enviado");
-      if (tokenErr) throw tokenErr;
+      // El enlace del correo nunca debe salir vencido: se le renuevan los 21 días. Al firmante
+      // de un contrato conjunto NO: su enlace vence con el plazo de firma que fija el propio
+      // contrato, y alargarlo sería invitarlo a firmar algo que ya no vale.
+      if (c.tabla === "contracts") {
+        const nuevoVencimiento = new Date(ahora + TOKEN_TTL_DAYS * 86400000).toISOString();
+        const { error: tokenErr } = await supabase
+          .from("contracts")
+          .update({ token_expires_at: nuevoVencimiento })
+          .eq("id", c.id)
+          .eq("status", "enviado");
+        if (tokenErr) throw tokenErr;
+      }
 
       // El contrato sin firmar va adjunto para que pueda leerlo sin abrir el enlace.
       let pdfUrl: string | null = null;
@@ -264,7 +320,7 @@ export async function POST(request: Request) {
           hito != null
             ? `SALE EN ${hito} DIAS sin firmar: ${nombreParte} - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`
             : esUltimo
-              ? `ATENCION: ${vars.viajero_nombre} no ha firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`
+              ? `ATENCION: ${nombreParte} no ha firmado - ${code}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`
               : `Recordatorio ${numero} de ${MAX_RECORDATORIOS} enviado - ${code} - ${nombreParte}`,
         aviso_body: hito != null
           ? [
@@ -318,7 +374,7 @@ export async function POST(request: Request) {
       }
 
       const { error: marcaErr } = await supabase
-        .from("contracts")
+        .from(c.tabla)
         .update({ last_reminder_at: new Date(ahora).toISOString(), reminder_count: numero })
         .eq("id", c.id);
       if (marcaErr) throw marcaErr;
@@ -333,7 +389,7 @@ export async function POST(request: Request) {
 
   return Response.json({
     ok: true,
-    esperando_firma: pendientes?.length ?? 0,
+    esperando_firma: todos.length,
     les_tocaba: toca.length,
     // Separado para que quien mire la ejecución en n8n distinga la escalera normal de los
     // avisos de "sale en días y no ha firmado", que son los que piden actuar.

@@ -8,8 +8,10 @@ import {
   contractClauses,
   anexosTexto,
   pagareSections,
-  llevaPagare,
+  llevaPagareContrato,
   esEmpresa,
+  esConjunto,
+  rotuloFirmaConjunta,
   firmanteOrg,
   viajerosAnexoIntro,
   VIAJEROS_ANEXO_TITULO,
@@ -68,6 +70,9 @@ const s = StyleSheet.create({
   h2: { fontWeight: 700, fontSize: 9, marginTop: 10, marginBottom: 4, textTransform: "uppercase" },
   clauseTitle: { fontWeight: 700, fontSize: 8.8, marginTop: 8, marginBottom: 3 },
   firmas: { flexDirection: "row", marginTop: 30, gap: 24 },
+  // Contrato conjunto: una columna por viajero más la del organizador, de a dos por fila.
+  firmasConjuntas: { flexDirection: "row", flexWrap: "wrap", marginTop: 30, columnGap: 24, rowGap: 22 },
+  firmaColMitad: { width: "46%" },
   firmaCol: { flex: 1 },
   firmaImg: { height: 46, objectFit: "contain", objectPositionX: 0, marginBottom: 2 },
   firmaEspacio: { height: 48 },
@@ -192,10 +197,16 @@ export function ContractPDF({
   travelers = [],
   informe = null,
   numero = null,
+  firmasPartes = null,
 }: {
   variables: ContractVariables;
   plan: PaymentPlan;
   signature?: ContractSignature | null;
+  /**
+   * Contrato conjunto: la firma de cada parte, en el orden de `variables.partes`; null en
+   * la posición de quien todavía no firma. `signature` no se usa en esta modalidad.
+   */
+  firmasPartes?: (ContractSignature | null)[] | null;
   /** Cuando el contrato ya está firmado, el Informe de Firmas va como última página. */
   informe?: InformeFirmasProps | null;
   /** Identificador del documento para el pie de todas las páginas (el id del contrato). */
@@ -208,7 +219,19 @@ export function ContractPDF({
 }) {
   // Fechas siempre en hora de Colombia (la firma se hace desde Colombia; usar
   // UTC corría el día después de las 7 p.m.).
-  const signedDate = signature?.signed_at ? new Date(signature.signed_at) : new Date();
+  const conjunto = esConjunto(v);
+  const partes = conjunto ? v.partes ?? [] : [];
+  const firmasConj = partes.map((_, i) => firmasPartes?.[i] ?? null);
+  // La fecha del contrato conjunto es la de la ÚLTIMA firma: es cuando se perfecciona.
+  const ultimaFirmaConj = firmasConj
+    .filter((f): f is ContractSignature => !!f)
+    .map((f) => f.signed_at)
+    .sort()
+    .pop();
+  const hayFirmaCliente = conjunto ? firmasConj.some(Boolean) : !!signature;
+  const signedDate = conjunto
+    ? ultimaFirmaConj ? new Date(ultimaFirmaConj) : new Date()
+    : signature?.signed_at ? new Date(signature.signed_at) : new Date();
   const fechaFirma = new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
     month: "2-digit",
@@ -263,63 +286,142 @@ export function ContractPDF({
           </View>
         ))}
 
-        <Text style={[s.p, { marginTop: 10 }]}>
-          Para constancia, se firma electrónicamente el {fechaFirmaLarga}, en dos ejemplares del mismo tenor,
-          uno para cada parte. {anexosTexto(v, plan)}
-        </Text>
+        {conjunto ? (
+          // Sin "dos ejemplares": es un solo documento electrónico con varias partes. Y sin
+          // fecha hasta la última firma, que es cuando se celebra (revisión legal, sep-2026).
+          <Text style={[s.p, { marginTop: 10 }]}>
+            Para constancia, el presente Contrato se firma electrónicamente por EL ORGANIZADOR y por cada uno de los{" "}
+            {partes.length} viajeros que integran LA PARTE VIAJERA, cada uno con su propio enlace y código de
+            verificación, en las fechas y horas que constan en el Informe de Firmas, última página de este documento.{" "}
+            {firmasConj.length > 0 && firmasConj.every(Boolean)
+              ? `El Contrato quedó celebrado el ${fechaFirmaLarga}, fecha de la última firma de los viajeros.`
+              : "El Contrato se entenderá celebrado en la fecha de la última firma de los viajeros."}{" "}
+            Se expide en un único documento electrónico, del cual cada viajero recibe copia idéntica en su correo de
+            notificaciones. {anexosTexto(v, plan)}
+          </Text>
+        ) : (
+          <Text style={[s.p, { marginTop: 10 }]}>
+            Para constancia, se firma electrónicamente el {fechaFirmaLarga}, en dos ejemplares del mismo tenor,
+            uno para cada parte. {anexosTexto(v, plan)}
+          </Text>
+        )}
 
-        <View style={s.firmas} wrap={false}>
-          <View style={s.firmaCol}>
-            {signature?.signature_image ? (
-              // eslint-disable-next-line jsx-a11y/alt-text
-              <Image src={signature.signature_image} style={s.firmaImg} />
-            ) : (
-              <View style={s.firmaEspacio} />
-            )}
-            <View style={s.firmaLinea}>
-              {empresa ? (
-                <>
-                  <Text style={s.firmaNombre}>EL CONTRATANTE</Text>
-                  <Text>{v.empresa_razon_social || "________________"}</Text>
-                  <Text>NIT {v.empresa_nit || "________"}</Text>
-                  <Text style={{ marginTop: 2 }}>
-                    Representante legal: {firmanteNombre}
-                  </Text>
-                  <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
-                </>
+        {conjunto ? (
+          <View style={s.firmasConjuntas} wrap={false}>
+            {partes.map((p, i) => {
+              const f = firmasConj[i];
+              return (
+                <View key={p.position} style={s.firmaColMitad}>
+                  {f?.signature_image ? (
+                    // eslint-disable-next-line jsx-a11y/alt-text
+                    <Image src={f.signature_image} style={s.firmaImg} />
+                  ) : (
+                    <View style={s.firmaEspacio} />
+                  )}
+                  <View style={s.firmaLinea}>
+                    <Text style={s.firmaNombre}>{rotuloFirmaConjunta(i)}</Text>
+                    <Text>{f?.signer_name || p.nombre || "________________"}</Text>
+                    <Text>{p.documento_tipo || "Documento"} {f?.signer_document || p.documento || "________"}</Text>
+                  </View>
+                </View>
+              );
+            })}
+            <View style={s.firmaColMitad}>
+              {/* La firma dibujada del organizador se estampa siempre que venga: en producción
+                  solo llega junto con la del cliente (al firmar), y la plantilla impresa con
+                  `scripts/plantilla_pdf.tsx` la trae sola para que el modelo salga firmado
+                  por Camino Sacro. Sin trazo, la mecánica en cursiva solo cuando ya firmó el
+                  cliente; antes, el espacio en blanco. */}
+              {orgSignature ? (
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image src={orgSignature} style={s.firmaImg} />
+              ) : hayFirmaCliente ? (
+                <Text style={s.firmaMecanica}>{tituloCase(org.nombre)}</Text>
               ) : (
-                <>
-                  <Text style={s.firmaNombre}>EL VIAJERO</Text>
-                  <Text>{firmanteNombre}</Text>
-                  <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
-                </>
+                <View style={s.firmaEspacio} />
               )}
+              <View style={s.firmaLinea}>
+                <Text style={s.firmaNombre}>EL ORGANIZADOR — CAMINO SACRO</Text>
+                <Text>{org.nombre}</Text>
+                <Text>{org.documento_tipo} {org.documento}</Text>
+                {hayFirmaCliente && <Text style={s.firmaMecanicaNota}>Firmado electrónicamente al aprobar y enviar este contrato</Text>}
+              </View>
             </View>
           </View>
-          <View style={s.firmaCol}>
-            {/* La firma dibujada del organizador se estampa siempre que venga: en producción
-                solo llega junto con la del cliente (al firmar), y la plantilla impresa con
-                `scripts/plantilla_pdf.tsx` la trae sola para que el modelo salga firmado
-                por Camino Sacro. Sin trazo, la mecánica en cursiva solo cuando ya firmó el
-                cliente; antes, el espacio en blanco. */}
-            {orgSignature ? (
-              // eslint-disable-next-line jsx-a11y/alt-text
-              <Image src={orgSignature} style={s.firmaImg} />
-            ) : signature ? (
-              <Text style={s.firmaMecanica}>{tituloCase(org.nombre)}</Text>
-            ) : (
-              <View style={s.firmaEspacio} />
-            )}
-            <View style={s.firmaLinea}>
-              <Text style={s.firmaNombre}>EL ORGANIZADOR — CAMINO SACRO</Text>
-              <Text>{org.nombre}</Text>
-              <Text>{org.documento_tipo} {org.documento}</Text>
-              {signature && <Text style={s.firmaMecanicaNota}>Firmado electrónicamente al aprobar y enviar este contrato</Text>}
+        ) : (
+          <View style={s.firmas} wrap={false}>
+            <View style={s.firmaCol}>
+              {signature?.signature_image ? (
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image src={signature.signature_image} style={s.firmaImg} />
+              ) : (
+                <View style={s.firmaEspacio} />
+              )}
+              <View style={s.firmaLinea}>
+                {empresa ? (
+                  <>
+                    <Text style={s.firmaNombre}>EL CONTRATANTE</Text>
+                    <Text>{v.empresa_razon_social || "________________"}</Text>
+                    <Text>NIT {v.empresa_nit || "________"}</Text>
+                    <Text style={{ marginTop: 2 }}>
+                      Representante legal: {firmanteNombre}
+                    </Text>
+                    <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={s.firmaNombre}>EL VIAJERO</Text>
+                    <Text>{firmanteNombre}</Text>
+                    <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
+                  </>
+                )}
+              </View>
+            </View>
+            <View style={s.firmaCol}>
+              {/* La firma dibujada del organizador se estampa siempre que venga: en producción
+                  solo llega junto con la del cliente (al firmar), y la plantilla impresa con
+                  `scripts/plantilla_pdf.tsx` la trae sola para que el modelo salga firmado
+                  por Camino Sacro. Sin trazo, la mecánica en cursiva solo cuando ya firmó el
+                  cliente; antes, el espacio en blanco. */}
+              {orgSignature ? (
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image src={orgSignature} style={s.firmaImg} />
+              ) : signature ? (
+                <Text style={s.firmaMecanica}>{tituloCase(org.nombre)}</Text>
+              ) : (
+                <View style={s.firmaEspacio} />
+              )}
+              <View style={s.firmaLinea}>
+                <Text style={s.firmaNombre}>EL ORGANIZADOR — CAMINO SACRO</Text>
+                <Text>{org.nombre}</Text>
+                <Text>{org.documento_tipo} {org.documento}</Text>
+                {signature && <Text style={s.firmaMecanicaNota}>Firmado electrónicamente al aprobar y enviar este contrato</Text>}
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
-        {signature && (
+        {conjunto && hayFirmaCliente && (
+          <View style={s.sello} wrap={false}>
+            <Text style={s.selloTitulo}>Constancia de firma electrónica — Ley 527 de 1999 / Decreto 2364 de 2012</Text>
+            {partes.map((p, i) => {
+              const f = firmasConj[i];
+              return (
+                <Text key={p.position} style={s.selloLinea}>
+                  {f
+                    ? `Firmado por ${f.signer_name} · ${p.documento_tipo || "Documento"} ${f.signer_document} · ${new Date(f.signed_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })} (America/Bogota).`
+                    : `${p.nombre}: pendiente de firma.`}
+                </Text>
+              );
+            })}
+            <Text style={s.selloLinea}>
+              Los datos completos de cada firma —fecha y hora, dirección IP, dispositivo, ubicación, nivel de
+              seguridad y huella SHA-256 del documento— constan en el Informe de Firmas, última página de este documento.
+            </Text>
+          </View>
+        )}
+
+        {signature && !conjunto && (
           <View style={s.sello} wrap={false}>
             <Text style={s.selloTitulo}>Constancia de firma electrónica — Ley 527 de 1999 / Decreto 2364 de 2012</Text>
             <Text style={s.selloLinea}>
@@ -345,7 +447,7 @@ export function ContractPDF({
       {empresa && travelers.length > 0 && <AnexoViajeros v={v} travelers={travelers} numero={numero} />}
 
       {/* La hoja del pagaré solo existe si el plan la lleva (ver `llevaPagare`). */}
-      {llevaPagare(plan) && (
+      {llevaPagareContrato(v, plan) && (
         <Page size="A4" style={s.page}>
           <Membrete />
           {pagareSections(v, fechaFirma).map((sec, i) => (
@@ -357,23 +459,46 @@ export function ContractPDF({
             </View>
           ))}
 
-          <View style={[s.firmas, { marginTop: 26 }]} wrap={false}>
-            <View style={s.firmaCol}>
-              {signature?.signature_image ? (
-                // eslint-disable-next-line jsx-a11y/alt-text
-                <Image src={signature.signature_image} style={s.firmaImg} />
-              ) : (
-                <View style={s.firmaEspacio} />
-              )}
-              <View style={s.firmaLinea}>
-                <Text style={s.firmaNombre}>EL DEUDOR</Text>
-                {empresa && <Text>{v.empresa_razon_social || "________________"} · NIT {v.empresa_nit || "________"}</Text>}
-                <Text>{empresa ? `Representante legal: ${firmanteNombre}` : firmanteNombre}</Text>
-                <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
-              </View>
+          {conjunto ? (
+            <View style={[s.firmasConjuntas, { marginTop: 26 }]} wrap={false}>
+              {partes.map((p, i) => {
+                const f = firmasConj[i];
+                return (
+                  <View key={p.position} style={s.firmaColMitad}>
+                    {f?.signature_image ? (
+                      // eslint-disable-next-line jsx-a11y/alt-text
+                      <Image src={f.signature_image} style={s.firmaImg} />
+                    ) : (
+                      <View style={s.firmaEspacio} />
+                    )}
+                    <View style={s.firmaLinea}>
+                      <Text style={s.firmaNombre}>DEUDOR SOLIDARIO</Text>
+                      <Text>{f?.signer_name || p.nombre || "________________"}</Text>
+                      <Text>{p.documento_tipo || "Documento"} {f?.signer_document || p.documento || "________"}</Text>
+                    </View>
+                  </View>
+                );
+              })}
             </View>
-            <View style={s.firmaCol} />
-          </View>
+          ) : (
+            <View style={[s.firmas, { marginTop: 26 }]} wrap={false}>
+              <View style={s.firmaCol}>
+                {signature?.signature_image ? (
+                  // eslint-disable-next-line jsx-a11y/alt-text
+                  <Image src={signature.signature_image} style={s.firmaImg} />
+                ) : (
+                  <View style={s.firmaEspacio} />
+                )}
+                <View style={s.firmaLinea}>
+                  <Text style={s.firmaNombre}>EL DEUDOR</Text>
+                  {empresa && <Text>{v.empresa_razon_social || "________________"} · NIT {v.empresa_nit || "________"}</Text>}
+                  <Text>{empresa ? `Representante legal: ${firmanteNombre}` : firmanteNombre}</Text>
+                  <Text>{firmanteTipoDoc} {firmanteDoc}</Text>
+                </View>
+              </View>
+              <View style={s.firmaCol} />
+            </View>
+          )}
 
           <Pie numero={numero} />
           <Text style={s.pageNum} render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} fixed />

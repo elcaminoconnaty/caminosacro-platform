@@ -26,6 +26,7 @@ import WhatsAppCard from "./WhatsAppCard";
 import Plegable from "./Plegable";
 import EntregasCard, { type EntregaVista } from "./EntregasCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
+import type { FirmanteFila } from "./ContractCard";
 import { buildDefaultVariables, getFirmantes } from "@/lib/contracts/render";
 import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 import { habitacionesDeCotizacion, mensajeWhatsAppCotizacion, nombrePila } from "@/lib/quotes/mensajeWhatsApp";
@@ -249,6 +250,16 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         .select("id,legal_name,nit,address,city,email,phone,rep_name,rep_document_type,rep_document_number")
         .eq("id", quote.company_id)
         .maybeSingle()
+    : { data: null };
+
+  // Contrato conjunto (0054): sus firmantes, uno por viajero, cada uno con su enlace.
+  const conjunto = ((contractRows as ContractRow[] | null) ?? []).find((c) => c.kind === "conjunto");
+  const { data: signerRows } = conjunto
+    ? await supabase
+        .from("contract_signers")
+        .select("id,contract_id,traveler_id,position,nombre,email,token,token_expires_at,sent_at,last_reminder_at,reminder_count,signed_at,passport_path")
+        .eq("contract_id", conjunto.id)
+        .order("position")
     : { data: null };
 
   // Si aún no hay contratos, precargamos las variables desde la cotización para
@@ -620,6 +631,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           people={Number(quote.people) || 1}
           travelers={(travelers as TravelerRow[] | null) ?? []}
           contracts={(contractRows as ContractRow[] | null) ?? []}
+          signers={(signerRows as FirmanteFila[] | null) ?? []}
           sharedVariables={contractDefaults}
           totalEur={total}
           companyName={(company as CompanyLite | null)?.legal_name ?? null}

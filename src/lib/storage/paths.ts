@@ -163,6 +163,12 @@ export function rutaContratoEmpresa(code: string, firmado = false): string {
   return `comercial-contracts/${carpetaCotizacion(code)}/${archivo}`;
 }
 
+/** El contrato conjunto también es uno solo: nombre propio, por la misma razón que el de empresa. */
+export function rutaContratoConjunto(code: string, firmado = false): string {
+  const archivo = firmado ? `Contrato-${code}-conjunto-firmado.pdf` : `Contrato-${code}-conjunto.pdf`;
+  return `comercial-contracts/${carpetaCotizacion(code)}/${archivo}`;
+}
+
 export function rutaPasaporte(code: string, ext: string, marca = Date.now()): string {
   return `comercial-passports/${carpetaCotizacion(code)}/Pasaporte-${code}-${marca}.${ext}`;
 }

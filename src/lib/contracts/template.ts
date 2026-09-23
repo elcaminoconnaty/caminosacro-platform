@@ -52,7 +52,7 @@ export type ContractVariables = {
    * existiera la modalidad empresa sigan diciendo exactamente lo mismo que decían al
    * firmarse — mismo criterio que `con_pagare`.
    */
-  contratante_tipo?: "persona" | "empresa";
+  contratante_tipo?: "persona" | "empresa" | "conjunto";
   empresa_razon_social?: string;
   empresa_nit?: string;
   empresa_direccion?: string; // dirección de notificaciones
@@ -62,6 +62,13 @@ export type ContractVariables = {
   rep_nombre?: string;
   rep_tipo_documento?: string;
   rep_documento?: string;
+
+  /**
+   * Contrato conjunto: todos los viajeros son parte contratante, cada uno con su firma.
+   * Congelado al crear el contrato, igual que el anexo de empresa: lo que dice el documento
+   * no puede cambiar entre la firma de uno y la del siguiente.
+   */
+  partes?: ParteContrato[];
 
   /**
    * Quién firma por Camino Sacro. Ausentes = Nicolás, que es quien firmó todo lo anterior
@@ -109,6 +116,18 @@ export type CondicionesParticulares = {
   cancelacion?: string;
   /** Parágrafos que se suman a CANCELACIÓN, antes del de cancelación por EL ORGANIZADOR. */
   cancelacion_parags?: string[];
+};
+
+/** Una de las personas que contratan juntas en un contrato conjunto. */
+export type ParteContrato = {
+  position: number;
+  nombre: string;
+  documento_tipo: string;
+  documento: string;
+  email: string;
+  telefono: string;
+  /** null = todavía no respondió su ficha: no se entiende concedida. */
+  autoriza_imagen: boolean | null;
 };
 
 /** Un firmante de Camino Sacro (`settings.firmantes`). */
@@ -177,6 +196,15 @@ export function llevaPagare(plan: PaymentPlan): boolean {
   return plan.type === "financiado" && plan.con_pagare !== false;
 }
 
+/**
+ * ¿Este contrato lleva pagaré? El conjunto nunca: pagaré en blanco + solidaridad +
+ * aceleración frente a consumidores es la combinación que más atrae un reproche por
+ * desequilibrio (revisión legal, sep-2026).
+ */
+export function llevaPagareContrato(v: ContractVariables, plan: PaymentPlan): boolean {
+  return llevaPagare(plan) && v.contratante_tipo !== "conjunto";
+}
+
 // ---------- Quién contrata ----------
 
 /** ¿El contratante es una empresa? Ausente = persona natural (ver `contratante_tipo`). */
@@ -184,8 +212,29 @@ export function esEmpresa(v: ContractVariables): boolean {
   return v.contratante_tipo === "empresa";
 }
 
+/** ¿Contrato conjunto? Varios viajeros como parte, obligados solidariamente, cada uno firma. */
+export function esConjunto(v: ContractVariables): boolean {
+  return v.contratante_tipo === "conjunto";
+}
+
+/** Rótulo de la línea de firma de cada parte en el contrato conjunto ("EL VIAJERO 1"). */
+export function rotuloFirmaConjunta(i: number): string {
+  return `EL VIAJERO No. ${i + 1} — LA PARTE VIAJERA`;
+}
+
+/**
+ * Cuántos días hay para que firmen todos en el contrato conjunto, contados desde el primer
+ * envío. Lo dice el propio contrato (parágrafo segundo de la cláusula de firma): vencido,
+ * las firmas quedan sin efecto. Por eso el enlace no se renueva más allá de esta fecha.
+ */
+export const PLAZO_FIRMA_CONJUNTO_DIAS = 10;
+
 /** Nombre de la parte que contrata. **Singular en las dos modalidades** (ver cabecera). */
 export function parteContratante(v: ContractVariables): string {
+  // En el conjunto el sujeto sigue siendo singular (la regla de la cabecera), pero colectivo:
+  // "LA PARTE VIAJERA". Nada de "EL VIAJERO" en sentido colectivo, que sugiere una sola
+  // persona y volvería conjuntas obligaciones que son de cada uno (revisión legal, sep-2026).
+  if (esConjunto(v)) return "LA PARTE VIAJERA";
   return esEmpresa(v) ? "EL CONTRATANTE" : "EL VIAJERO";
 }
 
@@ -205,6 +254,12 @@ export function numeroAnexoPagare(v: ContractVariables): number {
  * se quedaría insistiéndole a una dirección vacía.
  */
 export function destinatarioContrato(v: ContractVariables): { email: string; nombre: string } {
+  // En el conjunto cada firmante tiene su correo (contract_signers); esto es solo el
+  // respaldo para lo que pide UN destinatario: el primero de la lista.
+  if (esConjunto(v)) {
+    const p = v.partes?.[0];
+    return { email: p?.email || v.viajero_email || "", nombre: p?.nombre || v.viajero_nombre || "" };
+  }
   return esEmpresa(v)
     ? { email: v.empresa_email || "", nombre: v.empresa_razon_social || "" }
     : { email: v.viajero_email || "", nombre: v.viajero_nombre || "" };
@@ -212,7 +267,7 @@ export function destinatarioContrato(v: ContractVariables): { email: string; nom
 
 /** Nombre de pila para encabezar el correo. En empresa, el del representante legal. */
 export function saludoContrato(v: ContractVariables): string {
-  const base = esEmpresa(v) ? v.rep_nombre || "" : v.viajero_nombre || "";
+  const base = esEmpresa(v) ? v.rep_nombre || "" : esConjunto(v) ? v.partes?.[0]?.nombre || v.viajero_nombre || "" : v.viajero_nombre || "";
   return base.trim().split(/\s+/)[0] || "";
 }
 
@@ -275,6 +330,7 @@ export const VARIABLE_LABELS: Record<keyof ContractVariables, string> = {
   rep_nombre: "Representante legal",
   rep_tipo_documento: "Tipo de documento del representante",
   rep_documento: "Documento del representante",
+  partes: "Viajeros que contratan juntos",
   org_nombre: "Firma por Camino Sacro",
   org_tipo_documento: "Tipo de documento de quien firma",
   org_documento: "Documento de quien firma",
@@ -354,7 +410,7 @@ export type ContractSection = { title: string; paragraphs: string[] };
  * `ref("cancelacion")` y el número se calcula.
  */
 type ClaveClausula =
-  | "objeto" | "alcance" | "valor" | "pago" | "modificaciones" | "cancelacion"
+  | "objeto" | "alcance" | "valor" | "solidaridad" | "pago" | "modificaciones" | "cancelacion"
   | "retracto" | "reversion" | "garantia" | "responsabilidad" | "seguro"
   | "obligaciones_organizador" | "obligaciones_contratante" | "responsabilidad_exclusiva"
   | "fuerza_mayor" | "datos" | "confidencialidad" | "origen_fondos" | "cesion"
@@ -366,9 +422,12 @@ type ClaveClausula =
  * en venta a distancia (arts. 47 y 51 de la Ley 1480), y el abogado pidió sacarlos del
  * contrato de empresa junto con las demás remisiones al Estatuto del Consumidor (sep-2026).
  */
-function ordenClausulas(empresa: boolean): ClaveClausula[] {
+function ordenClausulas(empresa: boolean, conjunto = false): ClaveClausula[] {
   return [
-    "objeto", "alcance", "valor", "pago", "modificaciones", "cancelacion",
+    // La solidaridad va pegada al precio: quien firma la lee al lado de la cifra por la que
+    // responde (deber de información del art. 37 de la Ley 1480).
+    "objeto", "alcance", "valor", ...(conjunto ? (["solidaridad"] as ClaveClausula[]) : []),
+    "pago", "modificaciones", "cancelacion",
     ...(empresa ? [] : (["retracto", "reversion"] as ClaveClausula[])),
     "garantia", "responsabilidad", "seguro",
     "obligaciones_organizador", "obligaciones_contratante", "responsabilidad_exclusiva",
@@ -388,8 +447,8 @@ const ORDINALES_FEM = [
 const ORDINALES_PARRAFO = ["PRIMERO", "SEGUNDO", "TERCERO", "CUARTO", "QUINTO", "SEXTO"];
 
 /** "cláusula décima cuarta" — para las referencias cruzadas dentro del articulado. */
-export function refClausula(empresa: boolean, clave: ClaveClausula): string {
-  const i = ordenClausulas(empresa).indexOf(clave);
+export function refClausula(empresa: boolean, clave: ClaveClausula, conjunto = false): string {
+  const i = ordenClausulas(empresa, conjunto).indexOf(clave);
   return i < 0 ? "cláusula correspondiente" : `cláusula ${ORDINALES_FEM[i].toLowerCase()}`;
 }
 
@@ -417,6 +476,23 @@ export function contractIntro(v: ContractVariables): string[] {
   const f = firmanteOrg(v);
   const organizador = `(i) ${f.nombre}, mayor de edad, ${identificacionOrg(v)}, obrando en su propio nombre como titular del nombre comercial “CAMINO SACRO” (caminosacro.com), quien en adelante se denominará “EL ORGANIZADOR”, y`;
 
+  if (esConjunto(v)) {
+    // Solo nombre, documento y correo de cada uno: el contrato lo leen todos los que lo
+    // firman, y el teléfono o la dirección de uno no le hacen falta a los demás (principio
+    // de necesidad, Ley 1581).
+    const partes = v.partes ?? [];
+    return [
+      organizador,
+      `(ii) Las siguientes personas naturales, mayores de edad, cada una obrando en su propio nombre y por su propia cuenta:`,
+      ...partes.map(
+        (p, i) =>
+          `${i + 1}. ${p.nombre}, identificado(a) con ${p.documento_tipo || "Pasaporte"} número ${p.documento}, con correo electrónico de notificaciones ${p.email};`,
+      ),
+      `quienes en adelante se denominarán conjuntamente “LA PARTE VIAJERA” y, cada una de ellas individualmente, “el viajero”.`,
+      `EL ORGANIZADOR y LA PARTE VIAJERA —integrada por los ${partes.length || v.num_personas} viajeros antes identificados, que actúan como una sola parte contractual— se reconocen mutuamente la capacidad legal necesaria y acuerdan celebrar el presente contrato de prestación de servicios turísticos (en adelante, “el Contrato”), asociado a la cotización No. ${v.codigo_cotizacion}, el cual se regirá por las cláusulas aquí establecidas y, en lo no previsto, por las normas civiles y comerciales de la República de Colombia y por la Ley 1480 de 2011.`,
+    ];
+  }
+
   const contratante = esEmpresa(v)
     ? `(ii) ${identificacionEmpresa(v)}, quien en adelante se denominará “EL CONTRATANTE”.`
     : `(ii) ${v.viajero_nombre || "________________"}, mayor de edad, identificado(a) con ${v.viajero_tipo_documento || "documento"} número ${v.viajero_documento || "________"}, obrando en su propio nombre, quien en adelante se denominará “EL VIAJERO”.`;
@@ -431,10 +507,12 @@ export function contractIntro(v: ContractVariables): string[] {
 export function contractConsideraciones(v: ContractVariables): string[] {
   const P = parteContratante(v);
   const empresa = esEmpresa(v);
+  const conjunto = esConjunto(v);
+  const n = (v.partes?.length || Number(v.num_personas) || 1).toString();
   return [
     `1. EL ORGANIZADOR presta servicios de agenciamiento de viajes bajo el nombre comercial CAMINO SACRO: organiza, coordina, gestiona y comercializa planes para recorrer las rutas del Camino de Santiago (España), integrando en un solo producto, con un precio global, una combinación de servicios de carácter turístico prestados por terceros: alojamiento, traslado de equipaje entre etapas, asistencia en ruta, seguro de viaje y servicios complementarios.`,
     `2. La ejecución material de los servicios en destino está a cargo de un operador mayorista habilitado como agencia de viajes en España y de su red de proveedores locales (alojamientos, transportistas y aseguradoras), con quienes EL ORGANIZADOR contrata, en calidad de agencia intermediaria, para conformar el plan.`,
-    empresa
+    empresa || conjunto
       ? `3. La experiencia contratada es autoguiada: cada viajero recorre las etapas a su propio ritmo, sin grupo cerrado ni acompañamiento presencial permanente, con el respaldo logístico y la asistencia contratados.`
       : `3. La experiencia contratada es autoguiada: EL VIAJERO recorre las etapas a su propio ritmo, sin grupo cerrado ni acompañamiento presencial permanente, con el respaldo logístico y la asistencia contratados.`,
     `4. ${P} conoció y aceptó previamente la cotización No. ${v.codigo_cotizacion}, de fecha ${fmtFechaLarga(v.fecha_cotizacion)}, de la cual declara haber recibido copia, y cuyo contenido (itinerario, servicios incluidos y no incluidos, opcionales y valores) hace parte integral de este Contrato como Anexo No. 1.`,
@@ -443,13 +521,20 @@ export function contractConsideraciones(v: ContractVariables): string[] {
           `5. EL CONTRATANTE adquiere el plan para los viajeros relacionados en el Anexo No. 2, quienes son los beneficiarios de los servicios. EL CONTRATANTE es el único obligado al pago frente a EL ORGANIZADOR, y los viajeros no asumen obligación dineraria alguna bajo este Contrato.`,
         ]
       : []),
+    ...(conjunto
+      ? [
+          `5. Los ${n} viajeros que integran LA PARTE VIAJERA viajan juntos y adquieren un único plan, por un precio global que cubre los servicios de todos y que depende del número de viajeros y del reparto de habitaciones. Por eso celebran un solo Contrato, del cual todos son parte, en lugar de un contrato por persona. Este Contrato es el único que documenta la venta asociada a la cotización No. ${v.codigo_cotizacion}, y sustituye y deja sin efecto cualquier contrato, borrador o documento individual emitido o firmado para la misma cotización. Los pagos ya realizados se conservan y se imputan a este Contrato.`,
+        ]
+      : []),
   ];
 }
 
 export function contractClauses(v: ContractVariables, plan: PaymentPlan): ContractSection[] {
   const P = parteContratante(v);
   const empresa = esEmpresa(v);
-  const ref = (clave: ClaveClausula) => refClausula(empresa, clave);
+  const conjunto = esConjunto(v);
+  const ref = (clave: ClaveClausula) => refClausula(empresa, clave, conjunto);
+  const nViajeros = v.partes?.length || Number(v.num_personas) || 1;
   const financiado = plan.type === "financiado";
   const conPagare = llevaPagare(plan);
   const numCuotas = financiado ? plan.cuotas.length : 0;
@@ -480,8 +565,10 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
         [
           ...(cp.pago_parags ?? [
             `Las partes pactan un plan de pagos en ${numCuotas} cuotas, conforme al siguiente cronograma, que hace parte de este Contrato: ${crono}. En todo caso, el cien por ciento (100%) del valor del plan deberá estar pagado a más tardar sesenta (60) días calendario antes de la fecha de inicio del viaje. Sin el pago total no habrá lugar a la entrega de la documentación del viaje ni a la prestación de los servicios.`,
-            `El plan financiado no causa intereses remuneratorios. En caso de mora en cualquiera de las cuotas, EL ORGANIZADOR podrá cobrar intereses moratorios a la tasa máxima legal permitida, declarar vencido el plazo de las cuotas pendientes y exigir su pago inmediato, y, transcurridos cinco (5) días calendario desde el vencimiento sin pago ni justificación, entender que ${P} ha desistido del viaje, con aplicación de la política de cancelación de la ${ref("cancelacion")} y liberación del cupo.`,
-            ...(conPagare
+            conjunto
+              ? `El plan financiado no causa intereses remuneratorios. En caso de mora en cualquiera de las cuotas, EL ORGANIZADOR podrá cobrar intereses moratorios a la tasa máxima legal permitida, declarar vencido el plazo de las cuotas pendientes y exigir su pago inmediato; y, transcurridos cinco (5) días calendario desde que EL ORGANIZADOR haya comunicado la mora por escrito a todos los viajeros sin que ninguno de ellos haya pagado ni justificado el retraso, entender que LA PARTE VIAJERA ha desistido del viaje, con aplicación de la política de cancelación de la ${ref("cancelacion")} y liberación de los cupos.`
+              : `El plan financiado no causa intereses remuneratorios. En caso de mora en cualquiera de las cuotas, EL ORGANIZADOR podrá cobrar intereses moratorios a la tasa máxima legal permitida, declarar vencido el plazo de las cuotas pendientes y exigir su pago inmediato, y, transcurridos cinco (5) días calendario desde el vencimiento sin pago ni justificación, entender que ${P} ha desistido del viaje, con aplicación de la política de cancelación de la ${ref("cancelacion")} y liberación del cupo.`,
+            ...(conPagare && !conjunto
               ? [`Como garantía de las obligaciones dinerarias de este Contrato, ${P} suscribe un pagaré en blanco con carta de instrucciones (Anexo No. ${anexoPagare}), de conformidad con los artículos 621, 622 y 710 del Código de Comercio.`]
               : []),
           ]),
@@ -503,16 +590,25 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
 
   const beneficiarios = empresa
     ? `para las ${v.num_personas} personas relacionadas en el Anexo No. 2`
-    : `para ${v.num_personas} persona(s)`;
+    : conjunto
+      ? `para las ${nViajeros} personas que integran LA PARTE VIAJERA`
+      : `para ${v.num_personas} persona(s)`;
 
   // Parágrafos de la cancelación. El de la cancelación POR EL ORGANIZADOR cierra la
   // asimetría de tener regulada solo la del cliente.
   const cancelacionParags = [
-    `La suspensión, interrupción o abandono del viaje por parte de ${empresa ? "un viajero" : "EL VIAJERO"} una vez iniciado, o el cambio de itinerario por razones personales, no dará lugar a reembolso, y los costos y gestiones adicionales que ello implique serán de su exclusiva cuenta.`,
-    `Los reembolsos aprobados se realizarán dentro de los treinta (30) días calendario siguientes a la validación de la solicitud, por el mismo medio de pago utilizado, salvo acuerdo distinto. Las tasas, comisiones bancarias o cambiarias que se generen dentro de la transacción de reembolso serán asumidas por ${P} y se descontarán del valor a devolver.`,
+    `La suspensión, interrupción o abandono del viaje por parte de ${empresa || conjunto ? "un viajero" : "EL VIAJERO"} una vez iniciado, o el cambio de itinerario por razones personales, no dará lugar a reembolso, y los costos y gestiones adicionales que ello implique serán de su exclusiva cuenta.`,
+    conjunto
+      ? `Los reembolsos aprobados se realizarán dentro de los treinta (30) días calendario siguientes a la validación de la solicitud, a quien efectuó el pago y por el mismo medio de pago utilizado, salvo acuerdo distinto. Las tasas, comisiones bancarias o cambiarias que se generen dentro de la transacción de reembolso serán asumidas por quien lo recibe y se descontarán del valor a devolver.`
+      : `Los reembolsos aprobados se realizarán dentro de los treinta (30) días calendario siguientes a la validación de la solicitud, por el mismo medio de pago utilizado, salvo acuerdo distinto. Las tasas, comisiones bancarias o cambiarias que se generen dentro de la transacción de reembolso serán asumidas por ${P} y se descontarán del valor a devolver.`,
     ...(empresa
       ? [
           `La cancelación referida a uno o varios viajeros, sin cancelar el plan completo, se liquidará con los mismos porcentajes y plazos sobre la parte proporcional que corresponda a esos viajeros. El cambio en el número de viajeros puede modificar el reparto de habitaciones y, con él, la tarifa por persona de quienes permanezcan; esa diferencia será asumida por EL CONTRATANTE.`,
+        ]
+      : []),
+    ...(conjunto
+      ? [
+          `CANCELACIÓN DE UNO DE LOS VIAJEROS. Cada viajero podrá cancelar su participación en el plan mediante comunicación escrita enviada desde su propio correo de notificaciones. La cancelación produce efectos solo respecto de quien la envía, y el Contrato continúa para los demás en los siguientes términos: (a) los porcentajes y plazos de esta cláusula se aplican sobre la cuota parte del viajero que cancela, definida en la ${ref("solidaridad")}, y no sobre el valor total; el descuento de ciento cincuenta euros (150 €) por gastos de gestión se aplica solo por esa persona; (b) si el menor número de viajeros modifica el reparto de habitaciones o la tarifa por persona de quienes permanecen, EL ORGANIZADOR informará por escrito a todos los viajeros, dentro de los cinco (5) días hábiles siguientes a la cancelación y con el soporte del proveedor, el mayor valor exacto que se genera; (c) ese mayor valor es a cargo del viajero que cancela y se descontará, en primer lugar, de la suma que debiera reembolsársele; (d) si esa suma no alcanza, EL ORGANIZADOR cobrará el faltante al viajero que canceló y, si este no lo paga dentro de los diez (10) días calendario siguientes al cobro, podrá cobrarlo a los viajeros que permanecen, quienes responden solidariamente de él conforme a la ${ref("solidaridad")} y conservan su derecho a repetir contra quien canceló; y (e) dentro de los cinco (5) días hábiles siguientes a la comunicación del literal (b), los viajeros que permanecen podrán optar, en lugar de asumir el mayor valor, por la acomodación alternativa sin mayor valor que EL ORGANIZADOR les ofrezca, cuando exista, o por cancelar también su participación conforme a esta cláusula.`,
         ]
       : []),
     ...(cp.cancelacion_parags ?? []),
@@ -524,7 +620,9 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
       titulo: "OBJETO",
       parrafos: [
         `EL ORGANIZADOR se obliga frente a ${P} a prestar los servicios de agenciamiento del plan turístico ${v.ruta_nombre}, organizando, coordinando y gestionando su ejecución, con origen en ${v.origen || "—"} y destino ${v.destino || "Santiago de Compostela"}, entre el ${fmtFechaLarga(v.fecha_inicio)} y el ${fmtFechaLarga(v.fecha_fin)}, ${beneficiarios}, en modalidad ${v.modalidad || "—"} con acomodación ${v.habitaciones || "según cotización"}, conforme al detalle del Anexo No. 1.`,
-        `PARÁGRAFO. — El plan está dirigido exclusivamente a personas mayores de edad. EL ORGANIZADOR no acepta viajeros menores de dieciocho (18) años, y ${P} declara que ${empresa ? "todos los viajeros relacionados en el Anexo No. 2 son mayores de edad" : "es mayor de edad"}.`,
+        conjunto
+          ? `PARÁGRAFO. — El plan está dirigido exclusivamente a personas mayores de edad. EL ORGANIZADOR no acepta viajeros menores de dieciocho (18) años. Cada uno de los viajeros que integran LA PARTE VIAJERA declara, individualmente, que es mayor de edad, y ningún menor de edad es parte ni beneficiario de este Contrato.`
+          : `PARÁGRAFO. — El plan está dirigido exclusivamente a personas mayores de edad. EL ORGANIZADOR no acepta viajeros menores de dieciocho (18) años, y ${P} declara que ${empresa ? "todos los viajeros relacionados en el Anexo No. 2 son mayores de edad" : "es mayor de edad"}.`,
       ],
     },
     // Aquí vive el rol de intermediario. El abogado pidió (sep-2026) límites claros del
@@ -538,20 +636,41 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
         ...parags([
           `El servicio de EL ORGANIZADOR comprende: (a) el diseño del plan y la cotización que obra como Anexo No. 1; (b) la reserva y contratación, ante el operador y los proveedores, de los servicios señalados como incluidos, en las fechas y condiciones pactadas; (c) la entrega de la documentación del viaje y de la información necesaria para prepararlo; (d) un canal de asistencia a distancia durante el recorrido, en los medios y horarios informados; (e) la gestión, ante el operador y los proveedores, de las incidencias y reclamaciones que ${P} le reporte, y la información escrita de su resultado; y (f) la información veraz, suficiente y oportuna sobre el plan y sus condiciones.`,
           `El plan comprende los servicios expresamente señalados como incluidos en el Anexo No. 1: ${v.incluye}. No comprende, entre otros, los señalados como no incluidos: ${v.no_incluye}. Los servicios opcionales (${v.opcionales || "ninguno"}) solo harán parte del plan si fueron contratados y pagados expresamente.`,
-          empresa
+          empresa || conjunto
             ? `No hacen parte del servicio de EL ORGANIZADOR y, por tanto, no son de su cargo: (a) el transporte aéreo y cualquier trayecto desde o hacia el país de origen de los viajeros, así como el desplazamiento hasta el punto de inicio del recorrido y desde su punto final; (b) la ejecución material de los servicios en destino, que corresponde al operador y a sus proveedores; (c) el acompañamiento presencial o de guía durante las etapas, por tratarse de una experiencia autoguiada; (d) los trámites migratorios, sanitarios o de documentación de los viajeros; (e) los servicios que los viajeros contraten directamente con terceros, incluso durante el viaje; y (f) cualquier servicio no señalado como incluido en el Anexo No. 1.`
             : `No hacen parte del servicio de EL ORGANIZADOR y, por tanto, no son de su cargo: (a) el transporte aéreo y cualquier trayecto desde o hacia el país de origen de EL VIAJERO, así como el desplazamiento hasta el punto de inicio del recorrido y desde su punto final; (b) la ejecución material de los servicios en destino, que corresponde al operador y a sus proveedores; (c) el acompañamiento presencial o de guía durante las etapas, por tratarse de una experiencia autoguiada; (d) los trámites migratorios, sanitarios o de documentación de EL VIAJERO; (e) los servicios que EL VIAJERO contrate directamente con terceros, incluso durante el viaje; y (f) cualquier servicio no señalado como incluido en el Anexo No. 1.`,
-          `Los servicios en destino se prestan conforme a las condiciones propias de cada proveedor (horarios de entrada y salida de los alojamientos, políticas de equipaje, coberturas y exclusiones de la póliza, entre otras), que EL ORGANIZADOR informará a ${P} antes del inicio del viaje y que ${empresa ? "los viajeros se obligan" : "EL VIAJERO se obliga"} a observar.`,
-          `Sin perjuicio de lo anterior, EL ORGANIZADOR es el interlocutor único de ${P} para todo lo relativo al plan: recibe sus solicitudes y reclamaciones, las tramita ante el operador y los proveedores, exige la corrección del servicio o la compensación que corresponda y responde por sus propios deberes en los términos de la ${ref("responsabilidad")}. ${P} no está obligado a reclamar directamente ante el operador ni ante proveedor alguno en el exterior.`,
+          `Los servicios en destino se prestan conforme a las condiciones propias de cada proveedor (horarios de entrada y salida de los alojamientos, políticas de equipaje, coberturas y exclusiones de la póliza, entre otras), que EL ORGANIZADOR informará a ${P} antes del inicio del viaje y que ${empresa ? "los viajeros se obligan" : conjunto ? "cada viajero se obliga" : "EL VIAJERO se obliga"} a observar.`,
+          `Sin perjuicio de lo anterior, EL ORGANIZADOR es el interlocutor único de ${P} para todo lo relativo al plan: recibe sus solicitudes y reclamaciones, las tramita ante el operador y los proveedores, exige la corrección del servicio o la compensación que corresponda y responde por sus propios deberes en los términos de la ${ref("responsabilidad")}. ${conjunto ? "Ningún viajero está obligado" : `${P} no está obligado`} a reclamar directamente ante el operador ni ante proveedor alguno en el exterior.`,
         ]),
       ],
     },
     valor: { titulo: "VALOR Y MONEDA", parrafos: [valorClause] },
+    // Solo en el contrato conjunto. Redactada con la revisión legal de sep-2026: la
+    // solidaridad es PACTADA (arts. 1568 y ss. del Código Civil), se limita al precio común y
+    // deja todo lo demás como obligación de cada viajero, para no volverla desequilibrada
+    // frente al Estatuto del Consumidor (art. 42 de la Ley 1480).
+    solidaridad: {
+      titulo: "SOLIDARIDAD EN EL PAGO Y CUOTA DE CADA VIAJERO",
+      parrafos: [
+        `Los viajeros que integran LA PARTE VIAJERA se obligan solidariamente frente a EL ORGANIZADOR, conforme a los artículos 1568 y siguientes del Código Civil, al pago del valor total del plan señalado en la ${ref("valor")}. En consecuencia, EL ORGANIZADOR podrá exigir el valor total, o el saldo que esté pendiente, a cualquiera de los viajeros o a todos ellos, y el pago que haga cualquiera de ellos extingue la deuda respecto de todos en la medida de lo pagado. Esto significa, por ejemplo, que si uno de los viajeros no paga su parte, EL ORGANIZADOR podrá cobrársela a cualquiera de los demás.`,
+        ...parags([
+          `ALCANCE. La solidaridad comprende únicamente: (a) el valor total del plan y sus saldos, conforme a la ${ref("pago")}; (b) los intereses de mora que se causen sobre sumas vencidas y no pagadas de ese valor; (c) las penalidades de la ${ref("cancelacion")} cuando la cancelación sea del plan completo, solicitada por todos los viajeros; y (d) el mayor valor que resulte para los viajeros que permanecen cuando uno de ellos cancele su participación, solo en los términos y con el orden de cobro previstos en la ${ref("cancelacion")}. Ninguna otra obligación de este Contrato es solidaria.`,
+          `OBLIGACIONES INDIVIDUALES. Son individuales, y cada viajero responde solo por las suyas: las penalidades y cargos derivados de la cancelación, el retracto, la modificación o la cesión que un viajero solicite únicamente para sí; los servicios opcionales que contrate solo para sí; sus obligaciones de documentación, información y conducta de la ${ref("obligaciones_contratante")}; lo previsto en la ${ref("responsabilidad_exclusiva")}, incluidos los daños que cause; y los gastos que excedan la póliza de la ${ref("seguro")}. Toda referencia de este Contrato a obligaciones de LA PARTE VIAJERA distintas del pago se entiende hecha a cada viajero respecto de sí mismo, y todo derecho que este Contrato o la ley reconozcan a LA PARTE VIAJERA como consumidora lo conserva cada viajero individualmente.`,
+          `LÍMITE. En ningún caso EL ORGANIZADOR podrá exigir de los viajeros, en conjunto, sumas que excedan el valor total del plan más los intereses y cargos expresamente previstos en este Contrato, ni cobrar dos veces un mismo concepto.`,
+          `CUOTA PARTE. La cuota parte de cada viajero en el valor total del plan es igual para todos: el valor total dividido entre los ${nViajeros} viajeros, salvo que el Anexo No. 1 asigne a cada viajero un valor distinto, caso en el cual se estará a este. La cuota parte sirve para liquidar la cancelación o el retracto de un viajero y para las cuentas entre ellos, pero no limita la solidaridad frente a EL ORGANIZADOR. El viajero que pague más de su cuota parte podrá repetir contra los demás en los términos del artículo 1579 del Código Civil; EL ORGANIZADOR no es parte de esas cuentas.`,
+          `IMPUTACIÓN DE PAGOS Y REEMBOLSOS. Todo pago, provenga de cualquiera de los viajeros o de un tercero por cuenta de ellos, se abona al valor total del plan. Los reembolsos a que haya lugar se harán a quien efectuó el pago reembolsado, por el mismo medio utilizado y hasta concurrencia de lo que haya pagado.`,
+          `INFORMACIÓN PREVIA. Cada viajero declara que, antes de firmar, EL ORGANIZADOR le informó de manera expresa, y por separado del resto del clausulado, que puede ser requerido para pagar el valor total del plan y no solo su cuota parte, y que acepta libremente esta condición.`,
+        ]),
+      ],
+    },
     pago: { titulo: "FORMA DE PAGO", parrafos: formaPago },
     modificaciones: {
       titulo: `MODIFICACIONES SOLICITADAS POR ${P}`,
       parrafos: [
         cp.modificaciones ??
+          (conjunto
+            ? `Toda modificación del plan ya reservado (fechas, etapas, alojamientos, número de noches o servicios) está sujeta a disponibilidad de los proveedores y causará un cargo de gestión de cien euros (100 €) por cada viajero afectado, más la diferencia de tarifa que la modificación genere. La modificación que afecte solo a un viajero puede solicitarla él solo, y el cargo y la diferencia de tarifa son de su cargo exclusivo. La que afecte el plan común —fechas, ruta o acomodación compartida— requiere solicitud escrita de todos los viajeros. EL ORGANIZADOR gestionará la solicitud, pero no garantiza disponibilidad, costo ni resultado.`
+            : null) ??
           `Toda modificación del plan ya reservado (fechas, etapas, alojamientos, número de noches o servicios) está sujeta a disponibilidad de los proveedores y causará un cargo de gestión de cien euros (100 €) ${empresa ? "por cada solicitud" : "por persona"}, más la diferencia de tarifa que la modificación genere. EL ORGANIZADOR gestionará la solicitud pero no garantiza disponibilidad, costo ni resultado.`,
       ],
     },
@@ -559,21 +678,33 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
       titulo: "CANCELACIÓN Y REEMBOLSOS",
       parrafos: [
         cp.cancelacion ??
+          (conjunto
+            ? `Si LA PARTE VIAJERA cancela el plan completo —lo que requiere comunicación escrita de todos los viajeros—, aplicarán las siguientes condiciones sobre el valor total del plan, en atención a los gastos y compromisos irrevocables que EL ORGANIZADOR asume anticipadamente con los proveedores: (a) cancelación con sesenta (60) días calendario o más de antelación a la fecha de inicio: reembolso de lo pagado, descontando ciento cincuenta euros (150 €) por persona por gastos de gestión; (b) cancelación posterior: con dieciséis (16) días o más de antelación, penalidad del 15% del valor total; entre 15 y 11 días, del 50%; entre 10 y 6 días, del 80%; con 5 días o menos, no presentación o abandono, sin devolución.`
+            : null) ??
           `Si ${P} cancela el viaje, aplicarán las siguientes condiciones sobre el valor total del plan, en atención a los gastos y compromisos irrevocables que EL ORGANIZADOR asume anticipadamente con los proveedores: (a) cancelación con sesenta (60) días calendario o más de antelación a la fecha de inicio: reembolso de lo pagado, descontando ciento cincuenta euros (150 €) por persona por gastos de gestión; (b) cancelación posterior: con más de 16 días de antelación, penalidad del 15% del valor total; entre 15 y 11 días, del 50%; entre 10 y 6 días, del 80%; con 5 días o menos, no presentación o abandono, sin devolución.`,
         ...parags(cancelacionParags),
       ],
     },
     retracto: {
       titulo: "DERECHO DE RETRACTO",
-      parrafos: [
+      parrafos: conjunto
+        ? [
+            `En los términos del artículo 47 de la Ley 1480 de 2011, por haberse celebrado este Contrato mediante métodos de venta a distancia, cada viajero podrá ejercer el derecho de retracto dentro de los cinco (5) días hábiles siguientes a la celebración del Contrato, que para este efecto es la fecha de la última firma de los viajeros según el Informe de Firmas, siempre que no haya comenzado la prestación del servicio. El retracto es un derecho individual: cada viajero lo ejerce por sí mismo, por escrito, desde su correo de notificaciones o por cualquier otro medio escrito, dirigido a reservas@caminosacro.com, y ningún viajero puede ejercerlo en nombre de otro sin poder escrito. Ejercido en tiempo, el Contrato se resolverá respecto del viajero que se retracta, y EL ORGANIZADOR devolverá las sumas pagadas imputables a su cuota parte, sin descuento ni retención alguna, dentro de los treinta (30) días calendario siguientes, a quien haya hecho el pago y por el mismo medio. Si todos los viajeros se retractan, el Contrato se resolverá en su totalidad en las mismas condiciones.`,
+            `PARÁGRAFO. — Cuando un viajero se retracte, EL ORGANIZADOR lo comunicará por escrito a los demás dentro de los dos (2) días hábiles siguientes, indicando si su retiro modifica la tarifa o la acomodación de quienes permanecen y en cuánto. Los demás viajeros podrán, dentro de los cinco (5) días hábiles siguientes a esa comunicación, aunque haya vencido su propio término, retractarse también en las mismas condiciones. El mayor valor derivado de un retracto no puede cargarse al viajero que se retracta, y solo se causará para quienes permanecen si lo aceptan por escrito. Si no lo aceptan y EL ORGANIZADOR no puede ofrecerles una acomodación equivalente sin mayor valor, cualquiera de las partes podrá terminar el Contrato respecto de ellos, sin penalidad y con devolución íntegra de lo pagado.`,
+          ]
+        : [
         `En los términos del artículo 47 de la Ley 1480 de 2011, por haberse celebrado este Contrato mediante métodos de venta a distancia, ${P} podrá ejercer el derecho de retracto dentro de los cinco (5) días hábiles siguientes a su celebración, siempre que no haya comenzado la prestación del servicio. El retracto deberá comunicarse por escrito, dentro de dicho plazo, al correo electrónico reservas@caminosacro.com. Ejercido en tiempo, EL ORGANIZADOR resolverá el Contrato y devolverá la totalidad de las sumas pagadas dentro de los treinta (30) días calendario siguientes, pudiendo descontar únicamente los gastos administrativos y bancarios efectivamente causados y comprobados.`,
-      ],
+          ],
     },
     reversion: {
       titulo: "REVERSIÓN DEL PAGO",
-      parrafos: [
+      parrafos: conjunto
+        ? [
+            `De acuerdo con el artículo 51 de la Ley 1480 de 2011 y el Decreto 587 de 2016, cuando un pago se haya realizado por medios electrónicos, el titular del instrumento con el que se hizo ese pago podrá solicitar su reversión en los eventos previstos en dichas normas (fraude, operación no solicitada, servicio no prestado o que no corresponda a lo solicitado), presentando queja ante EL ORGANIZADOR y notificando al emisor del instrumento de pago dentro de los cinco (5) días hábiles siguientes a la fecha en que tuvo noticia del hecho. La reversión afecta únicamente el pago revertido. Si procede por causa imputable a EL ORGANIZADOR, ningún viajero estará obligado a reponer la suma revertida; en los demás casos, la suma efectivamente revertida se tendrá como no pagada y quedará comprendida en la ${ref("solidaridad")}.`,
+          ]
+        : [
         `De acuerdo con el artículo 51 de la Ley 1480 de 2011 y el Decreto 587 de 2016, cuando el pago se haya realizado por medios electrónicos, ${P} podrá solicitar la reversión del pago en los eventos previstos en dichas normas (fraude, operación no solicitada, servicio no prestado o que no corresponda a lo solicitado), presentando queja ante EL ORGANIZADOR y notificando al emisor del instrumento de pago dentro de los cinco (5) días hábiles siguientes al hecho.`,
-      ],
+          ],
     },
     garantia: {
       titulo: "GARANTÍA",
@@ -585,14 +716,14 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
       titulo: "RESPONSABILIDAD",
       parrafos: [
         `EL ORGANIZADOR responde por el cumplimiento de sus deberes de organización, coordinación e información, dentro del alcance definido en la ${ref("alcance")}, y por los perjuicios que cause por su propio dolo o culpa grave, responsabilidad que no se entiende excluida ni limitada por ninguna estipulación de este Contrato.`,
-        `Tratándose de los servicios que ejecutan materialmente el operador en destino y sus proveedores, EL ORGANIZADOR responde por la diligencia en su selección y contratación, por la veracidad de la información que traslada a ${P} y por la gestión de las reclamaciones que este le presente, obligándose a exigir del proveedor la corrección del servicio o la compensación que corresponda y a informar por escrito el resultado de su gestión. No responde por el hecho exclusivo de un tercero ni por la culpa exclusiva de ${empresa ? "un viajero" : "EL VIAJERO"} —sin que ello lo libere del deber de gestión antes descrito—, ni por los eventos de fuerza mayor o caso fortuito de la ${ref("fuerza_mayor")}.`,
-        `PARÁGRAFO. — ${P} conoce y acepta los riesgos inherentes a la actividad de caminata de larga distancia, que ${empresa ? "cada viajero asume" : "asume"} voluntariamente: lesiones, enfermedades, accidentes o pérdidas ocurridos durante el recorrido que no sean imputables a EL ORGANIZADOR. Toda reclamación se tramitará a través de EL ORGANIZADOR, quien la canalizará ante el proveedor correspondiente.`,
+        `Tratándose de los servicios que ejecutan materialmente el operador en destino y sus proveedores, EL ORGANIZADOR responde por la diligencia en su selección y contratación, por la veracidad de la información que traslada a ${P} y por la gestión de las reclamaciones que ${conjunto ? "cualquiera de los viajeros" : "este"} le presente, obligándose a exigir del proveedor la corrección del servicio o la compensación que corresponda y a informar por escrito el resultado de su gestión. No responde por el hecho exclusivo de un tercero ni por la culpa exclusiva de ${empresa || conjunto ? "un viajero" : "EL VIAJERO"} —sin que ello lo libere del deber de gestión antes descrito—, ni por los eventos de fuerza mayor o caso fortuito de la ${ref("fuerza_mayor")}.`,
+        `PARÁGRAFO. — ${P} conoce y acepta los riesgos inherentes a la actividad de caminata de larga distancia, que ${empresa || conjunto ? "cada viajero asume" : "asume"} voluntariamente: lesiones, enfermedades, accidentes o pérdidas ocurridos durante el recorrido que no sean imputables a EL ORGANIZADOR. Toda reclamación se tramitará a través de EL ORGANIZADOR, quien la canalizará ante el proveedor correspondiente.`,
       ],
     },
     seguro: {
       titulo: "SEGURO DE VIAJE",
       parrafos: [
-        `El plan incluye una póliza de seguro de viaje con coberturas médicas y de responsabilidad civil, con vigencia limitada al itinerario contratado. Las condiciones específicas de la póliza serán entregadas a ${P} antes del inicio del viaje. El seguro no cubre el trayecto desde el país de origen ni el retorno, ni fechas o estancias por fuera del itinerario. Será responsabilidad de ${P} revisar la póliza y, si lo estima necesario, contratar por su cuenta coberturas adicionales. Cualquier gasto médico o de otra índole que exceda las coberturas de la póliza será de cuenta exclusiva de ${empresa ? "EL CONTRATANTE o del viajero afectado" : "EL VIAJERO"}.`,
+        `El plan incluye una póliza de seguro de viaje con coberturas médicas y de responsabilidad civil, con vigencia limitada al itinerario contratado. Las condiciones específicas de la póliza serán entregadas a ${P} antes del inicio del viaje. El seguro no cubre el trayecto desde el país de origen ni el retorno, ni fechas o estancias por fuera del itinerario. Será responsabilidad de ${P} revisar la póliza y, si lo estima necesario, contratar por su cuenta coberturas adicionales. Cualquier gasto médico o de otra índole que exceda las coberturas de la póliza será de cuenta exclusiva de ${empresa ? "EL CONTRATANTE o del viajero afectado" : conjunto ? "el viajero afectado" : "EL VIAJERO"}.`,
       ],
     },
     obligaciones_organizador: {
@@ -602,17 +733,25 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
       ],
     },
     obligaciones_contratante: {
-      titulo: empresa ? "OBLIGACIONES DE EL CONTRATANTE" : "OBLIGACIONES DE EL VIAJERO",
+      titulo: empresa ? "OBLIGACIONES DE EL CONTRATANTE" : conjunto ? "OBLIGACIONES DE CADA VIAJERO" : "OBLIGACIONES DE EL VIAJERO",
       parrafos: [
-        empresa
+        conjunto
+          ? `Cada viajero se obliga, respecto de sí mismo, a: (a) pagar el valor del plan en la forma y plazos pactados, en los términos de la ${ref("solidaridad")}; (b) gestionar y portar, a su exclusivo costo y riesgo, la documentación exigida por las autoridades migratorias (pasaporte vigente, visados, certificados y demás requisitos) — la negativa de ingreso o la deportación por incumplimiento de estos requisitos no genera responsabilidad ni obligación de reembolso para EL ORGANIZADOR; (c) llegar por sus propios medios, de forma oportuna, al punto de inicio del recorrido; (d) suministrar información veraz, completa y actualizada, incluida la relativa a su estado de salud cuando sea relevante para la prestación del servicio; (e) atender las recomendaciones e instrucciones razonables de EL ORGANIZADOR y de los proveedores, y cumplir las políticas de los alojamientos y transportistas, incluidas las de equipaje (máximo 15 kg por persona en el traslado entre etapas, salvo indicación distinta del Anexo No. 1); (f) abstenerse de conductas que pongan en riesgo su seguridad, la de terceros o el normal desarrollo del viaje.`
+          : empresa
           ? `EL CONTRATANTE se obliga a: (a) pagar el valor del plan en la forma y plazos pactados; (b) entregar a EL ORGANIZADOR la relación completa y veraz de los viajeros, con sus datos de identificación y la imagen de su documento de viaje, dentro de los plazos que EL ORGANIZADOR le indique, y comunicar oportunamente cualquier cambio; y (c) asegurar que cada uno de los viajeros relacionados en el Anexo No. 2: (i) gestione y porte, a su exclusivo costo y riesgo, la documentación exigida por las autoridades migratorias (pasaporte vigente, visados, certificados y demás requisitos) — la negativa de ingreso o la deportación por incumplimiento de estos requisitos no genera responsabilidad ni obligación de reembolso para EL ORGANIZADOR; (ii) llegue por sus propios medios, de forma oportuna, al punto de inicio del recorrido; (iii) suministre información veraz, completa y actualizada, incluida la relativa a su estado de salud cuando sea relevante para la prestación del servicio; (iv) atienda las recomendaciones e instrucciones razonables de EL ORGANIZADOR y de los proveedores, y cumpla las políticas de los alojamientos y transportistas, incluidas las de equipaje (máximo 15 kg por persona en el traslado entre etapas, salvo indicación distinta del Anexo No. 1); y (v) se abstenga de conductas que pongan en riesgo su seguridad, la de terceros o el normal desarrollo del viaje.`
           : `EL VIAJERO se obliga a: (a) pagar el valor del plan en la forma y plazos pactados; (b) gestionar y portar, a su exclusivo costo y riesgo, la documentación exigida por las autoridades migratorias (pasaporte vigente, visados, certificados y demás requisitos) — la negativa de ingreso o la deportación por incumplimiento de estos requisitos no genera responsabilidad ni obligación de reembolso para EL ORGANIZADOR; (c) llegar por sus propios medios, de forma oportuna, al punto de inicio del recorrido; (d) suministrar información veraz, completa y actualizada, incluida la relativa a su estado de salud cuando sea relevante para la prestación del servicio; (e) atender las recomendaciones e instrucciones razonables de EL ORGANIZADOR y de los proveedores, y cumplir las políticas de los alojamientos y transportistas, incluidas las de equipaje (máximo 15 kg por persona en el traslado entre etapas, salvo indicación distinta del Anexo No. 1); (f) abstenerse de conductas que pongan en riesgo su seguridad, la de terceros o el normal desarrollo del viaje.`,
       ],
     },
     responsabilidad_exclusiva: {
-      titulo: empresa ? "RESPONSABILIDAD EXCLUSIVA DE EL CONTRATANTE Y DE LOS VIAJEROS" : "RESPONSABILIDAD EXCLUSIVA DE EL VIAJERO",
+      titulo: empresa
+        ? "RESPONSABILIDAD EXCLUSIVA DE EL CONTRATANTE Y DE LOS VIAJEROS"
+        : conjunto
+          ? "RESPONSABILIDAD EXCLUSIVA DE CADA VIAJERO"
+          : "RESPONSABILIDAD EXCLUSIVA DE EL VIAJERO",
       parrafos: [
-        empresa
+        conjunto
+          ? `Son de exclusiva responsabilidad de cada viajero, respecto de sí mismo y sin solidaridad con los demás: su documentación y requisitos migratorios; el transporte aéreo y cualquier trayecto no incluido en el plan; la custodia de su equipaje y pertenencias; sus gastos personales; los daños que cause a instalaciones, bienes o terceros; y las consecuencias de su propia conducta grave o imprudente, incluyendo su exclusión de servicios sin derecho a reembolso cuando dicha conducta afecte gravemente la prestación.`
+          : empresa
           ? `Son de exclusiva responsabilidad de EL CONTRATANTE y de sus viajeros: la documentación y los requisitos migratorios de cada uno; el transporte aéreo y cualquier trayecto no incluido en el plan; la custodia del equipaje y las pertenencias; los gastos personales; los daños que causen a instalaciones, bienes o terceros; y las consecuencias de la conducta grave o imprudente de un viajero, incluyendo su exclusión de los servicios sin derecho a reembolso cuando dicha conducta afecte gravemente la prestación.`
           : `Son de exclusiva responsabilidad de EL VIAJERO: su documentación y requisitos migratorios; el transporte aéreo y cualquier trayecto no incluido en el plan; la custodia de su equipaje y pertenencias; sus gastos personales; los daños que cause a instalaciones, bienes o terceros; y las consecuencias de su propia conducta grave o imprudente, incluyendo la exclusión de servicios sin derecho a reembolso cuando dicha conducta afecte gravemente la prestación.`,
       ],
@@ -620,12 +759,17 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
     fuerza_mayor: {
       titulo: "FUERZA MAYOR Y CASO FORTUITO",
       parrafos: [
-        `Se entiende por fuerza mayor o caso fortuito todo acontecimiento externo, imprevisible e irresistible, ajeno a la voluntad de las partes, que impida el cumplimiento total o parcial del Contrato: desastres naturales, actos de autoridad, cierres de fronteras, huelgas, epidemias o pandemias con restricciones de movilidad, entre otros de similar naturaleza. En tales eventos, las partes procurarán de buena fe la reprogramación del viaje o la aplicación de lo pagado a una nueva fecha, descontando los costos irrecuperables ya causados ante proveedores, que serán acreditados a ${P}. La imposibilidad de viajar por causas personales, laborales o médicas de ${empresa ? "un viajero" : "EL VIAJERO"}, o ${empresa ? "el desistimiento voluntario de EL CONTRATANTE" : "su desistimiento voluntario"}, no constituye fuerza mayor y se rige por la ${ref("cancelacion")}.`,
+        `Se entiende por fuerza mayor o caso fortuito todo acontecimiento externo, imprevisible e irresistible, ajeno a la voluntad de las partes, que impida el cumplimiento total o parcial del Contrato: desastres naturales, actos de autoridad, cierres de fronteras, huelgas, epidemias o pandemias con restricciones de movilidad, entre otros de similar naturaleza. En tales eventos, las partes procurarán de buena fe la reprogramación del viaje o la aplicación de lo pagado a una nueva fecha, descontando los costos irrecuperables ya causados ante proveedores, que serán acreditados a ${P}. La imposibilidad de viajar por causas personales, laborales o médicas de ${empresa || conjunto ? "un viajero" : "EL VIAJERO"}, o ${empresa ? "el desistimiento voluntario de EL CONTRATANTE" : conjunto ? "el desistimiento voluntario de cualquiera de ellos" : "su desistimiento voluntario"}, no constituye fuerza mayor y se rige por la ${ref("cancelacion")}.`,
       ],
     },
     datos: {
       titulo: "TRATAMIENTO DE DATOS PERSONALES",
-      parrafos: empresa
+      parrafos: conjunto
+        ? [
+            `Cada viajero autoriza de manera previa, expresa e informada a ${firmanteOrg(v).nombre} (CAMINO SACRO), como responsable del tratamiento, para recolectar, almacenar, usar y circular sus propios datos personales — incluidos sus datos de identificación, de contacto y la imagen de su pasaporte o documento de identidad — con las siguientes finalidades: gestionar la reserva y ejecución del plan; transmitirlos al operador en España y a los proveedores del viaje (alojamientos, aseguradora, transportistas) en cuanto sea necesario para la prestación del servicio, lo que implica una transferencia internacional de datos que cada viajero autoriza expresamente; emitir la documentación del viaje; y contactarlo en relación con el servicio. Ningún viajero otorga esta autorización por otro. Cada viajero autoriza además que su nombre, tipo y número de documento y correo electrónico figuren en este Contrato y sean conocidos por los demás viajeros que lo suscriben, con la sola finalidad de su celebración, ejecución y prueba. Los datos relativos a la salud de un viajero y los demás datos sensibles son de suministro facultativo y no se compartirán con los demás viajeros sin su autorización expresa. El tratamiento se realizará conforme a la Ley 1581 de 2012, al Decreto 1377 de 2013 y a la Política de Tratamiento de Datos Personales publicada en ${URL_POLITICA_DATOS}. Cada viajero podrá ejercer sus derechos de conocer, actualizar, rectificar y suprimir sus datos, y revocar la autorización, escribiendo a reservas@caminosacro.com, sin perjuicio de su derecho a presentar quejas ante la Superintendencia de Industria y Comercio.`,
+            `PARÁGRAFO. — Uso de imagen. Cada viajero decide por sí mismo sobre el uso de las imágenes o videos en los que aparezca durante el viaje, para fines de memoria del viaje y divulgación en los canales de CAMINO SACRO, así: ${(v.partes ?? []).map((p) => `${p.nombre}: ${p.autoriza_imagen === true ? "AUTORIZA" : p.autoriza_imagen === false ? "NO AUTORIZA" : "NO HA OTORGADO LA AUTORIZACIÓN (no se entiende concedida)"}`).join("; ")}. Esta autorización es independiente del servicio y puede ser revocada u otorgada en cualquier momento.`,
+          ]
+        : empresa
         ? [
             `EL CONTRATANTE entrega a ${firmanteOrg(v).nombre} (CAMINO SACRO), como responsable del tratamiento, los datos personales de los viajeros relacionados en el Anexo No. 2 — datos de identificación, de contacto y la imagen de su pasaporte o documento de identidad —, y declara que cuenta con la autorización previa, expresa e informada de cada uno de ellos para hacerlo, con las siguientes finalidades: gestionar la reserva y ejecución del plan; transmitirlos al operador en España y a los proveedores del viaje (alojamientos, aseguradora, transportistas) en cuanto sea necesario para la prestación del servicio, lo que implica una transferencia internacional de datos que cada viajero autoriza expresamente; emitir la documentación del viaje; y contactarlos en relación con el servicio. El tratamiento se realizará conforme a la Ley 1581 de 2012, al Decreto 1377 de 2013 y a la Política de Tratamiento de Datos Personales publicada en ${URL_POLITICA_DATOS}. Cada viajero podrá ejercer sus derechos de conocer, actualizar, rectificar y suprimir sus datos, y revocar la autorización, escribiendo a reservas@caminosacro.com, sin perjuicio de su derecho a presentar quejas ante la Superintendencia de Industria y Comercio.`,
             ...parags([
@@ -652,14 +796,18 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
     },
     cesion: {
       titulo: "CESIÓN",
-      parrafos: [
+      parrafos: conjunto
+        ? [
+            `Ningún viajero podrá ceder su posición en este Contrato sin autorización previa, expresa y escrita de EL ORGANIZADOR y sin el consentimiento escrito de los demás viajeros, quienes quedarían obligados solidariamente con el cesionario. Autorizada la cesión, el cedente solo quedará liberado cuando el cesionario haya firmado su adhesión a este Contrato, y los costos, penalidades y cargos de la cesión ante los proveedores serán a cargo exclusivo del cedente.`,
+          ]
+        : [
         `${P} no podrá ceder total ni parcialmente este Contrato sin autorización previa, expresa y escrita de EL ORGANIZADOR. De autorizarse, todos los costos, penalidades y cargos de la cesión ante los proveedores serán asumidos por ${empresa ? "EL CONTRATANTE" : "EL VIAJERO cedente"}.`,
         ...(empresa
           ? [
               `PARÁGRAFO. — EL CONTRATANTE podrá solicitar la sustitución de un viajero relacionado en el Anexo No. 2 por otra persona, hasta quince (15) días calendario antes de la fecha de inicio del viaje. La sustitución está sujeta a la disponibilidad y a las condiciones de los proveedores, causará el cargo de gestión previsto en la ${ref("modificaciones")} más la diferencia de tarifa que genere, y solo será efectiva cuando EL ORGANIZADOR la confirme por escrito. Aceptada la sustitución, el nuevo viajero queda cobijado por este Contrato en las mismas condiciones y EL CONTRATANTE deberá aportar su documentación y la autorización de tratamiento de datos de que trata la ${ref("datos")}.`,
             ]
           : []),
-      ],
+        ],
     },
     vigencia: {
       titulo: "VIGENCIA Y AJUSTES DEL PLAN",
@@ -670,7 +818,9 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
     notificaciones: {
       titulo: "NOTIFICACIONES",
       parrafos: [
-        empresa
+        conjunto
+          ? `Las comunicaciones y notificaciones entre las partes se realizarán por escrito a los siguientes correos electrónicos: EL ORGANIZADOR: reservas@caminosacro.com; LA PARTE VIAJERA: al correo de notificaciones de cada viajero indicado en la comparecencia. Toda comunicación de EL ORGANIZADOR que afecte el Contrato en su conjunto —cambios del plan, mora, liquidaciones, ajustes o controversias— se enviará simultáneamente a todos los viajeros y solo se entenderá surtida cuando se haya enviado a todos. La comunicación de un viajero produce efectos solo respecto de él, salvo que la envíen todos o que se limite a reportar una incidencia del servicio. Ningún viajero representa a los demás ni puede, sin poder escrito de ellos, cancelar, modificar, ceder, retractarse o transigir en su nombre. Cada viajero se obliga a informar cualquier cambio de su correo de notificaciones.`
+          : empresa
           ? `Las comunicaciones y notificaciones entre las partes se realizarán por escrito a los siguientes canales: EL ORGANIZADOR: reservas@caminosacro.com; EL CONTRATANTE: ${v.empresa_email || "________"}, con dirección de notificaciones en ${domicilioEmpresa(v) || "________"}. Cada parte se obliga a informar cualquier cambio de su canal de notificación.`
           : `Las comunicaciones y notificaciones entre las partes se realizarán por escrito a los siguientes correos electrónicos: EL ORGANIZADOR: reservas@caminosacro.com; EL VIAJERO: ${v.viajero_email || "________"}. Cada parte se obliga a informar cualquier cambio de su canal de notificación.`,
       ],
@@ -679,18 +829,26 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
       titulo: "SOLUCIÓN DE CONTROVERSIAS Y LEY APLICABLE",
       parrafos: [
         `Toda diferencia derivada de este Contrato se intentará resolver primero por arreglo directo. Cualquiera de las partes podrá convocar a la otra por escrito a los canales de la ${ref("notificaciones")}; la etapa de arreglo directo durará treinta (30) días calendario contados desde la convocatoria, prorrogables de común acuerdo. Agotada sin acuerdo, o vencido el plazo sin respuesta, las partes quedan en libertad de acudir a la jurisdicción ordinaria.`,
-        `Este Contrato se rige por la ley colombiana y cualquier controversia será conocida por las autoridades y jueces de la República de Colombia${empresa ? "" : `, sin que ninguna estipulación pueda entenderse como renuncia de ${P} a los derechos que le reconoce el Estatuto del Consumidor`}.`,
+        `Este Contrato se rige por la ley colombiana y cualquier controversia será conocida por las autoridades y jueces de la República de Colombia${empresa ? "" : `, sin que ninguna estipulación pueda entenderse como renuncia de ${conjunto ? "cualquiera de los viajeros" : P} a los derechos que le reconoce el Estatuto del Consumidor`}.`,
       ],
     },
     firma: {
       titulo: "ACEPTACIÓN Y FIRMA ELECTRÓNICA",
-      parrafos: [
+      parrafos: conjunto
+        ? [
+            `Las partes acuerdan celebrar y firmar este Contrato por medios electrónicos, de conformidad con la Ley 527 de 1999 y el Decreto 2364 de 2012. Cada viajero firma por sí mismo, mediante el enlace personal enviado a su propio correo de notificaciones y el código de verificación de un solo uso remitido a ese mismo correo; ningún viajero puede firmar por otro. La firma electrónica así plasmada — que registra la identidad declarada del firmante, fecha y hora, dirección IP, dispositivo y la huella digital (hash) del documento — se considera confiable y apropiada, y las partes le reconocen la misma validez y fuerza obligatoria de una firma manuscrita. Al firmar, cada viajero declara que leyó y comprendió íntegramente este Contrato y sus anexos, en especial la ${ref("solidaridad")}, y que los acepta.`,
+            ...parags([
+              `PERFECCIONAMIENTO. Todos los viajeros firman el mismo documento electrónico, identificado por una única huella SHA-256 que consta en el Informe de Firmas. El Contrato se entiende celebrado y perfeccionado en la fecha y hora de la última firma de los viajeros, y desde ese momento corren los términos de la ${ref("retracto")}. Mientras falte la firma de alguno, el Contrato no produce efectos para ninguna de las partes, ni siquiera respecto de quienes ya firmaron, y cualquiera de estos podrá retirar su firma mediante comunicación escrita, sin costo alguno. Si el texto del Contrato cambia, aunque sea en los datos de un solo viajero, todos deberán firmar de nuevo el documento corregido.`,
+              `FIRMA INCOMPLETA. Si dentro de los ${PLAZO_FIRMA_CONJUNTO_DIAS} días calendario siguientes al envío del Contrato para firma no lo han firmado todos los viajeros, las firmas otorgadas quedarán sin efecto y el Contrato se tendrá por no celebrado. EL ORGANIZADOR informará por escrito a todos los viajeros el vencimiento de este plazo y devolverá las sumas recibidas para el plan, sin descuento alguno, a quien las pagó y por el mismo medio, dentro de los treinta (30) días calendario siguientes, salvo que, dentro de ese mismo plazo de treinta (30) días, los viajeros que sí firmaron le pidan por escrito un nuevo contrato solo con ellos. En ese caso, EL ORGANIZADOR les presentará uno con el precio y la acomodación que correspondan al nuevo número de viajeros, que podrán aceptar o no libremente.`,
+            ]),
+          ]
+        : [
         `Las partes acuerdan celebrar y firmar este Contrato por medios electrónicos, de conformidad con la Ley 527 de 1999 y el Decreto 2364 de 2012. La firma electrónica plasmada a través del mecanismo dispuesto por EL ORGANIZADOR — que registra la identidad declarada del firmante, fecha y hora, dirección IP, dispositivo y la huella digital (hash) del documento — se considera confiable y apropiada, y las partes le reconocen la misma validez y fuerza obligatoria de una firma manuscrita. Al firmar, ${empresa ? "EL CONTRATANTE, por conducto de su representante legal, declara que leyó y comprendió íntegramente este Contrato y sus anexos, que los acepta, y que cuenta con facultades suficientes para obligar a la sociedad que representa" : "EL VIAJERO declara que leyó y comprendió íntegramente este Contrato y sus anexos, y que los acepta"}.`,
-      ],
+          ],
     },
   };
 
-  return ordenClausulas(empresa).map((clave, i) => ({
+  return ordenClausulas(empresa, conjunto).map((clave, i) => ({
     title: `${ORDINALES_FEM[i]} — ${cuerpo[clave].titulo}`,
     paragraphs: cuerpo[clave].parrafos,
   }));
@@ -699,7 +857,7 @@ export function contractClauses(v: ContractVariables, plan: PaymentPlan): Contra
 export function anexosTexto(v: ContractVariables, plan: PaymentPlan): string {
   const partes = [`Anexos: No. 1 — Cotización ${v.codigo_cotizacion} (itinerario, servicios incluidos y no incluidos, opcionales y valores).`];
   if (esEmpresa(v)) partes.push(`No. 2 — Relación de viajeros beneficiarios.`);
-  if (llevaPagare(plan)) partes.push(`No. ${numeroAnexoPagare(v)} — Pagaré en blanco y carta de instrucciones.`);
+  if (llevaPagareContrato(v, plan)) partes.push(`No. ${numeroAnexoPagare(v)} — Pagaré en blanco y carta de instrucciones.`);
   return partes.join(" ");
 }
 

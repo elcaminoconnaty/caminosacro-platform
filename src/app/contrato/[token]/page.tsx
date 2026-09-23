@@ -11,8 +11,9 @@ import {
   contractClauses,
   anexosTexto,
   pagareSections,
-  llevaPagare,
+  llevaPagareContrato,
   esEmpresa,
+  esConjunto,
   saludoContrato,
   destinatarioContrato,
   viajerosAnexoIntro,
@@ -21,6 +22,7 @@ import {
   type PaymentPlan,
   type ViajeroAnexo,
 } from "@/lib/contracts/template";
+import { cifrasConjunto } from "@/lib/contracts/cifrasConjunto";
 import SignForm from "./SignForm";
 import Aviso from "./Aviso";
 
@@ -36,14 +38,45 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
   if (!token || token.length < 32) return <Aviso titulo="Enlace no válido" detalle="Revisa que el enlace esté completo o pídenos uno nuevo." />;
 
   const supabase = createAdminClient("comercial");
-  const { data: contract } = await supabase
-    .from("contracts")
-    .select("id,status,token_expires_at,variables_json,payment_plan_json,signed_at,signer_name,kind,travelers_json")
-    .eq("token", token)
-    .maybeSingle();
+  const COLS = "id,status,token_expires_at,variables_json,payment_plan_json,signed_at,signer_name,kind,travelers_json";
+  let { data: contract } = await supabase.from("contracts").select(COLS).eq("token", token).maybeSingle();
+
+  // Contrato conjunto: el enlace es de un firmante, no del contrato (migración 0054).
+  let firmante: {
+    id: string; traveler_id: string; position: number; nombre: string; email: string | null;
+    token_expires_at: string | null; signed_at: string | null;
+  } | null = null;
+  let firmantes: { nombre: string; signed_at: string | null }[] = [];
+  let pasaporteCargado = false;
+  if (!contract) {
+    const { data: s } = await supabase
+      .from("contract_signers")
+      .select("id,contract_id,traveler_id,position,nombre,email,token_expires_at,signed_at")
+      .eq("token", token)
+      .maybeSingle();
+    if (s) {
+      firmante = s;
+      ({ data: contract } = await supabase.from("contracts").select(COLS).eq("id", s.contract_id).maybeSingle());
+      const [{ data: todos }, { data: viajero }] = await Promise.all([
+        supabase.from("contract_signers").select("nombre,signed_at").eq("contract_id", s.contract_id).order("position"),
+        supabase.from("quote_travelers").select("passport_path").eq("id", s.traveler_id).maybeSingle(),
+      ]);
+      firmantes = todos ?? [];
+      pasaporteCargado = !!viajero?.passport_path;
+    }
+  }
 
   if (!contract) {
     return <Aviso titulo="Enlace no válido" detalle="Este enlace de firma no existe o fue anulado. Escríbenos y te enviamos uno nuevo." />;
+  }
+  if (firmante && contract.status !== "firmado" && firmante.signed_at) {
+    const faltan = firmantes.filter((f) => !f.signed_at).map((f) => f.nombre);
+    return (
+      <Aviso
+        titulo="Ya firmaste"
+        detalle={`Tu firma quedó registrada el ${new Date(firmante.signed_at).toLocaleDateString("es-CO")}. El contrato se celebra cuando firmen todos: falta ${faltan.join(" y ") || "cerrar el documento"}. Te llegará la copia con todas las firmas a tu correo.`}
+      />
+    );
   }
   if (contract.status === "firmado") {
     return (
@@ -55,6 +88,15 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
   }
   if (contract.status !== "enviado") {
     return <Aviso titulo="Enlace inactivo" detalle="Este contrato aún no está habilitado para firma. Escríbenos si crees que es un error." />;
+  }
+  const vence = firmante ? firmante.token_expires_at ?? contract.token_expires_at : contract.token_expires_at;
+  if (firmante && vence && yaPaso(vence)) {
+    return (
+      <Aviso
+        titulo="Venció el plazo de firma"
+        detalle="El plazo para que firmaran todos terminó y, como dice el contrato, las firmas quedaron sin efecto. Escríbenos a reservas@caminosacro.com y te enviamos uno nuevo."
+      />
+    );
   }
   if (contract.token_expires_at && new Date(contract.token_expires_at).getTime() < Date.now()) {
     return <Aviso titulo="Enlace vencido" detalle="Por seguridad, los enlaces de firma vencen. Escríbenos a reservas@caminosacro.com y te enviamos uno nuevo." />;
@@ -69,12 +111,17 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
     day: "2-digit",
     timeZone: "America/Bogota",
   }).format(new Date());
-  const conPagare = llevaPagare(plan);
+  const conPagare = llevaPagareContrato(v, plan);
   const pagare = conPagare ? pagareSections(v, hoyBogota) : [];
   // Contrato de empresa: firma el representante legal, no hay pasaporte que subir (los
   // carga el equipo) y la relación de viajeros va como Anexo No. 2 a la vista.
   const empresa = esEmpresa(v);
   const viajeros = empresa ? ((contract.travelers_json as ViajeroAnexo[]) ?? []) : [];
+  const conjunto = esConjunto(v) && firmante;
+  const parte = conjunto ? (v.partes ?? []).find((p) => p.position === firmante!.position) ?? null : null;
+  const datosConjunto = conjunto
+    ? { ...cifrasConjunto(v, parteNombre(v, firmante!)), firmadas: firmantes.filter((f) => f.signed_at).length }
+    : null;
 
   return (
     <main className="min-h-screen bg-crema">
@@ -92,6 +139,11 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
                 {v.empresa_razon_social || "la empresa"} para los {viajeros.length || v.num_personas} viajeros del{" "}
                 {v.ruta_nombre}. Revísalo, verifica la relación de viajeros del Anexo No. 2 y fírmalo como
                 representante legal.
+              </>
+            ) : conjunto ? (
+              <>
+                Hola {firmante!.nombre.split(/\s+/)[0]}: este es el contrato del viaje de ustedes, uno solo para todos. Lo
+                firma cada uno desde su propio enlace; revísalo y firma tu parte.
               </>
             ) : (
               <>
@@ -171,16 +223,29 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
             ))}
           </article>
 
-          <SignForm
-            token={token}
-            defaultName={empresa ? v.rep_nombre || "" : v.viajero_nombre}
-            defaultDocument={empresa ? v.rep_documento || "" : v.viajero_documento}
-            docType={(empresa ? v.rep_tipo_documento : v.viajero_tipo_documento) || "Pasaporte"}
-            financiado={conPagare}
-            empresa={empresa}
-            razonSocial={v.empresa_razon_social ?? null}
-            correoContrato={destinatarioContrato(v).email}
-          />
+          {conjunto ? (
+            <SignForm
+              token={token}
+              defaultName={parte?.nombre || firmante!.nombre}
+              defaultDocument={parte?.documento || ""}
+              docType={parte?.documento_tipo || "Pasaporte"}
+              financiado={false}
+              correoContrato={firmante!.email || ""}
+              conjunto={datosConjunto}
+              pasaporteOpcional={pasaporteCargado}
+            />
+          ) : (
+            <SignForm
+              token={token}
+              defaultName={empresa ? v.rep_nombre || "" : v.viajero_nombre}
+              defaultDocument={empresa ? v.rep_documento || "" : v.viajero_documento}
+              docType={(empresa ? v.rep_tipo_documento : v.viajero_tipo_documento) || "Pasaporte"}
+              financiado={conPagare}
+              empresa={empresa}
+              razonSocial={v.empresa_razon_social ?? null}
+              correoContrato={destinatarioContrato(v).email}
+            />
+          )}
         </div>
 
         <p className="text-center text-[11px] text-muted mt-6">
@@ -190,4 +255,14 @@ export default async function FirmaContrato({ params }: { params: Promise<{ toke
       </div>
     </main>
   );
+}
+
+/** El nombre de la parte tal como está en el contrato (de ahí salen "los otros"). */
+function parteNombre(v: ContractVariables, f: { position: number; nombre: string }): string {
+  return (v.partes ?? []).find((p) => p.position === f.position)?.nombre ?? f.nombre;
+}
+
+/** ¿Ya pasó esa fecha? Aparte del render: la hora actual no es parte del componente. */
+function yaPaso(iso: string): boolean {
+  return new Date(iso).getTime() < Date.now();
 }

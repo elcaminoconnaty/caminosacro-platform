@@ -202,7 +202,12 @@ export async function renderContractPdfBuffer(
   signature?: ContractSignature | null,
   orgSignature?: string | null,
   travelers?: ViajeroAnexo[] | null,
-  extras?: { informe?: InformeFirmasProps | null; numero?: string | null },
+  extras?: {
+    informe?: InformeFirmasProps | null;
+    numero?: string | null;
+    /** Contrato conjunto: la firma de cada parte, en el orden de `variables.partes`. */
+    firmasPartes?: (ContractSignature | null)[] | null;
+  },
 ): Promise<Buffer> {
   const React = await import("react");
   const { renderToBuffer } = await import("@react-pdf/renderer");
@@ -215,6 +220,7 @@ export async function renderContractPdfBuffer(
     travelers: travelers ?? [],
     informe: extras?.informe ?? null,
     numero: extras?.numero ?? null,
+    firmasPartes: extras?.firmasPartes ?? null,
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return renderToBuffer(element as any);

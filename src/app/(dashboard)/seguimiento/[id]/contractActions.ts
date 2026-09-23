@@ -27,19 +27,23 @@ import {
 } from "@/lib/contracts/render";
 import {
   esEmpresa,
+  esConjunto,
   FIRMANTE_POR_DEFECTO,
+  PLAZO_FIRMA_CONJUNTO_DIAS,
   destinatarioContrato,
   refClausula,
   saludoContrato,
   type ContractVariables,
   type PaymentPlan,
   type ViajeroAnexo,
+  type ParteContrato,
 } from "@/lib/contracts/template";
+import { sellarContratoConjunto, type SignerRow } from "@/lib/contracts/conjunto";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
 import { correoContratoParaFirma, correoFichaViajero } from "@/lib/contracts/correos";
 import { adjuntosContrato } from "@/lib/contracts/adjuntos";
 import { FICHA_TTL_DAYS, newFichaToken } from "@/lib/travelers/ficha";
-import { rutaContrato, rutaContratoEmpresa, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
+import { rutaContrato, rutaContratoConjunto, rutaContratoEmpresa, rutaPasaporte, sinBucket } from "@/lib/storage/paths";
 
 const TOKEN_TTL_DAYS = 21;
 
@@ -65,7 +69,7 @@ export type TravelerRow = {
 export type ContractRow = {
   id: string;
   quote_id: string;
-  kind: "viajero" | "empresa";
+  kind: "viajero" | "empresa" | "conjunto";
   org_signer: string;
   company_id: string | null;
   travelers_json: ViajeroAnexo[];
@@ -112,20 +116,41 @@ async function contratoDeOtraModalidad(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   quoteId: string,
-  quiero: "viajero" | "empresa",
+  quiero: "viajero" | "empresa" | "conjunto",
 ): Promise<string | null> {
-  const otra = quiero === "empresa" ? "viajero" : "empresa";
   const { data } = await supabase
     .from("contracts")
-    .select("id")
+    .select("kind")
     .eq("quote_id", quoteId)
-    .eq("kind", otra)
+    .neq("kind", quiero)
     .limit(1);
   if (!data?.length) return null;
-  return otra === "empresa"
-    ? "Esta cotización ya tiene un contrato de empresa. Anúlalo antes de crear contratos por viajero."
-    : "Esta cotización ya tiene contratos por viajero. Anúlalos antes de crear el contrato de empresa.";
+  const otra = data[0].kind as string;
+  const nombre: Record<string, string> = {
+    empresa: "un contrato de empresa",
+    viajero: "contratos por viajero",
+    conjunto: "un contrato conjunto",
+  };
+  return `Esta cotización ya tiene ${nombre[otra] ?? "otro contrato"}. Anúlalo antes de cambiar de modalidad.`;
 }
+
+/** ¿Ya firmó alguien este contrato conjunto? Entonces su texto no puede cambiar. */
+async function conjuntoConFirmas(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  contractId: string,
+): Promise<boolean> {
+  const { count } = await supabase
+    .from("contract_signers")
+    .select("id", { count: "exact", head: true })
+    .eq("contract_id", contractId)
+    .not("signed_at", "is", null);
+  return (count ?? 0) > 0;
+}
+
+const YA_FIRMO_ALGUIEN =
+  "Ya firmó al menos una persona este contrato conjunto: cambiar el texto invalidaría su firma. " +
+  "Si de verdad hay que cambiarlo, anula el contrato y créalo de nuevo; todos vuelven a firmar.";
 
 /**
  * Sella en las variables quién firma por Camino Sacro, leyéndolo de `contracts.org_signer`.
@@ -199,17 +224,27 @@ export async function saveTravelers(
     .eq("quote_id", quoteId);
   const { data: conContrato } = await supabase
     .from("contracts")
-    .select("traveler_id,kind,status")
+    .select("id,traveler_id,kind,status")
     .eq("quote_id", quoteId);
   const protegidos = new Set(
     (conContrato || []).map((c) => c.traveler_id as string | null).filter(Boolean) as string[],
   );
+  // En el contrato conjunto cada viajero es firmante: tampoco se le puede borrar sin más.
+  const conjunto = (conContrato || []).find((c) => c.kind === "conjunto");
+  if (conjunto) {
+    const { data: firmantes } = await supabase
+      .from("contract_signers")
+      .select("traveler_id")
+      .eq("contract_id", conjunto.id);
+    for (const f of firmantes || []) protegidos.add(f.traveler_id as string);
+  }
 
   // Con contrato de empresa NINGÚN viajero tiene contrato propio, así que la guarda de
   // arriba no protege a nadie — y la lista está dentro de un anexo firmado. Firmado el
   // contrato, la relación de viajeros queda cerrada: se cambia con una sustitución (el
   // parágrafo de la cláusula de cesión), no borrando la fila.
   const empresaFirmada = (conContrato || []).some((c) => c.kind === "empresa" && c.status === "firmado");
+  const conjuntoFirmado = conjunto?.status === "firmado";
 
   const conservados = new Set(limpias.map((f) => f.id).filter(Boolean) as string[]);
   const aBorrar = (actuales || [])
@@ -220,6 +255,13 @@ export async function saveTravelers(
   // sin contrato. Editar los datos de los que ya están (el pasaporte llega tarde) sí se
   // permite, que es justo lo que hace falta.
   const altas = limpias.filter((f) => !f.id).length;
+  if (conjuntoFirmado && (aBorrar.length > 0 || altas > 0)) {
+    return {
+      error:
+        "El contrato conjunto ya está firmado y estas son sus partes. " +
+        `Para cambiar a alguien hay que tramitar una cesión (${refClausula(false, "cesion", true)}), no editar la lista.`,
+    };
+  }
   if (empresaFirmada && (aBorrar.length > 0 || altas > 0)) {
     return {
       error:
@@ -263,7 +305,9 @@ export async function saveTravelers(
     ok: true,
     aviso: bloqueados.length
       ? `${bloqueados.length} viajero(s) no se eliminaron porque ya tienen contrato. Anula su contrato primero si de verdad quieres quitarlos.`
-      : undefined,
+      : conjunto && !conjuntoFirmado
+        ? "Si cambiaste nombres, correos o pasaportes, dale a «Actualizar las partes del contrato» antes de enviarlo."
+        : undefined,
   };
 }
 
@@ -840,6 +884,25 @@ export async function saveContract(
   if (!c) return { error: "El contrato no existe todavía." };
   if (c.status === "firmado") return { error: "El contrato ya está firmado y no puede modificarse." };
 
+  // Conjunto: las partes están congeladas en el contrato y ahí se quedan, llegue lo que
+  // llegue del formulario; y con una firma adentro, el texto ya no se toca.
+  if (c.kind === "conjunto") {
+    if (await conjuntoConFirmas(supabase, c.id as string)) return { error: YA_FIRMO_ALGUIEN };
+    const { data: actual } = await supabase.from("contracts").select("variables_json").eq("id", c.id).maybeSingle();
+    const previas = (actual?.variables_json ?? {}) as ContractVariables;
+    const selladas = await conFirmante(supabase, c.org_signer as string | null, {
+      ...variables,
+      ...datosConjuntoDe(previas),
+    });
+    const { error } = await supabase
+      .from("contracts")
+      .update({ variables_json: selladas, payment_plan_json: plan })
+      .eq("id", c.id);
+    if (error) return { error: mensajeError(error) };
+    revalidatePath(`/seguimiento/${c.quote_id}`);
+    return { ok: true };
+  }
+
   const selladas = await conFirmante(supabase, c.org_signer as string | null, variables);
   const { error } = await supabase
     .from("contracts")
@@ -898,6 +961,7 @@ export async function applySharedToAll(
   let omitidos = 0;
   for (const c of contratos) {
     if (c.status === "firmado") { omitidos++; continue; }
+    if (c.kind === "conjunto" && (await conjuntoConFirmas(supabase, c.id as string))) { omitidos++; continue; }
     const previas = c.variables_json as ContractVariables;
     // Se refresca lo común del viaje y se conservan los datos del firmante. Los de la
     // empresa NO se conservan a propósito: su verdad es la cotización, así que corregir
@@ -910,6 +974,7 @@ export async function applySharedToAll(
       viajero_tipo_documento: previas.viajero_tipo_documento,
       viajero_documento: previas.viajero_documento,
       viajero_direccion: previas.viajero_direccion,
+      ...(c.kind === "conjunto" ? datosConjuntoDe(previas) : {}),
     };
     const { error } = await supabase
       .from("contracts")
@@ -983,7 +1048,11 @@ export async function generateContractPdf(
 
   const vars = c.variables_json as ContractVariables;
   const code = vars.codigo_cotizacion || String(c.quote_id);
-  const pdfPath = empresa ? rutaContratoEmpresa(code, false) : rutaContrato(code, false, t?.position ?? null);
+  const pdfPath = empresa
+    ? rutaContratoEmpresa(code, false)
+    : c.kind === "conjunto"
+      ? rutaContratoConjunto(code, false)
+      : rutaContrato(code, false, t?.position ?? null);
   const filePath = sinBucket(pdfPath);
   const { error: upErr } = await supabase.storage
     .from("comercial-contracts")
@@ -1194,6 +1263,24 @@ export async function sendAllContractLinks(
   for (const c of contratos) {
     if (c.status === "firmado") continue;
     const vars = c.variables_json as ContractVariables;
+    // El conjunto no tiene un destinatario: cada firmante que no ha firmado recibe el suyo.
+    if (esConjunto(vars)) {
+      const { data: firmantes } = await supabase
+        .from("contract_signers")
+        .select("id,nombre,signed_at")
+        .eq("contract_id", c.id)
+        .order("position");
+      for (const f of firmantes ?? []) {
+        if (f.signed_at) continue;
+        const r = await sendJointLink(f.id as string, { email: true, pruebaEmail: opts.pruebaEmail });
+        if (r.error || !r.emailEnviado) {
+          fallos.push(`${f.nombre}: ${r.error ?? "el servicio de correo no aceptó el envío"}`);
+          continue;
+        }
+        enviados++;
+      }
+      continue;
+    }
     const r = await sendContractLink(c.id as string, { email: true, pruebaEmail: opts.pruebaEmail });
     if (r.error || !r.emailEnviado) {
       fallos.push(`${destinatarioContrato(vars).nombre}: ${r.error ?? "el servicio de correo no aceptó el envío"}`);
@@ -1223,3 +1310,465 @@ export async function revokeContractLink(contractId: string): Promise<{ ok?: tru
   revalidatePath(`/seguimiento/${c.quote_id}`);
   return { ok: true };
 }
+
+// =============================================================
+// Contrato conjunto (migración 0054)
+// =============================================================
+//
+// Un solo contrato con todos los viajeros como parte, obligados solidariamente por el
+// total, y un enlace de firma POR PERSONA (`contract_signers`). Es opcional: se elige en
+// la tarjeta cuando el grupo compra un único plan y quiere un solo documento. Las reglas
+// que salen de la revisión legal (sep-2026) se hacen cumplir acá, no en la pantalla:
+//
+//   - cada viajero con su propio correo (el código prueba quién firmó; dos con el mismo
+//     correo no se distinguen), su nombre y su documento — sin blancos en el contrato;
+//   - tantos firmantes como personas cotizadas: si alguien viaja sin firmar, no sirve;
+//   - sin pagaré;
+//   - desde la primera firma el texto queda congelado;
+//   - plazo de PLAZO_FIRMA_CONJUNTO_DIAS días desde el primer envío para que firmen todos.
+
+/** Solo las claves del conjunto de un juego de variables: quién contrata y las partes. */
+function datosConjuntoDe(v: ContractVariables): Partial<ContractVariables> {
+  return {
+    contratante_tipo: v.contratante_tipo,
+    partes: v.partes,
+    viajero_nombre: v.viajero_nombre,
+    viajero_email: v.viajero_email,
+    viajero_telefono: v.viajero_telefono,
+    viajero_tipo_documento: v.viajero_tipo_documento,
+    viajero_documento: v.viajero_documento,
+    viajero_direccion: v.viajero_direccion,
+  };
+}
+
+/** El conjunto no lleva pagaré, aunque el plan sea financiado. */
+function sinPagare(plan: PaymentPlan): PaymentPlan {
+  return plan.type === "financiado" ? { ...plan, con_pagare: false } : plan;
+}
+
+type ViajeroConjunto = {
+  id: string;
+  position: number;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  document_type: string | null;
+  document_number: string | null;
+  autoriza_imagen: boolean | null;
+};
+
+/**
+ * Los viajeros de la cotización, listos para ser parte de un contrato conjunto, o el
+ * motivo por el que todavía no pueden serlo.
+ */
+async function partesDeLaCotizacion(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  quoteId: string,
+): Promise<{ viajeros: ViajeroConjunto[]; partes: ParteContrato[] } | { error: string }> {
+  const [{ data: quote }, { data: filas }] = await Promise.all([
+    supabase.from("quotes").select("people").eq("id", quoteId).maybeSingle(),
+    supabase
+      .from("quote_travelers")
+      .select("id,position,full_name,email,phone,document_type,document_number,autoriza_imagen")
+      .eq("quote_id", quoteId)
+      .order("position"),
+  ]);
+  const viajeros = (filas ?? []) as ViajeroConjunto[];
+  const personas = Number(quote?.people) || 0;
+
+  if (viajeros.length < 2) return { error: "El contrato conjunto es para dos o más viajeros. Carga la lista primero." };
+  if (personas && viajeros.length !== personas) {
+    return {
+      error:
+        `La cotización es de ${personas} persona(s) y la lista tiene ${viajeros.length}. ` +
+        `En el contrato conjunto firman todos los que viajan: iguala la lista antes de crearlo.`,
+    };
+  }
+  const faltan: string[] = [];
+  for (const t of viajeros) {
+    const que = [
+      !t.full_name?.trim() && "nombre",
+      !t.email?.trim() && "correo",
+      !t.document_number?.trim() && "número de pasaporte",
+    ].filter(Boolean);
+    if (que.length) faltan.push(`${t.position}. ${t.full_name || "sin nombre"}: ${que.join(", ")}`);
+  }
+  if (faltan.length) {
+    return {
+      error:
+        `Al contrato no pueden ir espacios en blanco. Falta: ${faltan.join(" · ")}. ` +
+        `Complétalo en la lista de viajeros y guarda.`,
+    };
+  }
+  const correos = viajeros.map((t) => String(t.email).trim().toLowerCase());
+  if (new Set(correos).size !== correos.length) {
+    return {
+      error:
+        "Cada viajero necesita su propio correo: el código para firmar llega ahí y es lo que prueba " +
+        "quién firmó. Con un correo compartido, este contrato no se puede usar; hazlos por viajero.",
+    };
+  }
+  return {
+    viajeros,
+    partes: viajeros.map((t) => ({
+      position: Number(t.position),
+      nombre: String(t.full_name).trim(),
+      documento_tipo: t.document_type || "Pasaporte",
+      documento: String(t.document_number).trim(),
+      email: String(t.email).trim(),
+      telefono: t.phone || "",
+      autoriza_imagen: t.autoriza_imagen ?? null,
+    })),
+  };
+}
+
+/** Las variables del contrato conjunto: lo común del viaje + las partes congeladas. */
+function variablesConjunto(shared: ContractVariables, partes: ParteContrato[]): ContractVariables {
+  const primera = partes[0];
+  return {
+    ...shared,
+    contratante_tipo: "conjunto",
+    partes,
+    // Respaldo para lo que pide un solo destinatario; el contrato no las imprime.
+    viajero_nombre: primera.nombre,
+    viajero_email: primera.email,
+    viajero_telefono: primera.telefono,
+    viajero_tipo_documento: primera.documento_tipo,
+    viajero_documento: primera.documento,
+    num_personas: String(partes.length),
+  };
+}
+
+/**
+ * Crea el contrato conjunto de la cotización.
+ *
+ * Los contratos por viajero que haya en borrador (nunca enviados, o con el enlace anulado)
+ * se borran: eran el mismo acuerdo escrito de otra forma y no llegaron a nadie. Si alguno
+ * salió o está firmado, no se toca nada y se pide anularlo primero.
+ */
+export async function createJointContract(
+  quoteId: string,
+  shared: ContractVariables,
+  plan: PaymentPlan,
+  signerSlug?: string | null,
+): Promise<{ ok?: true; borrados?: number; error?: string }> {
+  const supabase = await createCommercialClient();
+
+  const { data: quote } = await supabase.from("quotes").select("company_id").eq("id", quoteId).maybeSingle();
+  if (!quote) return { error: "La cotización no existe." };
+  if (quote.company_id) return { error: "Esta cotización la contrata una empresa: su contrato es el de empresa." };
+
+  const { data: existentes } = await supabase
+    .from("contracts")
+    .select("id,kind,status,token")
+    .eq("quote_id", quoteId);
+  if ((existentes ?? []).some((c) => c.kind === "conjunto")) return { ok: true };
+  if ((existentes ?? []).some((c) => c.kind === "empresa")) {
+    return { error: "Esta cotización ya tiene un contrato de empresa. Anúlalo antes de cambiar de modalidad." };
+  }
+  const vivos = (existentes ?? []).filter((c) => c.status === "enviado" || c.status === "firmado" || c.token);
+  if (vivos.length > 0) {
+    return {
+      error:
+        `Hay ${vivos.length} contrato(s) por viajero enviado(s) o firmado(s). ` +
+        `Anula sus enlaces primero; los firmados no se pueden reemplazar desde aquí.`,
+    };
+  }
+
+  const r = await partesDeLaCotizacion(supabase, quoteId);
+  if ("error" in r) return { error: r.error };
+
+  const firmante = await getFirmante(supabase, signerSlug || FIRMANTE_POR_DEFECTO.slug);
+  const variables: ContractVariables = {
+    ...variablesConjunto(shared, r.partes),
+    org_nombre: firmante.nombre,
+    org_tipo_documento: firmante.documento_tipo,
+    org_documento: firmante.documento,
+  };
+
+  const borradores = (existentes ?? []).map((c) => c.id as string);
+  if (borradores.length > 0) {
+    const { error: delErr } = await supabase.from("contracts").delete().in("id", borradores);
+    if (delErr) return { error: mensajeError(delErr, "No pude quitar los borradores por viajero.") };
+  }
+
+  const { data: nuevo, error } = await supabase
+    .from("contracts")
+    .insert({
+      quote_id: quoteId,
+      kind: "conjunto",
+      org_signer: firmante.slug,
+      traveler_id: null,
+      company_id: null,
+      variables_json: variables,
+      payment_plan_json: sinPagare(plan),
+      status: "borrador",
+    })
+    .select("id")
+    .single();
+  if (error || !nuevo) return { error: mensajeError(error, "No se pudo crear el contrato conjunto.") };
+
+  const { error: sigErr } = await supabase.from("contract_signers").insert(
+    r.viajeros.map((t) => ({
+      contract_id: nuevo.id,
+      traveler_id: t.id,
+      position: Number(t.position),
+      nombre: String(t.full_name).trim(),
+      email: String(t.email).trim(),
+    })),
+  );
+  if (sigErr) {
+    await supabase.from("contracts").delete().eq("id", nuevo.id);
+    return { error: mensajeError(sigErr, "No se pudieron registrar los firmantes.") };
+  }
+
+  await persistirDatosCliente(supabase, quoteId, variables);
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true, borrados: borradores.length };
+}
+
+/**
+ * Vuelve a copiar la lista de viajeros al contrato conjunto (nombres, documentos, correos,
+ * autorización de imagen) y ajusta los firmantes. Solo mientras nadie haya firmado.
+ */
+export async function refreshJointParties(contractId: string): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: c } = await supabase
+    .from("contracts")
+    .select("id,kind,status,quote_id,variables_json")
+    .eq("id", contractId)
+    .maybeSingle();
+  if (!c || c.kind !== "conjunto") return { error: "El contrato conjunto no existe." };
+  if (c.status === "firmado" || (await conjuntoConFirmas(supabase, c.id as string))) return { error: YA_FIRMO_ALGUIEN };
+
+  const r = await partesDeLaCotizacion(supabase, c.quote_id as string);
+  if ("error" in r) return { error: r.error };
+
+  const previas = c.variables_json as ContractVariables;
+  const { error } = await supabase
+    .from("contracts")
+    .update({ variables_json: variablesConjunto(previas, r.partes) })
+    .eq("id", c.id);
+  if (error) return { error: mensajeError(error) };
+
+  const { data: actuales } = await supabase
+    .from("contract_signers")
+    .select("id,traveler_id")
+    .eq("contract_id", c.id);
+  const porViajero = new Map((actuales ?? []).map((s) => [s.traveler_id as string, s.id as string]));
+  const siguen = new Set(r.viajeros.map((t) => t.id));
+  const sobran = (actuales ?? []).filter((s) => !siguen.has(s.traveler_id as string)).map((s) => s.id as string);
+  if (sobran.length) await supabase.from("contract_signers").delete().in("id", sobran);
+  for (const t of r.viajeros) {
+    const fila = { position: Number(t.position), nombre: String(t.full_name).trim(), email: String(t.email).trim() };
+    const id = porViajero.get(t.id);
+    const { error: e } = id
+      ? await supabase.from("contract_signers").update(fila).eq("id", id)
+      : await supabase.from("contract_signers").insert({ ...fila, contract_id: c.id, traveler_id: t.id });
+    if (e) return { error: mensajeError(e) };
+  }
+
+  revalidatePath(`/seguimiento/${c.quote_id}`);
+  return { ok: true };
+}
+
+/** Borra el contrato conjunto para volver a los contratos por viajero. Solo si nadie firmó. */
+export async function deleteJointContract(contractId: string): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: c } = await supabase
+    .from("contracts")
+    .select("id,kind,status,quote_id")
+    .eq("id", contractId)
+    .maybeSingle();
+  if (!c || c.kind !== "conjunto") return { error: "El contrato conjunto no existe." };
+  if (c.status === "firmado" || (await conjuntoConFirmas(supabase, c.id as string))) {
+    return { error: "Ya firmó al menos una persona: el contrato no se puede borrar desde aquí." };
+  }
+  const { error } = await supabase.from("contracts").delete().eq("id", c.id);
+  if (error) return { error: mensajeError(error) };
+  revalidatePath(`/seguimiento/${c.quote_id}`);
+  return { ok: true };
+}
+
+/**
+ * Activa (o renueva) el enlace de firma de UNO de los firmantes del contrato conjunto y,
+ * si se pide, se lo manda por correo. Mismo contrato de comportamiento que
+ * `sendContractLink`: el estado solo se mueve si el correo salió, y la prueba no mueve nada.
+ *
+ * El primer envío real arranca el plazo de firma del contrato; los reenvíos no lo alargan.
+ */
+export async function sendJointLink(
+  signerId: string,
+  opts: { email: boolean; pruebaEmail?: string | null },
+): Promise<{ ok?: true; url?: string; emailEnviado?: boolean; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: s } = await supabase
+    .from("contract_signers")
+    .select("id,contract_id,nombre,email,token,signed_at")
+    .eq("id", signerId)
+    .maybeSingle();
+  if (!s) return { error: "Ese firmante no existe." };
+  if (s.signed_at) return { error: `${s.nombre} ya firmó.` };
+
+  const { data: c } = await supabase
+    .from("contracts")
+    .select("id,status,quote_id,variables_json,sent_at,token_expires_at")
+    .eq("id", s.contract_id)
+    .maybeSingle();
+  if (!c) return { error: "El contrato no existe." };
+  if (c.status === "firmado") return { error: "El contrato ya está firmado." };
+
+  const ahora = Date.now();
+  const plazo = c.token_expires_at ? new Date(c.token_expires_at as string).getTime() : null;
+  if (c.sent_at && plazo && plazo < ahora) {
+    return {
+      error:
+        `Venció el plazo de ${PLAZO_FIRMA_CONJUNTO_DIAS} días para que firmaran todos: según el contrato, ` +
+        `las firmas quedan sin efecto. Anula el contrato conjunto y créalo de nuevo; todos vuelven a firmar.`,
+    };
+  }
+  const vence = new Date(plazo && c.sent_at ? plazo : ahora + PLAZO_FIRMA_CONJUNTO_DIAS * 86400000).toISOString();
+
+  const gen = await generateContractPdf(c.id as string);
+  if (gen.error) return { error: gen.error };
+
+  const esPrueba = !!opts.pruebaEmail;
+  const token = s.token || newContractToken();
+  const { error: tokErr } = await supabase
+    .from("contract_signers")
+    .update({ token, token_expires_at: vence })
+    .eq("id", s.id);
+  if (tokErr) return { error: mensajeError(tokErr) };
+
+  const arrancarPlazo = async () => {
+    await supabase
+      .from("contracts")
+      .update({
+        status: "enviado",
+        sent_at: (c.sent_at as string | null) ?? new Date(ahora).toISOString(),
+        token_expires_at: vence,
+      })
+      .eq("id", c.id);
+  };
+  // Sin correo el enlace lo manda Nico a mano: ya está en la calle, así que corre el plazo.
+  if (!opts.email) await arrancarPlazo();
+
+  const h = await headers();
+  const url = `${baseUrl(h)}/contrato/${token}`;
+
+  let emailEnviado = false;
+  let errorEmail: string | undefined;
+  if (opts.email) {
+    const vars = c.variables_json as ContractVariables;
+    const destino = opts.pruebaEmail || (s.email as string | null);
+    if (!destino) return { ok: true, url, emailEnviado: false, error: `${s.nombre} no tiene correo.` };
+
+    let pdfUrl: string | null = null;
+    const { data: fresh } = await supabase.from("contracts").select("pdf_path").eq("id", c.id).maybeSingle();
+    if (fresh?.pdf_path) {
+      const { data: signed } = await supabase.storage
+        .from("comercial-contracts")
+        .createSignedUrl(sinBucket(String(fresh.pdf_path)), 60 * 60 * 24 * 7);
+      pdfUrl = signed?.signedUrl ?? null;
+    }
+    const adjuntos = await adjuntosContrato(
+      supabase,
+      c.quote_id as string,
+      { url: pdfUrl, name: `Contrato-${vars.codigo_cotizacion}.pdf` },
+      vars.codigo_cotizacion,
+    );
+    const prefijo = esPrueba ? "[PRUEBA] " : "";
+    const dias = Math.max(1, Math.ceil((new Date(vence).getTime() - ahora) / 86400000));
+    const correo = correoContratoParaFirma({
+      code: vars.codigo_cotizacion,
+      empresa: false,
+      saludo: String(s.nombre).trim().split(/\s+/)[0] || "",
+      ruta: vars.ruta_nombre,
+      fechaInicio: vars.fecha_inicio,
+      personas: Number(vars.num_personas) || 1,
+      url,
+      dias,
+      conCotizacion: adjuntos.conCotizacion,
+      avisoPrueba: esPrueba ? `(Correo de PRUEBA. El destinatario real sería ${s.email || "—"}.)` : null,
+      cofirmantes: (vars.partes ?? []).map((p) => p.nombre).filter((n) => n !== s.nombre),
+    });
+    const envio = await enviarCorreoContrato({
+      code: vars.codigo_cotizacion,
+      nombre: String(s.nombre),
+      email: destino,
+      telefono: (vars.partes ?? []).find((p) => p.nombre === s.nombre)?.telefono || null,
+      ruta: vars.ruta_nombre,
+      fecha_inicio: vars.fecha_inicio,
+      personas: Number(vars.num_personas) || 1,
+      alojamiento: vars.modalidad,
+      total_eur: null,
+      pdf_url: adjuntos.pdf_url,
+      attachments: adjuntos.attachments,
+      subject: `${prefijo}${s.nombre} - Contrato para firma - ${vars.codigo_cotizacion}${vars.ruta_nombre ? ` - ${vars.ruta_nombre}` : ""}`,
+      body: correo.texto,
+      html: correo.html,
+      attachment_name: adjuntos.attachment_name,
+      aviso: false,
+    }, { supabase, quoteId: c.quote_id as string, prueba: esPrueba });
+    emailEnviado = envio.ok;
+    errorEmail = envio.ok ? undefined : (envio.error ?? "No se pudo enviar el correo.");
+
+    if (envio.ok && !esPrueba) {
+      await supabase
+        .from("contract_signers")
+        .update({ sent_at: new Date().toISOString(), last_reminder_at: null, reminder_count: 0 })
+        .eq("id", s.id);
+      await arrancarPlazo();
+    }
+  }
+
+  revalidatePath(`/seguimiento/${c.quote_id}`);
+  return { ok: true, url, emailEnviado, error: errorEmail };
+}
+
+/** Anula el enlace de un firmante. Si ya nadie tiene enlace, el contrato vuelve a revisión. */
+export async function revokeJointLink(signerId: string): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createCommercialClient();
+  const { data: s } = await supabase
+    .from("contract_signers")
+    .select("id,contract_id,signed_at")
+    .eq("id", signerId)
+    .maybeSingle();
+  if (!s) return { error: "Ese firmante no existe." };
+  if (s.signed_at) return { error: "Ya firmó: su enlace se queda para que pueda ver su firma." };
+  const { error } = await supabase
+    .from("contract_signers")
+    .update({ token: null, token_expires_at: null })
+    .eq("id", s.id);
+  if (error) return { error: mensajeError(error) };
+
+  const { count } = await supabase
+    .from("contract_signers")
+    .select("id", { count: "exact", head: true })
+    .eq("contract_id", s.contract_id)
+    .not("token", "is", null);
+  if (!count) await supabase.from("contracts").update({ status: "borrador" }).eq("id", s.contract_id).eq("status", "enviado");
+
+  const { data: c } = await supabase.from("contracts").select("quote_id").eq("id", s.contract_id).maybeSingle();
+  if (c) revalidatePath(`/seguimiento/${c.quote_id}`);
+  return { ok: true };
+}
+
+/**
+ * Reintenta el cierre del contrato conjunto cuando ya firmaron todos pero el sellado no
+ * terminó (se cayó el render o la subida). Es la misma función que corre al firmar el último.
+ */
+export async function sealJointContract(contractId: string): Promise<{ ok?: true; mensaje?: string; error?: string }> {
+  const supabase = await createCommercialClient();
+  const r = await sellarContratoConjunto(supabase, contractId);
+  if (!r.ok) return { error: r.error };
+  const { data: c } = await supabase.from("contracts").select("quote_id").eq("id", contractId).maybeSingle();
+  if (c) revalidatePath(`/seguimiento/${c.quote_id}`);
+  if (!r.sellado) {
+    return r.faltan > 0 ? { error: `Todavía faltan ${r.faltan} firma(s).` } : { ok: true, mensaje: "El contrato ya estaba cerrado." };
+  }
+  return { ok: true, mensaje: `Contrato sellado. Copia enviada a ${r.correos} firmante(s).` };
+}
+
+export type { SignerRow };
