@@ -33,3 +33,13 @@ export function aplicarReferenciaPilgrim(
   }
   return { subject: asunto, body: cuerpo };
 }
+
+/**
+ * El asunto con el que sale un correo en el hilo con Pilgrim: "RE: " + el asunto del hilo,
+ * sin acumular prefijos ("RE: RE: RV: …"). Es el mismo que pone Outlook al responder, y el
+ * que tiene que ver quien revisa el correo en pantalla y en la prueba.
+ */
+export function asuntoDelHilo(asuntoHilo: string | null | undefined): string {
+  const limpio = (asuntoHilo ?? "").replace(/^((re|rv|fw|fwd)\s*:\s*)+/i, "").trim();
+  return `RE: ${limpio || "(sin asunto)"}`;
+}

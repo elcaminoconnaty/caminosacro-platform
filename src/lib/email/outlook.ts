@@ -215,3 +215,28 @@ export async function responderEnHilo(opts: {
 
   return { ok: true, threadId: borrador.data.conversationId ?? null };
 }
+
+/**
+ * Un correo NUEVO desde reservas@ (fuera de cualquier hilo). Lo usa la prueba del correo a
+ * Pilgrim: sale del mismo buzón y con la misma pinta que el real, pero a la dirección de
+ * prueba y sin tocar el hilo, para que a Pilgrim no le llegue nada.
+ */
+export async function enviarNuevo(opts: {
+  para: string;
+  asunto: string;
+  html: string;
+  adjuntos: AdjuntoOutlook[];
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const borrador = await graph<Borrador>("POST", "/me/messages", {
+    subject: opts.asunto,
+    body: { contentType: "HTML", content: opts.html },
+    toRecipients: [{ emailAddress: { address: opts.para } }],
+  });
+  if (!borrador.ok) return { ok: false, error: `No se pudo preparar el correo: ${borrador.error}` };
+  const id = borrador.data.id;
+  const errAdj = await adjuntar(id, opts.adjuntos);
+  if (errAdj) return { ok: false, error: `${errAdj} (Quedó un borrador en Borradores de reservas@.)` };
+  const envio = await graph("POST", `/me/messages/${encodeURIComponent(id)}/send`);
+  if (!envio.ok) return { ok: false, error: `Outlook no envió el correo: ${envio.error} (Quedó un borrador en Borradores.)` };
+  return { ok: true };
+}

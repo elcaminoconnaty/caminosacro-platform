@@ -8,7 +8,7 @@ import { useState, useTransition } from "react";
 import { enviarCorreoPilgrim, buscarHilosPilgrim, enlazarHiloPilgrim, desenlazarHiloPilgrim } from "./actions";
 import type { HiloOutlook } from "@/lib/email/outlook";
 import { savePilgrimRef } from "./travelDocActions";
-import { aplicarReferenciaPilgrim } from "@/lib/quotes/pilgrimRef";
+import { aplicarReferenciaPilgrim, asuntoDelHilo } from "@/lib/quotes/pilgrimRef";
 
 function fechaEnvio(iso: string): string {
   return new Intl.DateTimeFormat("es-CO", {
@@ -129,6 +129,8 @@ export default function PilgrimEmailCard({
   const [emailPrueba, setEmailPrueba] = useState("");
   // La prueba nunca va por el hilo: le llegaría a Pilgrim.
   const enHilo = !!hilo && !modoPrueba;
+  // Con hilo enlazado, el asunto es el del hilo — en el envío real y en la prueba.
+  const asuntoHilo = hilo ? asuntoDelHilo(hilo.subject) : null;
 
   async function copy(label: string, text: string) {
     try {
@@ -349,15 +351,16 @@ export default function PilgrimEmailCard({
           <label className="text-xs text-muted mb-0.5 block" htmlFor="pilgrim-asunto">Asunto</label>
           <input
             id="pilgrim-asunto"
-            value={subject}
+            value={asuntoHilo ?? subject}
             onChange={(e) => setSubject(e.target.value)}
-            disabled={enHilo}
+            disabled={!!asuntoHilo}
             className="w-full font-medium bg-crema border border-border rounded-md px-3 py-2 focus:outline-none focus:border-bosque disabled:opacity-60"
           />
-          {enHilo && (
+          {asuntoHilo && (
             <p className="text-xs text-muted mt-1">
-              Al responder en el hilo, el asunto es el del hilo («RE: {hilo?.subject?.replace(/^(re|rv|fw|fwd):\s*/i, "")}»):
-              cambiarlo lo sacaría del hilo. La referencia de Pilgrim va igual en los datos del correo.
+              Con el hilo enlazado, el asunto es el del hilo: cambiarlo lo sacaría del hilo. La referencia de Pilgrim va
+              igual en los datos del correo.{" "}
+              {modoPrueba && "La prueba sale desde reservas@ con este mismo asunto, como correo nuevo a tu dirección."}
             </p>
           )}
         </div>

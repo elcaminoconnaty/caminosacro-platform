@@ -6,7 +6,8 @@ import { armarCorreoPilgrim, getPilgrimSettings } from "@/lib/quotes/pilgrimEmai
 import { correoPilgrimHtml } from "@/lib/quotes/pilgrimHtml";
 import { EMAIL_PDF_TTL } from "@/lib/quotes/clientEmail";
 import type { ComercialClient } from "@/lib/quotes/pdf";
-import { outlookConfigurado, responderEnHilo, type AdjuntoOutlook } from "@/lib/email/outlook";
+import { enviarNuevo, outlookConfigurado, responderEnHilo, type AdjuntoOutlook } from "@/lib/email/outlook";
+import { asuntoDelHilo } from "@/lib/quotes/pilgrimRef";
 
 const TIPO_POR_EXTENSION: Record<string, string> = {
   pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
@@ -53,9 +54,11 @@ export async function enviarCorreoAPilgrim(
   const armado = await armarCorreoPilgrim(supabase, quoteId);
   if (!armado.ok) return { error: armado.error };
 
-  // ---- Con hilo enlazado: respuesta DENTRO del hilo, desde el buzón de reservas@ ----
-  // La prueba NO va por aquí: una prueba en el hilo le llegaría a Pilgrim. Sigue por Brevo.
-  if (quote.pilgrim_thread_message_id && !esPrueba && outlookConfigurado()) {
+  // ---- Con hilo enlazado: desde el buzón de reservas@, con el asunto del hilo ----
+  // El envío real es una respuesta DENTRO del hilo. La prueba sale del mismo buzón y con el
+  // mismo asunto, pero como correo nuevo a la dirección de prueba: si fuera en el hilo, le
+  // llegaría a Pilgrim.
+  if (quote.pilgrim_thread_message_id && outlookConfigurado()) {
     return enviarEnHiloPilgrim(supabase, {
       quote: {
         id: quote.id as string,
@@ -67,6 +70,7 @@ export async function enviarCorreoAPilgrim(
       destino,
       body,
       adjuntos: armado.correo.adjuntos,
+      prueba: esPrueba ? { email: destino, pilgrim: ajustes.email } : null,
     });
   }
 
@@ -185,6 +189,8 @@ async function enviarEnHiloPilgrim(
     destino: string;
     body: string;
     adjuntos: { path: string; nombre: string }[];
+    /** Prueba: a esta dirección, como correo nuevo, sin tocar el hilo ni el expediente. */
+    prueba: { email: string; pilgrim: string } | null;
   },
 ): Promise<{ ok?: true; email?: string; adjuntos?: number; confirmado?: boolean; enHilo?: boolean; error?: string }> {
   const archivos: AdjuntoOutlook[] = [];
@@ -196,15 +202,21 @@ async function enviarEnHiloPilgrim(
     archivos.push({ nombre: a.nombre, tipo: TIPO_POR_EXTENSION[ext] || "application/octet-stream", contenido: Buffer.from(await data.arrayBuffer()) });
   }
 
+  const esPrueba = !!o.prueba;
+  const cuerpo = esPrueba
+    ? `(Correo de PRUEBA. En el envío real va como respuesta dentro del hilo con ${o.prueba!.pilgrim || "Pilgrim"}.)\n\n${o.body}`
+    : o.body;
   const html = correoPilgrimHtml({
-    cuerpo: o.body,
+    cuerpo,
     code: o.quote.code,
     ruta: o.quote.route_name,
     adjuntos: archivos.length,
-    esPrueba: false,
+    esPrueba,
   });
-  const r = await responderEnHilo({ mensajeId: o.quote.mensajeId, html, adjuntos: archivos });
-  const asunto = o.quote.asuntoHilo ? `RE: ${o.quote.asuntoHilo.replace(/^(re|rv|fw|fwd):\s*/i, "")}` : `Reserva ${o.quote.code}`;
+  const asunto = `${esPrueba ? "[PRUEBA] " : ""}${asuntoDelHilo(o.quote.asuntoHilo)}`;
+  const r = esPrueba
+    ? await enviarNuevo({ para: o.prueba!.email, asunto, html, adjuntos: archivos })
+    : await responderEnHilo({ mensajeId: o.quote.mensajeId, html, adjuntos: archivos });
 
   await registrarEnvio(supabase, {
     quoteId: o.quote.id,
@@ -214,12 +226,13 @@ async function enviarEnHiloPilgrim(
     asunto,
     adjuntos: archivos.length,
     // Outlook no devuelve id al enviar; la prueba del envío es que está en Enviados.
-    messageId: r.ok ? `outlook:${r.threadId ?? "hilo"}` : null,
+    messageId: r.ok ? `outlook:${"threadId" in r ? r.threadId ?? "hilo" : "prueba"}` : null,
     error: r.ok ? null : r.error,
-    prueba: false,
+    prueba: esPrueba,
     html,
   });
   if (!r.ok) return { error: r.error };
+  if (esPrueba) return { ok: true, email: o.destino, adjuntos: archivos.length, confirmado: true, enHilo: false };
 
   await supabase.from("quotes").update({ pilgrim_email_sent_at: new Date().toISOString() }).eq("id", o.quote.id);
   return { ok: true, email: o.destino, adjuntos: archivos.length, confirmado: true, enHilo: true };
