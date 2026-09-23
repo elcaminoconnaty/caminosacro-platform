@@ -205,7 +205,8 @@ export const PLANTILLAS: PlantillaMensaje[] = [
       {
         id: "asunto",
         etiqueta: "Asunto",
-        variables: ["codigo", "ruta", "fecha", "personas", "peregrinos"],
+        ayuda: "Si la cotización ya tiene referencia de Pilgrim, se agrega sola al final (« · Ref. Pilgrim 47397»), salvo que la uses aquí con {{referencia_pilgrim}}.",
+        variables: ["codigo", "ruta", "fecha", "personas", "peregrinos", "referencia_pilgrim"],
         filas: 1,
         valor: "Reserva {{codigo}} — {{ruta}} — salida {{fecha}} — {{personas}} {{peregrinos}}",
       },

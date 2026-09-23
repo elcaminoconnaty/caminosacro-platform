@@ -642,6 +642,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       <Plegable seccion="correo-pilgrim" titulo="el correo a Pilgrim">
         <PilgrimEmailCard
           quoteId={id}
+          pilgrimRef={(quote.pilgrim_ref as string | null) ?? null}
           to={pilgrimSettings.email}
           sentAt={quote.pilgrim_email_sent_at ?? null}
           subject={pilgrimMail.subject}

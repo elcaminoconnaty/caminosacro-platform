@@ -7,6 +7,7 @@ import { textosDe } from "@/lib/mensajes/plantillas";
 import { getMensajes } from "@/lib/mensajes/settings";
 import { getFirmantes } from "@/lib/contracts/render";
 import { nombrePropio } from "@/lib/nombres";
+import { aplicarReferenciaPilgrim } from "@/lib/quotes/pilgrimRef";
 
 /**
  * Correo a Pilgrim: el detalle completo de la reserva a SUS precios, los viajeros con
@@ -92,7 +93,7 @@ export async function armarCorreoPilgrim(
   const { data: quote } = await supabase
     .from("quotes")
     // Una sola cadena literal: partirla con `+` rompe la inferencia de tipos de Supabase.
-    .select("id,code,route_id,route_name,modality,start_date,end_date,people,season_kind,cost_base_eur,season_supplement_cost_eur,cost_eur,rooms_json")
+    .select("id,code,route_id,route_name,modality,start_date,end_date,people,season_kind,cost_base_eur,season_supplement_cost_eur,cost_eur,rooms_json,pilgrim_ref")
     .eq("id", quoteId)
     .maybeSingle();
   if (!quote) return { ok: false, error: "No encontré la cotización." };
@@ -217,7 +218,9 @@ export async function armarCorreoPilgrim(
   }
   if (tarifas.length === 0) tarifas.push(linea("Sin conceptos cargados", eur(0)));
 
+  const refPilgrim = String(quote.pilgrim_ref ?? "").trim();
   const subject = renderTemplate(t.asunto, {
+    referencia_pilgrim: refPilgrim,
     codigo: quote.code,
     ruta: quote.route_name || "Camino de Santiago",
     fecha: fechaCorta(quote.start_date),
@@ -264,5 +267,13 @@ export async function armarCorreoPilgrim(
     renderTemplate(t.firma, { firmante: nombrePropio(firmantes[0]?.nombre) || "Nicolás Villa Posada" }),
   ].join("\n");
 
-  return { ok: true, correo: { subject, body, adjuntos, pendientes, total } };
+  // La referencia de Pilgrim, si ya la hay: en el asunto y en los datos del viaje. Si la
+  // plantilla del asunto ya la trae con {{referencia_pilgrim}}, no se repite.
+  const conRef = aplicarReferenciaPilgrim(subject, body, refPilgrim);
+  const yaEnAsunto = !!refPilgrim && subject.includes(refPilgrim);
+
+  return {
+    ok: true,
+    correo: { subject: yaEnAsunto ? subject : conRef.subject, body: conRef.body, adjuntos, pendientes, total },
+  };
 }

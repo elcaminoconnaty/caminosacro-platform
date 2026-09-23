@@ -6,6 +6,8 @@
 
 import { useState, useTransition } from "react";
 import { enviarCorreoPilgrim } from "./actions";
+import { savePilgrimRef } from "./travelDocActions";
+import { aplicarReferenciaPilgrim } from "@/lib/quotes/pilgrimRef";
 
 function fechaEnvio(iso: string): string {
   return new Intl.DateTimeFormat("es-CO", {
@@ -25,7 +27,10 @@ export default function PilgrimEmailCard({
   body: bodyInicial,
   adjuntos,
   pendientes,
+  pilgrimRef = null,
 }: {
+  /** Referencia de reserva de Pilgrim (quotes.pilgrim_ref): la misma de la documentación de viaje. */
+  pilgrimRef?: string | null;
   quoteId: string;
   to: string;
   sentAt?: string | null;
@@ -39,6 +44,34 @@ export default function PilgrimEmailCard({
   const [body, setBody] = useState(bodyInicial);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const [enviando, startEnvio] = useTransition();
+  const [referencia, setReferencia] = useState(pilgrimRef ?? "");
+  const [refGuardada, setRefGuardada] = useState(pilgrimRef ?? "");
+  const [guardandoRef, startRef] = useTransition();
+  const [avisoRef, setAvisoRef] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  /**
+   * Guarda la referencia (es el mismo dato que sale en la documentación de viaje) y la
+   * pone en el asunto y en los datos del correo, respetando lo que ya se haya editado.
+   */
+  function guardarReferencia() {
+    setAvisoRef(null);
+    const ref = referencia.trim();
+    startRef(async () => {
+      const r = await savePilgrimRef(quoteId, ref || null);
+      if (r.error) {
+        setAvisoRef({ ok: false, texto: r.error });
+        return;
+      }
+      const nuevo = aplicarReferenciaPilgrim(subject, body, ref);
+      setSubject(nuevo.subject);
+      setBody(nuevo.body);
+      setRefGuardada(ref);
+      setAvisoRef({
+        ok: true,
+        texto: ref ? "✓ Guardada: ya va en el asunto y en los datos del viaje." : "✓ Referencia quitada del correo.",
+      });
+    });
+  }
 
   // Modo prueba: el correo va a la dirección indicada en vez de a Pilgrim, y no
   // marca la cotización como ya enviada. Permite ensayar con 1, 2, 3 o 20 viajeros.
@@ -138,6 +171,36 @@ export default function PilgrimEmailCard({
           <div className="font-mono text-xs">
             {destinoVisible || <span className="text-amber-700 font-sans italic">Sin correo de Pilgrim — configúralo en Configuración</span>}
           </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted mb-0.5 block" htmlFor="pilgrim-ref">
+            Referencia de reserva de Pilgrim
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="pilgrim-ref"
+              value={referencia}
+              onChange={(e) => setReferencia(e.target.value)}
+              placeholder="ej. 47397"
+              className="w-40 font-mono bg-crema border border-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-bosque"
+            />
+            <button
+              type="button"
+              onClick={guardarReferencia}
+              disabled={guardandoRef || referencia.trim() === refGuardada.trim()}
+              className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-taupe/40 transition disabled:opacity-50"
+            >
+              {guardandoRef ? "Guardando…" : "Guardar referencia"}
+            </button>
+            {avisoRef && (
+              <span className={`text-xs ${avisoRef.ok ? "text-bosque" : "text-red-600"}`}>{avisoRef.texto}</span>
+            )}
+          </div>
+          <p className="text-xs text-muted mt-1">
+            El número con el que Pilgrim identifica la reserva. Es el mismo de la documentación de viaje: cambiarlo aquí
+            lo cambia allá.
+          </p>
         </div>
 
         <div>
