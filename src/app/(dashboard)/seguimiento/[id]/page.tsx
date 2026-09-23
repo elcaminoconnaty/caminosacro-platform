@@ -23,6 +23,7 @@ import { type EnvioResumen } from "./EstadoEnvio";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
 import WhatsAppCard from "./WhatsAppCard";
+import Plegable from "./Plegable";
 import EntregasCard, { type EntregaVista } from "./EntregasCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
 import { buildDefaultVariables, getFirmantes } from "@/lib/contracts/render";
@@ -525,65 +526,77 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           a Pilgrim → los hoteles → los pagos. Sigue el recorrido real de una venta:
           los contratos se firman ANTES del correo a Pilgrim, que es justo cuando
           entran los números de pasaporte que ese correo necesita. */}
-      <QuoteEditor
-        quote={quote}
-        routes={routes || []}
-        pricing={pricingFlat}
-        seasonConfig={seasonConfig}
-        company={(company as CompanyLite | null) ?? null}
-      />
+      <Plegable seccion="datos" titulo="los datos de la cotización">
+        <QuoteEditor
+          quote={quote}
+          routes={routes || []}
+          pricing={pricingFlat}
+          seasonConfig={seasonConfig}
+          company={(company as CompanyLite | null) ?? null}
+        />
+      </Plegable>
 
-      <ItineraryCard
-        quoteId={id}
-        routeName={quote.route_name}
-        startDate={quote.start_date}
-        endDate={quote.end_date}
-        etapasCatalogo={etapasCatalogo}
-        etapasPropias={etapasPropias}
-      />
-
-      <OptionalsCard
-        quoteId={id}
-        catalog={optionalsCatalog}
-        selected={optionalLines}
-        baseEur={Number(quote.base_eur) || total}
-        totalEur={total}
-        seasonSupplementEur={Number(quote.season_supplement_eur) || 0}
-        people={quote.people}
-        quoteYear={optionalYear}
-      />
-
-      {esRutaBici && (
-        <BikesCard
+      <Plegable seccion="itinerario" titulo="el itinerario">
+        <ItineraryCard
           quoteId={id}
-          bikes={bikes}
-          selected={bikeLines}
+          routeName={quote.route_name}
+          startDate={quote.start_date}
+          endDate={quote.end_date}
+          etapasCatalogo={etapasCatalogo}
+          etapasPropias={etapasPropias}
+        />
+      </Plegable>
+
+      <Plegable seccion="opcionales" titulo="los servicios opcionales">
+        <OptionalsCard
+          quoteId={id}
+          catalog={optionalsCatalog}
+          selected={optionalLines}
+          baseEur={Number(quote.base_eur) || total}
           totalEur={total}
+          seasonSupplementEur={Number(quote.season_supplement_eur) || 0}
           people={quote.people}
           quoteYear={optionalYear}
         />
+      </Plegable>
+
+      {esRutaBici && (
+        <Plegable seccion="bicicletas" titulo="el alquiler de bicicleta">
+          <BikesCard
+            quoteId={id}
+            bikes={bikes}
+            selected={bikeLines}
+            totalEur={total}
+            people={quote.people}
+            quoteYear={optionalYear}
+          />
+        </Plegable>
       )}
 
-      <DocumentsCard
-        quoteId={id}
-        storagePath={quote.pdf_path}
-        filename={basename(quote.pdf_path)}
-      />
+      <Plegable seccion="pdf" titulo="el PDF de la cotización">
+        <DocumentsCard
+          quoteId={id}
+          storagePath={quote.pdf_path}
+          filename={basename(quote.pdf_path)}
+        />
+      </Plegable>
 
-      <EmailPreviewCard
-        quoteId={id}
-        to={quote.client_email || ""}
-        sinPlantilla={!emailTpl}
-        envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
-        subject={renderTemplate(
-          emailTpl?.subject || "Cotización {{code}} - Camino Sacro",
-          buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name), cobrado),
-        )}
-        body={renderTemplate(
-          emailTpl?.body_md || "Hola {{nombre}}, te envío la cotización adjunta.\n\nBuen Camino,\nCamino Sacro",
-          buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name), cobrado),
-        )}
-      />
+      <Plegable seccion="correo-cliente" titulo="el correo para el cliente">
+        <EmailPreviewCard
+          quoteId={id}
+          to={quote.client_email || ""}
+          sinPlantilla={!emailTpl}
+          envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
+          subject={renderTemplate(
+            emailTpl?.subject || "Cotización {{code}} - Camino Sacro",
+            buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name), cobrado),
+          )}
+          body={renderTemplate(
+            emailTpl?.body_md || "Hola {{nombre}}, te envío la cotización adjunta.\n\nBuen Camino,\nCamino Sacro",
+            buildTemplateVars(quote, total, trmRow, findRouteMeta(routes, quote.route_name), cobrado),
+          )}
+        />
+      </Plegable>
 
       {/* Pegada al correo del cliente porque es el mismo encargo por el otro canal: a la
           gente que cotizó en la web sin precio se le escribe por WhatsApp, y ahí hay que
@@ -600,32 +613,38 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
       <EntregasCard entregas={entregas as unknown as EntregaVista[]} totalActual={total} />
 
-      <ContractCard
-        quoteId={id}
-        quoteCode={quote.code}
-        people={Number(quote.people) || 1}
-        travelers={(travelers as TravelerRow[] | null) ?? []}
-        contracts={(contractRows as ContractRow[] | null) ?? []}
-        sharedVariables={contractDefaults}
-        totalEur={total}
-        companyName={(company as CompanyLite | null)?.legal_name ?? null}
-        firmantes={firmantes}
-      />
+      <Plegable seccion="contratos" titulo="los contratos">
+        <ContractCard
+          quoteId={id}
+          quoteCode={quote.code}
+          people={Number(quote.people) || 1}
+          travelers={(travelers as TravelerRow[] | null) ?? []}
+          contracts={(contractRows as ContractRow[] | null) ?? []}
+          sharedVariables={contractDefaults}
+          totalEur={total}
+          companyName={(company as CompanyLite | null)?.legal_name ?? null}
+          firmantes={firmantes}
+        />
+      </Plegable>
 
-      <PilgrimEmailCard
-        quoteId={id}
-        to={pilgrimSettings.email}
-        sentAt={quote.pilgrim_email_sent_at ?? null}
-        subject={pilgrimMail.subject}
-        body={pilgrimMail.body}
-        adjuntos={pilgrimMail.adjuntos}
-        pendientes={pilgrimMail.pendientes}
-      />
+      <Plegable seccion="correo-pilgrim" titulo="el correo a Pilgrim">
+        <PilgrimEmailCard
+          quoteId={id}
+          to={pilgrimSettings.email}
+          sentAt={quote.pilgrim_email_sent_at ?? null}
+          subject={pilgrimMail.subject}
+          body={pilgrimMail.body}
+          adjuntos={pilgrimMail.adjuntos}
+          pendientes={pilgrimMail.pendientes}
+        />
+      </Plegable>
 
-      <PilgrimFilesCard
-        quoteId={id}
-        files={((pilgrimFiles as unknown) as PilgrimFile[]) || []}
-      />
+      <Plegable seccion="documentos-pilgrim" titulo="los documentos de Pilgrim">
+        <PilgrimFilesCard
+          quoteId={id}
+          files={((pilgrimFiles as unknown) as PilgrimFile[]) || []}
+        />
+      </Plegable>
 
       {/* La puerta es el SALDO, no la etiqueta.
           Antes esta tarjeta solo se dibujaba si el estado decía «pago completo», y como
@@ -636,30 +655,36 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           cambio no lo tienen reflejado en su etiqueta. `isFullyPaid` se mantiene como
           segunda vía para los estados que pone una persona a mano («completada»). */}
       {(saldoCliente <= 0.01 && total > 0) || isFullyPaid(quote.status) ? (
-        <TravelDocCard
-          quoteId={id}
-          quoteCode={quote.code}
-          clientName={quote.client_name ?? null}
-          clientEmail={quote.client_email ?? ""}
-          routeName={quote.route_name ?? null}
-          hotels={((hotelOptions as unknown) as HotelOpcion[]) || []}
-          initialNights={((nightsData as unknown) as NocheInicial[]) || []}
-          estado={estadoDocumentacion}
-          envio={resumenEnvio("documentacion", estadoDocumentacion.sentAt)}
-          baseUrl={appBaseUrl}
-          asistenciaLista={asistenciaLista}
-          pilgrimRef={(quote.pilgrim_ref as string | null) ?? null}
-          // Un viaje de grupo lo compran entre varios y todos necesitan la documentación:
-          // la tarjeta ofrece sumarlos al envío de un clic, sin volver a teclear correos.
-          travelerEmails={((travelers as TravelerRow[] | null) ?? [])
-            .filter((t) => !!t.email)
-            .map((t) => ({ nombre: t.full_name || "", email: String(t.email) }))}
-        />
+        <Plegable seccion="documentacion" titulo="la documentación de viaje">
+          <TravelDocCard
+            quoteId={id}
+            quoteCode={quote.code}
+            clientName={quote.client_name ?? null}
+            clientEmail={quote.client_email ?? ""}
+            routeName={quote.route_name ?? null}
+            hotels={((hotelOptions as unknown) as HotelOpcion[]) || []}
+            initialNights={((nightsData as unknown) as NocheInicial[]) || []}
+            estado={estadoDocumentacion}
+            envio={resumenEnvio("documentacion", estadoDocumentacion.sentAt)}
+            baseUrl={appBaseUrl}
+            asistenciaLista={asistenciaLista}
+            pilgrimRef={(quote.pilgrim_ref as string | null) ?? null}
+            // Un viaje de grupo lo compran entre varios y todos necesitan la documentación:
+            // la tarjeta ofrece sumarlos al envío de un clic, sin volver a teclear correos.
+            travelerEmails={((travelers as TravelerRow[] | null) ?? [])
+              .filter((t) => !!t.email)
+              .map((t) => ({ nombre: t.full_name || "", email: String(t.email) }))}
+          />
+        </Plegable>
       ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <ClientPaymentsCard quoteId={id} payments={cps || []} cobrado={cobrado} saldo={saldoCliente} />
-        <ProviderPaymentsCard quoteId={id} payments={pps || []} pagado={pagadoPilgrim} saldo={saldoProveedor} />
+        <Plegable seccion="pagos-cliente" titulo="los pagos del cliente">
+          <ClientPaymentsCard quoteId={id} payments={cps || []} cobrado={cobrado} saldo={saldoCliente} />
+        </Plegable>
+        <Plegable seccion="pagos-pilgrim" titulo="los pagos a Pilgrim">
+          <ProviderPaymentsCard quoteId={id} payments={pps || []} pagado={pagadoPilgrim} saldo={saldoProveedor} />
+        </Plegable>
       </div>
     </div>
   );

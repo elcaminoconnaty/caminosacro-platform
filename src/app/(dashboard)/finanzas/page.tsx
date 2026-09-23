@@ -48,7 +48,7 @@ export default async function FinanzasPage() {
     a.salidas["EUR"] = (a.salidas["EUR"] || 0) + (Number(p.amount_eur) || 0);
   }
 
-  // Orden: las 3 cuentas definidas + "Sin cuenta" si tiene movimientos
+  // Orden: las cuentas definidas + "Sin cuenta" si tiene movimientos
   const orderedKeys = [
     ...ACCOUNTS.map((a) => a.slug),
     ...(aggs.has("") ? [""] : []),

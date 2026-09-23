@@ -20,7 +20,7 @@ type Payment = {
   receipt_number: string | null;
 };
 
-const METHODS = ["transferencia", "efectivo", "tarjeta", "wise", "paypal", "otro"];
+const METHODS = ["transferencia", "efectivo", "tarjeta", "wise", "global66", "paypal", "otro"];
 
 export default function ClientPaymentsCard({
   quoteId,

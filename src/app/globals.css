@@ -48,3 +48,25 @@ h1, h2, h3, h4, h5, h6, .font-display {
 *::-webkit-scrollbar-thumb { background: var(--color-taupe); border-radius: 6px; }
 *::-webkit-scrollbar-thumb:hover { background: #d6cfbf; }
 *::-webkit-scrollbar-track { background: transparent; }
+
+/* Tarjetas plegables del seguimiento (ver seguimiento/[id]/Plegable.tsx).
+   La cabecera es el primer hijo de la <section>; plegada, queda solo ella. */
+.plegable > section > :first-child { cursor: pointer; }
+.plegable > section > :first-child h2::before {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 0.5rem;
+  vertical-align: -2px;
+  background-color: var(--color-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform 0.15s;
+}
+.plegable[data-abierto="false"] > section > :first-child h2::before { transform: rotate(-90deg); }
+.plegable[data-abierto="false"] > section > :not(:first-child) { display: none; }
+.plegable[data-abierto="false"] > section > :first-child {
+  border-bottom-width: 0;
+  margin-bottom: 0;
+}
