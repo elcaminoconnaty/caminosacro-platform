@@ -38,7 +38,7 @@ import {
   type ViajeroAnexo,
   type ParteContrato,
 } from "@/lib/contracts/template";
-import { sellarContratoConjunto, type SignerRow } from "@/lib/contracts/conjunto";
+import { sellarContratoConjunto } from "@/lib/contracts/conjunto";
 import { enviarCorreoContrato } from "@/lib/contracts/email";
 import { correoContratoParaFirma, correoFichaViajero } from "@/lib/contracts/correos";
 import { adjuntosContrato } from "@/lib/contracts/adjuntos";
@@ -1771,4 +1771,3 @@ export async function sealJointContract(contractId: string): Promise<{ ok?: true
   return { ok: true, mensaje: `Contrato sellado. Copia enviada a ${r.correos} firmante(s).` };
 }
 
-export type { SignerRow };
