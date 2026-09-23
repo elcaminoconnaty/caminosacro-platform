@@ -6,6 +6,8 @@ import { mensajeError } from "@/lib/errors";
 import { renderAndStoreAsistencia } from "@/lib/travelDocs/render";
 import { PLANTILLAS, type MensajesGuardados } from "@/lib/mensajes/plantillas";
 import { MENSAJES_KEY } from "@/lib/mensajes/settings";
+import { CARTA_BIENVENIDA_KEY } from "@/lib/bienvenida/render";
+import { mezclarTextosCarta } from "@/lib/bienvenida/textos";
 
 // Firmas de quienes firman por Camino Sacro (Nico y Nathalia), guardadas en
 // `settings.firmantes` y reutilizadas en todos los contratos. Cada uno la captura una sola
@@ -204,6 +206,24 @@ export async function savePlantillaCorreo(fila: {
     .eq("slug", fila.slug);
   if (error) return { error: mensajeError(error) };
   revalidatePath("/configuracion");
+  revalidatePath("/seguimiento");
+  return { ok: true };
+}
+
+/**
+ * Los textos de la carta de bienvenida. Se guardan ya "mezclados" con los de fábrica
+ * (ver mezclarTextosCarta): un campo que Nico deje vacío vuelve al texto de siempre en vez
+ * de salir en blanco en la carta de un cliente.
+ */
+export async function saveTextosCarta(value: unknown): Promise<{ ok?: true; error?: string }> {
+  const limpio = mezclarTextosCarta(value);
+  const supabase = await createCommercialClient();
+  const { error } = await supabase
+    .from("settings")
+    .upsert({ key: CARTA_BIENVENIDA_KEY, value: limpio }, { onConflict: "key" });
+  if (error) return { error: mensajeError(error) };
+  revalidatePath("/configuracion");
+  // La tarjeta del seguimiento muestra el párrafo sugerido: sin esto seguiría el viejo.
   revalidatePath("/seguimiento");
   return { ok: true };
 }

@@ -6,7 +6,7 @@ import type { ComercialClient } from "@/lib/quotes/pdf";
 import { etapasCaminadas, etapasDeCondiciones, type EtapaItinerario } from "@/lib/quotes/itinerario";
 import { extrasDeLineas, habitacionesDelGrupo } from "@/lib/quotes/extrasItinerario";
 import { mensajeError } from "@/lib/errors";
-import { introRuta, tituloRuta } from "@/lib/bienvenida/textos";
+import { introRuta, mezclarTextosCarta, tituloRuta, type TextosCarta } from "@/lib/bienvenida/textos";
 import type { FilaCarta } from "@/lib/bienvenida/cartaPdf";
 
 /**
@@ -23,9 +23,19 @@ export type DatosCarta = {
   intro: string;
   cifras: string;
   itinerario: FilaCarta[];
+  textos: TextosCarta;
   /** De dónde salió el itinerario, para decírselo a Nico en la tarjeta. */
   fuente: "cotizacion" | "catalogo";
 };
+
+/** Clave de `comercial.settings` con los textos de la carta. Ver @/lib/bienvenida/textos. */
+export const CARTA_BIENVENIDA_KEY = "carta_bienvenida";
+
+/** Los textos de Configuración, completados con los de fábrica donde falte algo. */
+export async function getTextosCarta(supabase: ComercialClient): Promise<TextosCarta> {
+  const { data } = await supabase.from("settings").select("value").eq("key", CARTA_BIENVENIDA_KEY).maybeSingle();
+  return mezclarTextosCarta(data?.value ?? null);
+}
 
 const fmtKm = (km: number) => `${Math.round(km * 10) / 10} km`;
 
@@ -39,7 +49,7 @@ export async function datosCartaBienvenida(
   supabase: ComercialClient,
   quoteId: string,
 ): Promise<{ ok: true; datos: DatosCarta } | { error: string }> {
-  const [{ data: quote }, { data: servicios }, { data: lineas }] = await Promise.all([
+  const [{ data: quote }, { data: servicios }, { data: lineas }, textos] = await Promise.all([
     supabase
       .from("quotes")
       .select("code,route_id,route_name,condiciones_json,rooms_json,modality,people")
@@ -52,6 +62,7 @@ export async function datosCartaBienvenida(
       .select("description,quantity,reference_id")
       .eq("quote_id", quoteId)
       .eq("type", "optional"),
+    getTextosCarta(supabase),
   ]);
   if (!quote) return { error: "Cotización no encontrada" };
 
@@ -141,9 +152,10 @@ export async function datosCartaBienvenida(
     datos: {
       code: quote.code,
       titulo: tituloRuta(datosRuta),
-      intro: introRuta(datosRuta),
+      intro: introRuta(datosRuta, textos),
       cifras,
       itinerario: filas,
+      textos,
       fuente,
     },
   };
@@ -166,13 +178,13 @@ export function nombreArchivoCarta(code: string, titulo: string): string {
 export async function renderCartaBienvenida(
   supabase: ComercialClient,
   quoteId: string,
-  textos: { titulo?: string | null; intro?: string | null } = {},
+  corregidos: { titulo?: string | null; intro?: string | null } = {},
 ): Promise<{ ok: true; buffer: Buffer; filename: string } | { error: string }> {
   const r = await datosCartaBienvenida(supabase, quoteId);
   if ("error" in r) return r;
   const d = r.datos;
-  const titulo = textos.titulo?.trim() || d.titulo;
-  const intro = textos.intro?.trim() || d.intro;
+  const titulo = corregidos.titulo?.trim() || d.titulo;
+  const intro = corregidos.intro?.trim() || d.intro;
 
   let portada: Buffer | undefined;
   try {
@@ -190,6 +202,7 @@ export async function renderCartaBienvenida(
       intro,
       cifras: d.cifras,
       itinerario: d.itinerario,
+      textos: d.textos,
       portada,
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

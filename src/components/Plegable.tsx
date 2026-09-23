@@ -23,7 +23,8 @@ function leer(clave: string): string | null {
 }
 
 /**
- * Pliega una tarjeta del seguimiento dejando solo su cabecera, como la de WhatsApp.
+ * Pliega una tarjeta dejando solo su cabecera. Nació en el seguimiento (como la de
+ * WhatsApp) y también la usa Configuración.
  *
  * No toca la tarjeta por dentro: todas son una <section> cuyo primer hijo es la cabecera
  * (título, resumen y botones), así que el CSS de `.plegable` (globals.css) esconde el resto
@@ -37,6 +38,7 @@ export default function Plegable({
   seccion,
   titulo,
   abiertoInicial = true,
+  ambito = "seguimiento",
   children,
 }: {
   /** Clave con que se recuerda el estado: una por tipo de tarjeta, no por cotización. */
@@ -44,9 +46,11 @@ export default function Plegable({
   /** Para el botón de teclado; lo que se ve es el título de la propia tarjeta. */
   titulo: string;
   abiertoInicial?: boolean;
+  /** Pantalla a la que pertenece: separa lo recordado del seguimiento y de Configuración. */
+  ambito?: string;
   children: ReactNode;
 }) {
-  const clave = `seguimiento:plegable:${seccion}`;
+  const clave = `${ambito}:plegable:${seccion}`;
   const guardado = useSyncExternalStore(suscribir, () => leer(clave), () => null);
   const abierto = guardado === null ? abiertoInicial : guardado === "1";
 

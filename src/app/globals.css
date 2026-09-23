@@ -49,7 +49,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 *::-webkit-scrollbar-thumb:hover { background: #d6cfbf; }
 *::-webkit-scrollbar-track { background: transparent; }
 
-/* Tarjetas plegables del seguimiento (ver seguimiento/[id]/Plegable.tsx).
+/* Tarjetas plegables del seguimiento y de Configuración (ver components/Plegable.tsx).
    La cabecera es el primer hijo de la <section>; plegada, queda solo ella. */
 .plegable > section > :first-child { cursor: pointer; }
 .plegable > section > :first-child h2::before {

@@ -7,7 +7,8 @@
  * tan concretos (margen de 74 pt, filas de 21 pt, cabecera de 57 pt…).
  *
  * Lo único que cambia de una carta a otra es la ruta: título, párrafo, cifras e itinerario,
- * que salen del itinerario de la cotización (ver @/lib/bienvenida/render).
+ * que salen del itinerario de la cotización (ver @/lib/bienvenida/render). Los textos fijos
+ * (portada, próximos pasos, tips, contacto) se editan en Configuración.
  *
  * Tipografía: las originales usaban Caladea para los títulos y Liberation Sans para el
  * texto. Caladea ya vive en src/lib/fonts; en lugar de Liberation Sans va Helvetica, que
@@ -17,6 +18,7 @@
 import { Document, Page, Text, View, Image, StyleSheet, Font } from "@react-pdf/renderer";
 import path from "node:path";
 import { C, SANS as INTER } from "@/lib/pdfChrome";
+import type { TextosCarta } from "@/lib/bienvenida/textos";
 
 Font.register({
   family: "Caladea",
@@ -43,6 +45,8 @@ export type CartaBienvenidaProps = {
   /** "8 días · 7 noches · 6 etapas · 112 km · A pie · Dificultad media" */
   cifras: string;
   itinerario: FilaCarta[];
+  /** Los textos fijos de la carta, los de Configuración (ver @/lib/bienvenida/textos). */
+  textos: TextosCarta;
   portada?: Buffer;
 };
 
@@ -124,61 +128,6 @@ const s = StyleSheet.create({
   firmaSub: { ...ITALIC, fontSize: 10, color: GRIS_TEXTO },
 });
 
-const PASOS: Array<[string, string]> = [
-  [
-    "1. Completar el pago",
-    "Para garantizar tu reserva, el saldo pendiente debe estar abonado máximo 45 días antes de la fecha de inicio de tu viaje. Te enviaremos un recordatorio con las instrucciones de pago.",
-  ],
-  [
-    "2. Documentación de viaje",
-    "30 días antes de tu fecha de salida te enviaremos por email tu documentación completa: póliza de seguro, datos de cada alojamiento con dirección y teléfono, hoja de ruta detallada con etapas y puntos de interés, y tu credencial del peregrino.",
-  ],
-  [
-    "3. Envío de datos personales",
-    "Necesitamos que nos envíes de cada integrante del viaje: foto o copia del pasaporte, nombre completo, número de identidad y número de teléfono de contacto.",
-  ],
-];
-
-const TIPS: Array<[string, string[]]> = [
-  [
-    "Documentación",
-    [
-      "Pasaporte vigente con mínimo 6 meses antes del vencimiento.",
-      "Verifica los requisitos de entrada a España según tu nacionalidad. Cada país tiene condiciones distintas — es tu responsabilidad confirmar si necesitas visa o algún trámite adicional.",
-      "Tarjeta de asistencia médica internacional. Tu seguro de viaje con nosotros cubre emergencias, pero una tarjeta adicional no está de más.",
-      "Copia digital de tu pasaporte guardada en el celular o en la nube.",
-      "Tarjeta de crédito o débito internacional habilitada para uso en Europa.",
-    ],
-  ],
-  [
-    "Equipaje",
-    [
-      "Maleta o mochila grande (máx. 15 kg) — nosotros la trasladamos entre etapas, tú no la cargas.",
-      "Mochila de día pequeña (5-7 litros) — solo para agua, snacks, protector solar y lo esencial de la jornada.",
-      "Empaca liviano: 2-3 mudas de ropa técnica de secado rápido son suficientes. Hay lavanderías en casi todas las paradas.",
-    ],
-  ],
-  [
-    "Calzado",
-    [
-      "Botas o zapatos de trekking ya usados y amoldados a tu pie — nunca estrenes calzado en el Camino.",
-      "Un par de sandalias o zapatos cómodos para las noches.",
-      "Calcetines técnicos sin costuras (lleva al menos 3 pares) — tus pies te lo agradecerán.",
-      "Vaselina o crema anti-ampollas para aplicar cada mañana antes de salir.",
-    ],
-  ],
-  [
-    "Otros esenciales",
-    [
-      "Chubasquero o poncho impermeable — en Galicia puede llover cualquier día del año.",
-      "Protector solar y gorra — incluso en días nublados.",
-      "Bastones de trekking (opcionales pero muy recomendados, especialmente en bajadas).",
-      "Botella de agua reutilizable — hay fuentes a lo largo del camino.",
-      "Cargador portátil para el celular.",
-    ],
-  ],
-];
-
 function Cabecera() {
   return (
     <View style={s.cabecera} fixed>
@@ -215,7 +164,7 @@ function Etapa({ texto }: { texto: string }) {
   );
 }
 
-export function CartaBienvenidaPDF({ titulo, intro, cifras, itinerario, portada }: CartaBienvenidaProps) {
+export function CartaBienvenidaPDF({ titulo, intro, cifras, itinerario, textos, portada }: CartaBienvenidaProps) {
   return (
     <Document author="Camino Sacro" title={`Bienvenida — ${titulo}`}>
       {/* ============ Portada ============ */}
@@ -241,9 +190,7 @@ export function CartaBienvenidaPDF({ titulo, intro, cifras, itinerario, portada 
         <View style={s.bienvenida}>
           <Text style={s.eyebrowPortada}>CARTA DE BIENVENIDA</Text>
           <Text style={s.tituloPortada}>¡Bienvenido/a al Camino!</Text>
-          <Text style={s.textoPortada}>
-            Estamos muy contentos de que hayas decidido dar este paso. A partir de ahora, nosotros nos encargamos de todo para que tú solo tengas que caminar.
-          </Text>
+          <Text style={s.textoPortada}>{textos.portada}</Text>
         </View>
         <Text style={s.numPortada}>1</Text>
       </Page>
@@ -273,10 +220,10 @@ export function CartaBienvenidaPDF({ titulo, intro, cifras, itinerario, portada 
         ))}
 
         <Text style={s.pasos}>PRÓXIMOS PASOS</Text>
-        {PASOS.map(([tit, txt]) => (
-          <View key={tit} wrap={false}>
-            <Text style={s.pasoTit}>{tit}</Text>
-            <Text style={s.pasoTxt}>{txt}</Text>
+        {textos.pasos.map((p, i) => (
+          <View key={i} wrap={false}>
+            <Text style={s.pasoTit}>{p.titulo}</Text>
+            <Text style={s.pasoTxt}>{p.texto}</Text>
           </View>
         ))}
       </Page>
@@ -286,11 +233,11 @@ export function CartaBienvenidaPDF({ titulo, intro, cifras, itinerario, portada 
         <Cabecera />
         <Pie />
         <Text style={s.tipsTit}>Tips para preparar tu Camino</Text>
-        {TIPS.map(([grupo, items]) => (
-          <View key={grupo}>
-            <Text style={s.tipsGrupo}>{grupo}</Text>
-            {items.map((t) => (
-              <Text key={t} style={s.tip}>{`·  ${t}`}</Text>
+        {textos.tips.map((g, i) => (
+          <View key={i}>
+            <Text style={s.tipsGrupo}>{g.titulo}</Text>
+            {g.items.map((t, k) => (
+              <Text key={k} style={s.tip}>{`·  ${t}`}</Text>
             ))}
           </View>
         ))}
@@ -302,12 +249,12 @@ export function CartaBienvenidaPDF({ titulo, intro, cifras, itinerario, portada 
         <Pie />
         <View style={s.separador}>
           <Text style={s.dudas}>¿DUDAS?</Text>
-          <Text style={s.dudasTxt}>Escríbele a Nico directamente:</Text>
-          <Text style={s.whatsapp}>WhatsApp: +57 300 491 0929</Text>
-          <Text style={s.web}>Web: www.caminosacro.com</Text>
+          <Text style={s.dudasTxt}>{textos.contacto.texto}</Text>
+          <Text style={s.whatsapp}>{`WhatsApp: ${textos.contacto.whatsapp}`}</Text>
+          <Text style={s.web}>{`Web: ${textos.contacto.web}`}</Text>
           <Text style={s.buenCamino}>¡Buen Camino!</Text>
-          <Text style={s.firma}>Naty y Nico</Text>
-          <Text style={s.firmaSub}>Camino Sacro · Agencia del Camino de Santiago</Text>
+          <Text style={s.firma}>{textos.firma.nombres}</Text>
+          <Text style={s.firmaSub}>{textos.firma.sub}</Text>
         </View>
       </Page>
     </Document>

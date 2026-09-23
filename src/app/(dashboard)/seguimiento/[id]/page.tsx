@@ -25,7 +25,7 @@ import { type EnvioResumen } from "./EstadoEnvio";
 import ContractCard from "./ContractCard";
 import PilgrimEmailCard from "./PilgrimEmailCard";
 import WhatsAppCard from "./WhatsAppCard";
-import Plegable from "./Plegable";
+import Plegable from "@/components/Plegable";
 import EntregasCard, { type EntregaVista } from "./EntregasCard";
 import type { ContractRow, TravelerRow } from "./contractActions";
 import type { FirmanteFila } from "./ContractCard";
