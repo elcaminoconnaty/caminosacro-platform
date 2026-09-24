@@ -10,6 +10,9 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import QuoteEditor, { type CompanyLite } from "./QuoteEditor";
 import ItineraryCard from "./ItineraryCard";
+import TripCalendarCard from "./TripCalendarCard";
+import { extrasDeLineas, habitacionesDelGrupo } from "@/lib/quotes/extrasItinerario";
+import { fechasDelViaje } from "@/lib/quotes/fechasViaje";
 import { etapasCaminadas, etapasDeCondiciones, type EtapaItinerario } from "@/lib/quotes/itinerario";
 import ClientPaymentsCard from "./ClientPaymentsCard";
 import ProviderPaymentsCard from "./ProviderPaymentsCard";
@@ -440,6 +443,16 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   }
   const etapasPropias = etapasDeCondiciones(quote.condiciones_json);
 
+  // El calendario del viaje cuenta los días como el PDF: las etapas propias si las hay, si
+  // no las del catálogo, más las noches extra y los tours de las líneas opcionales.
+  const etapasViaje = etapasCaminadas(etapasPropias).length > 0 ? etapasCaminadas(etapasPropias) : etapasCatalogo;
+  const categoriaOpcional = new Map(
+    ((optsCatalog as unknown as Array<{ id: string; category: string }>) || []).map((o) => [o.id, o.category]),
+  );
+  const extrasViaje = extrasDeLineas(optionalLines, categoriaOpcional, habitacionesDelGrupo(quote));
+  const fechasViaje = fechasDelViaje(quote.start_date ?? null, etapasViaje.length, extrasViaje?.extraNights ?? 0, extrasViaje?.tours ?? []);
+  const estadoViaje = quote.status === "pago_parcial" ? "parcial" : isFullyPaid(quote.status) ? "pagado" : "borrador";
+
   // La carta de bienvenida: solo lo que la tarjeta muestra; el PDF se arma al abrirla.
   const carta = await datosCartaBienvenida(supabase, id);
 
@@ -543,7 +556,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       </section>
 
       {/* El expediente va paso a paso, en el orden real de una venta: armar la cotización
-          (datos, itinerario, opcionales, bici) → mandarla (PDF, correo, WhatsApp) → ver qué
+          (datos, itinerario, calendario del viaje, opcionales, bici) → mandarla (PDF, correo, WhatsApp) → ver qué
           se le entregó → contrato → correo a Pilgrim → carta de bienvenida → lo que devuelve
           Pilgrim → documentación de viaje → pagos. Los contratos van ANTES del correo a
           Pilgrim porque es ahí cuando entran los pasaportes que ese correo necesita. El
@@ -570,6 +583,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             etapasCatalogo={etapasCatalogo}
             etapasPropias={etapasPropias}
           />
+        </Plegable>
+      </Paso>
+      <Paso n={paso()}>
+        <Plegable seccion="calendario-viaje" titulo="el calendario del viaje">
+          <TripCalendarCard fechas={fechasViaje} etapas={etapasViaje} estado={estadoViaje} />
         </Plegable>
       </Paso>
       <Paso n={paso()}>

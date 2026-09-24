@@ -102,7 +102,7 @@ export async function viajesPagados(supabase: ComercialClient): Promise<{ viajes
       route_name: q.route_name,
       people: q.people,
       status: q.status,
-      fechas: fechasDelViaje(q.start_date, etapas, extras?.extraNights ?? 0),
+      fechas: fechasDelViaje(q.start_date, etapas, extras?.extraNights ?? 0, extras?.tours ?? []),
     };
   });
   return { viajes, error: null };
