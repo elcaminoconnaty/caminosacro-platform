@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { addProviderPayment, updateProviderPayment, deleteProviderPayment } from "./actions";
+import { useRef, useState, useTransition } from "react";
+import { addProviderPayment, updateProviderPayment, deleteProviderPayment, getSignedUrl } from "./actions";
 import { eur, fechaCorta } from "@/lib/format";
 import { ACCOUNTS, accountLabel } from "@/lib/accounts";
 
@@ -12,6 +12,7 @@ type Payment = {
   invoice_number: string | null;
   account: string | null;
   notes: string | null;
+  receipt_path: string | null;
 };
 
 export default function ProviderPaymentsCard({
@@ -55,6 +56,14 @@ export default function ProviderPaymentsCard({
     });
   }
 
+  function onViewComprobante(path: string) {
+    startTransition(async () => {
+      const r = await getSignedUrl(path);
+      if ("url" in r && r.url) window.open(r.url, "_blank");
+      else if ("error" in r && r.error) setError(r.error);
+    });
+  }
+
   return (
     <section className="bg-bg-card border border-border rounded-xl overflow-hidden">
       <div className="px-5 py-3 border-b border-border flex items-center justify-between">
@@ -75,6 +84,10 @@ export default function ProviderPaymentsCard({
 
       {adding && (
         <PaymentForm onSubmit={submitNew} onCancel={() => setAdding(false)} pending={pending} error={error} />
+      )}
+
+      {error && !adding && !editingId && (
+        <div role="alert" className="mx-5 mt-3 px-3 py-2 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm">{error}</div>
       )}
 
       <ul className="divide-y divide-border">
@@ -98,6 +111,25 @@ export default function ProviderPaymentsCard({
                     {p.invoice_number && <span> · Factura {p.invoice_number}</span>}
                   </div>
                   {p.notes && <div className="text-xs text-muted mt-1 italic">{p.notes}</div>}
+                  <div className="text-xs mt-1">
+                    {p.receipt_path ? (
+                      <button
+                        onClick={() => onViewComprobante(p.receipt_path!)}
+                        className="text-bosque hover:underline"
+                        disabled={pending}
+                      >
+                        📎 Ver comprobante
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { setEditingId(p.id); setAdding(false); setError(null); }}
+                        className="text-amber-700 hover:underline"
+                        disabled={pending}
+                      >
+                        Sin comprobante · adjuntar
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <button
@@ -141,9 +173,29 @@ function PaymentForm({
   error: string | null;
 }) {
   const today = new Date().toISOString().slice(0, 10);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [archivo, setArchivo] = useState<string | null>(null);
+  const [quitar, setQuitar] = useState(false);
+
+  // Pegar un pantallazo con Cmd+V en cualquier parte del formulario lo adjunta como
+  // comprobante: es lo normal después de pagar en la web del banco.
+  function onPaste(e: React.ClipboardEvent<HTMLFormElement>) {
+    const img = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
+    if (!img || !fileRef.current) return;
+    e.preventDefault();
+    const ext = img.type.split("/")[1] || "png";
+    const nombrado = new File([img], `comprobante-${new Date().toISOString().slice(0, 10)}.${ext}`, { type: img.type });
+    const dt = new DataTransfer();
+    dt.items.add(nombrado);
+    fileRef.current.files = dt.files;
+    setArchivo(nombrado.name);
+    setQuitar(false);
+  }
+
   return (
     <form
       action={onSubmit}
+      onPaste={onPaste}
       className="px-5 py-4 border-b border-border bg-taupe/20 grid grid-cols-2 gap-3 text-sm"
     >
       <label className="col-span-1">
@@ -169,6 +221,39 @@ function PaymentForm({
         <span className="text-xs text-muted">Notas</span>
         <textarea name="notes" rows={2} defaultValue={payment?.notes ?? ""} className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white" />
       </label>
+      <div className="col-span-2">
+        <span className="text-xs text-muted">Comprobante de pago (pantallazo o PDF)</span>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <label className="px-3 py-1.5 rounded-md border border-border bg-white text-xs cursor-pointer hover:bg-taupe/40">
+            {payment?.receipt_path ? "Reemplazar archivo…" : "Elegir archivo…"}
+            <input
+              ref={fileRef}
+              name="comprobante"
+              type="file"
+              accept="image/*,application/pdf"
+              className="sr-only"
+              onChange={(e) => { setArchivo(e.target.files?.[0]?.name ?? null); setQuitar(false); }}
+            />
+          </label>
+          <span className="text-xs text-muted">
+            {archivo
+              ? `📎 ${archivo}`
+              : payment?.receipt_path && !quitar
+                ? "Ya tiene comprobante"
+                : "o pega el pantallazo aquí con ⌘V"}
+          </span>
+          {payment?.receipt_path && !archivo && (
+            <button
+              type="button"
+              onClick={() => setQuitar((q) => !q)}
+              className="text-[10px] text-muted hover:text-red-700"
+            >
+              {quitar ? "no quitar" : "quitar comprobante"}
+            </button>
+          )}
+        </div>
+        {quitar && <input type="hidden" name="quitar_comprobante" value="1" />}
+      </div>
       {error && <p role="alert" className="col-span-2 text-sm text-red-800">{error}</p>}
       <div className="col-span-2 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-taupe/40">

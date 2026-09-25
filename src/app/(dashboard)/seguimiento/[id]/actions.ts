@@ -7,7 +7,7 @@ import { congelarEntrega } from "@/lib/quotes/entregas";
 import { upsertCompany, companyDeFormData } from "@/lib/quotes/company";
 import { DEFAULT_STATUS, isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
-import { rutaCotizacion, rutaDocumentoPilgrim, rutaRecibo, sinBucket } from "@/lib/storage/paths";
+import { rutaComprobantePagoPilgrim, rutaCotizacion, rutaDocumentoPilgrim, rutaRecibo, sinBucket } from "@/lib/storage/paths";
 import {
   agregarOpcionalLibre,
   alternarOpcional,
@@ -569,8 +569,56 @@ export async function generateClientReceipt(quoteId: string, paymentId: string) 
   return { ok: true };
 }
 
+// ---------------- PAGOS A PILGRIM ----------------
+//
+// Cada pago puede llevar su comprobante (pantallazo de la transferencia o PDF del banco) en
+// `receipt_path`, columna que existe desde 0001 y nunca se había usado. El archivo llega en el
+// mismo formulario del pago, campo "comprobante"; si viene vacío, el que había se conserva.
+
+// Por debajo del bodySizeLimit de las server actions (15 MB en next.config.ts).
+const COMPROBANTE_MAX_BYTES = 10 * 1024 * 1024;
+
+function comprobanteDe(formData: FormData): File | null | { error: string } {
+  const file = formData.get("comprobante") as File | null;
+  if (!file || typeof file === "string" || file.size === 0) return null;
+  if (file.size > COMPROBANTE_MAX_BYTES) return { error: `El comprobante "${file.name}" pesa más de 10 MB.` };
+  if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+    return { error: "El comprobante tiene que ser una imagen (pantallazo) o un PDF." };
+  }
+  return file;
+}
+
+/** Sube el comprobante y devuelve su ruta con bucket, lista para guardar en `receipt_path`. */
+async function subirComprobantePilgrim(
+  supabase: Awaited<ReturnType<typeof createCommercialClient>>,
+  quoteId: string,
+  file: File,
+): Promise<{ path: string } | { error: string }> {
+  const { data: quote } = await supabase.from("quotes").select("code").eq("id", quoteId).maybeSingle();
+  if (!quote) return { error: "Cotización no encontrada." };
+  const destino = rutaComprobantePagoPilgrim(quote.code, file.name || "comprobante.png");
+  const { error } = await supabase.storage
+    .from("comercial-docs")
+    .upload(sinBucket(destino), Buffer.from(await file.arrayBuffer()), {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (error) return { error: mensajeError(error) };
+  return { path: destino };
+}
+
 export async function addProviderPayment(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
+  const file = comprobanteDe(formData);
+  if (file && "error" in file) return { error: file.error };
+
+  let receipt_path: string | null = null;
+  if (file) {
+    const r = await subirComprobantePilgrim(supabase, id, file);
+    if ("error" in r) return { error: r.error };
+    receipt_path = r.path;
+  }
+
   const { error } = await supabase.from("provider_payments").insert({
     quote_id: id,
     paid_at: str(formData.get("paid_at")) || new Date().toISOString().slice(0, 10),
@@ -578,8 +626,13 @@ export async function addProviderPayment(id: string, formData: FormData) {
     invoice_number: str(formData.get("invoice_number")),
     account: str(formData.get("account")),
     notes: str(formData.get("notes")),
+    receipt_path,
   });
-  if (error) return { error: mensajeError(error) };
+  if (error) {
+    // Sin renglón, el archivo sería basura invisible en Storage.
+    await removeStoragePath(supabase, receipt_path);
+    return { error: mensajeError(error) };
+  }
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -587,6 +640,24 @@ export async function addProviderPayment(id: string, formData: FormData) {
 
 export async function updateProviderPayment(quoteId: string, paymentId: string, formData: FormData) {
   const supabase = await createCommercialClient();
+  const file = comprobanteDe(formData);
+  if (file && "error" in file) return { error: file.error };
+
+  const { data: antes } = await supabase
+    .from("provider_payments")
+    .select("receipt_path")
+    .eq("id", paymentId)
+    .maybeSingle();
+
+  let receipt_path: string | null = antes?.receipt_path ?? null;
+  if (file) {
+    const r = await subirComprobantePilgrim(supabase, quoteId, file);
+    if ("error" in r) return { error: r.error };
+    receipt_path = r.path;
+  } else if (formData.get("quitar_comprobante") === "1") {
+    receipt_path = null;
+  }
+
   const { error } = await supabase
     .from("provider_payments")
     .update({
@@ -595,10 +666,18 @@ export async function updateProviderPayment(quoteId: string, paymentId: string, 
       invoice_number: str(formData.get("invoice_number")),
       account: str(formData.get("account")),
       notes: str(formData.get("notes")),
+      receipt_path,
     })
     .eq("id", paymentId)
     .eq("quote_id", quoteId);
-  if (error) return { error: mensajeError(error) };
+  if (error) {
+    if (file) await removeStoragePath(supabase, receipt_path);
+    return { error: mensajeError(error) };
+  }
+  // El anterior se borra solo cuando el renglón ya apunta al nuevo (o a nada).
+  if (antes?.receipt_path && antes.receipt_path !== receipt_path) {
+    await removeStoragePath(supabase, antes.receipt_path);
+  }
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   revalidatePath("/finanzas");
@@ -607,8 +686,14 @@ export async function updateProviderPayment(quoteId: string, paymentId: string, 
 
 export async function deleteProviderPayment(quoteId: string, paymentId: string) {
   const supabase = await createCommercialClient();
+  const { data: pago } = await supabase
+    .from("provider_payments")
+    .select("receipt_path")
+    .eq("id", paymentId)
+    .maybeSingle();
   const { error } = await supabase.from("provider_payments").delete().eq("id", paymentId);
   if (error) return { error: mensajeError(error) };
+  await removeStoragePath(supabase, pago?.receipt_path);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };

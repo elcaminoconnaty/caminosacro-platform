@@ -210,3 +210,18 @@ export function rutaFotoContenido(nombreArchivo: string, marca = Date.now()): st
     .slice(-60);
   return `contenido-fotos/${anio}/${mes}/${marca}-${limpio}`;
 }
+
+/**
+ * Comprobante de un pago a Pilgrim (el pantallazo de la transferencia o el PDF del banco).
+ * Vive en su propia subcarpeta del expediente para no mezclarse con lo que MANDA Pilgrim.
+ * Marca de tiempo delante: los pantallazos se llaman todos "Captura de pantalla…".
+ */
+export function rutaComprobantePagoPilgrim(code: string, nombreArchivo: string, marca = Date.now()): string {
+  const limpio = nombreArchivo
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(-70) || "comprobante";
+  return `comercial-docs/${carpetaCotizacion(code)}/pagos-pilgrim/${marca}-${limpio}`;
+}
