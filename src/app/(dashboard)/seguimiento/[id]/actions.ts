@@ -7,7 +7,7 @@ import { congelarEntrega } from "@/lib/quotes/entregas";
 import { upsertCompany, companyDeFormData } from "@/lib/quotes/company";
 import { DEFAULT_STATUS, isQuoteStatus } from "@/lib/quoteStatus";
 import { renderAndStoreQuotePdf } from "@/lib/quotes/pdf";
-import { rutaComprobantePagoPilgrim, rutaCotizacion, rutaDocumentoPilgrim, rutaRecibo, sinBucket } from "@/lib/storage/paths";
+import { rutaComprobantePago, rutaCotizacion, rutaDocumentoPilgrim, rutaRecibo, sinBucket } from "@/lib/storage/paths";
 import {
   agregarOpcionalLibre,
   alternarOpcional,
@@ -385,6 +385,46 @@ export async function updateQuoteLineQuantity(quoteId: string, lineId: string, q
   return { ok: true };
 }
 
+// ---------------- COMPROBANTES DE PAGO ----------------
+//
+// El pantallazo o PDF que soporta un pago: el que nos manda el cliente (client_payments.
+// proof_path, 0057) o el de lo que le pagamos a Pilgrim (provider_payments.receipt_path).
+// Llega en el mismo formulario del pago, campo "comprobante"; si viene vacío, el que había
+// se conserva, y "quitar_comprobante=1" lo borra.
+
+// Por debajo del bodySizeLimit de las server actions (15 MB en next.config.ts).
+const COMPROBANTE_MAX_BYTES = 10 * 1024 * 1024;
+
+function comprobanteDe(formData: FormData): File | null | { error: string } {
+  const file = formData.get("comprobante") as File | null;
+  if (!file || typeof file === "string" || file.size === 0) return null;
+  if (file.size > COMPROBANTE_MAX_BYTES) return { error: `El comprobante "${file.name}" pesa más de 10 MB.` };
+  if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+    return { error: "El comprobante tiene que ser una imagen (pantallazo) o un PDF." };
+  }
+  return file;
+}
+
+/** Sube el comprobante y devuelve su ruta con bucket, lista para guardar en la BD. */
+async function subirComprobante(
+  supabase: Awaited<ReturnType<typeof createCommercialClient>>,
+  quoteId: string,
+  de: "pilgrim" | "cliente",
+  file: File,
+): Promise<{ path: string } | { error: string }> {
+  const { data: quote } = await supabase.from("quotes").select("code").eq("id", quoteId).maybeSingle();
+  if (!quote) return { error: "Cotización no encontrada." };
+  const destino = rutaComprobantePago(quote.code, de, file.name || "comprobante.png");
+  const { error } = await supabase.storage
+    .from("comercial-docs")
+    .upload(sinBucket(destino), Buffer.from(await file.arrayBuffer()), {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (error) return { error: mensajeError(error) };
+  return { path: destino };
+}
+
 export async function addClientPayment(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
   const amount = num(formData.get("amount")) ?? 0;
@@ -399,6 +439,15 @@ export async function addClientPayment(id: string, formData: FormData) {
   if (!cuentas.ok) return { error: cuentas.error };
   const amountEur = cuentas.amountEur;
 
+  const file = comprobanteDe(formData);
+  if (file && "error" in file) return { error: file.error };
+  let proof_path: string | null = null;
+  if (file) {
+    const r = await subirComprobante(supabase, id, "cliente", file);
+    if ("error" in r) return { error: r.error };
+    proof_path = r.path;
+  }
+
   const { error } = await supabase.from("client_payments").insert({
     quote_id: id,
     paid_at: str(formData.get("paid_at")) || new Date().toISOString().slice(0, 10),
@@ -410,8 +459,13 @@ export async function addClientPayment(id: string, formData: FormData) {
     account,
     reference: str(formData.get("reference")),
     notes: str(formData.get("notes")),
+    // Solo si hay archivo: así, sin la migración 0057, registrar un pago sin soporte sigue andando.
+    ...(proof_path ? { proof_path } : {}),
   });
-  if (error) return { error: mensajeError(error) };
+  if (error) {
+    await removeStoragePath(supabase, proof_path);
+    return { error: mensajeError(error) };
+  }
   await sincronizarEstadoPorCobro(supabase, id);
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
@@ -431,6 +485,24 @@ export async function updateClientPayment(quoteId: string, paymentId: string, fo
   if (!cuentas.ok) return { error: cuentas.error };
   const amountEur = cuentas.amountEur;
 
+  const file = comprobanteDe(formData);
+  if (file && "error" in file) return { error: file.error };
+  const quitar = formData.get("quitar_comprobante") === "1";
+  // Si la columna aún no existe (0057 sin correr), esto da null y no pasa nada.
+  const { data: antes } = await supabase
+    .from("client_payments")
+    .select("proof_path")
+    .eq("id", paymentId)
+    .maybeSingle();
+  let proof_path: string | null | undefined = undefined; // undefined = no tocar
+  if (file) {
+    const r = await subirComprobante(supabase, quoteId, "cliente", file);
+    if ("error" in r) return { error: r.error };
+    proof_path = r.path;
+  } else if (quitar) {
+    proof_path = null;
+  }
+
   const { error } = await supabase
     .from("client_payments")
     .update({
@@ -443,10 +515,18 @@ export async function updateClientPayment(quoteId: string, paymentId: string, fo
       account,
       reference: str(formData.get("reference")),
       notes: str(formData.get("notes")),
+      ...(proof_path !== undefined ? { proof_path } : {}),
     })
     .eq("id", paymentId)
     .eq("quote_id", quoteId);
-  if (error) return { error: mensajeError(error) };
+  if (error) {
+    if (file) await removeStoragePath(supabase, proof_path);
+    return { error: mensajeError(error) };
+  }
+  // El anterior se borra solo cuando el renglón ya apunta al nuevo (o a nada).
+  if (proof_path !== undefined && antes?.proof_path && antes.proof_path !== proof_path) {
+    await removeStoragePath(supabase, antes.proof_path);
+  }
   await sincronizarEstadoPorCobro(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
@@ -462,9 +542,17 @@ export async function deleteClientPayment(quoteId: string, paymentId: string) {
     .select("receipt_path")
     .eq("id", paymentId)
     .maybeSingle();
+  // Consulta aparte: si 0057 no se ha corrido, pedir proof_path junto al recibo haría
+  // fallar las dos y el recibo quedaría huérfano.
+  const { data: soporte } = await supabase
+    .from("client_payments")
+    .select("proof_path")
+    .eq("id", paymentId)
+    .maybeSingle();
   const { error } = await supabase.from("client_payments").delete().eq("id", paymentId);
   if (error) return { error: mensajeError(error) };
   await removeStoragePath(supabase, pago?.receipt_path);
+  await removeStoragePath(supabase, soporte?.proof_path);
   // Borrar un pago también mueve el estado: si se quita el que completaba el total, la venta
   // no puede seguir diciendo «pago completo».
   await sincronizarEstadoPorCobro(supabase, quoteId);
@@ -571,41 +659,9 @@ export async function generateClientReceipt(quoteId: string, paymentId: string) 
 
 // ---------------- PAGOS A PILGRIM ----------------
 //
-// Cada pago puede llevar su comprobante (pantallazo de la transferencia o PDF del banco) en
-// `receipt_path`, columna que existe desde 0001 y nunca se había usado. El archivo llega en el
-// mismo formulario del pago, campo "comprobante"; si viene vacío, el que había se conserva.
-
-// Por debajo del bodySizeLimit de las server actions (15 MB en next.config.ts).
-const COMPROBANTE_MAX_BYTES = 10 * 1024 * 1024;
-
-function comprobanteDe(formData: FormData): File | null | { error: string } {
-  const file = formData.get("comprobante") as File | null;
-  if (!file || typeof file === "string" || file.size === 0) return null;
-  if (file.size > COMPROBANTE_MAX_BYTES) return { error: `El comprobante "${file.name}" pesa más de 10 MB.` };
-  if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
-    return { error: "El comprobante tiene que ser una imagen (pantallazo) o un PDF." };
-  }
-  return file;
-}
-
-/** Sube el comprobante y devuelve su ruta con bucket, lista para guardar en `receipt_path`. */
-async function subirComprobantePilgrim(
-  supabase: Awaited<ReturnType<typeof createCommercialClient>>,
-  quoteId: string,
-  file: File,
-): Promise<{ path: string } | { error: string }> {
-  const { data: quote } = await supabase.from("quotes").select("code").eq("id", quoteId).maybeSingle();
-  if (!quote) return { error: "Cotización no encontrada." };
-  const destino = rutaComprobantePagoPilgrim(quote.code, file.name || "comprobante.png");
-  const { error } = await supabase.storage
-    .from("comercial-docs")
-    .upload(sinBucket(destino), Buffer.from(await file.arrayBuffer()), {
-      contentType: file.type || "application/octet-stream",
-      upsert: false,
-    });
-  if (error) return { error: mensajeError(error) };
-  return { path: destino };
-}
+// Cada pago puede llevar su comprobante en `receipt_path`, columna que existe desde 0001 y
+// nunca se había usado. El manejo del archivo es el mismo que en los pagos del cliente:
+// ver `comprobanteDe` y `subirComprobante` más arriba.
 
 export async function addProviderPayment(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
@@ -614,7 +670,7 @@ export async function addProviderPayment(id: string, formData: FormData) {
 
   let receipt_path: string | null = null;
   if (file) {
-    const r = await subirComprobantePilgrim(supabase, id, file);
+    const r = await subirComprobante(supabase, id, "pilgrim", file);
     if ("error" in r) return { error: r.error };
     receipt_path = r.path;
   }
@@ -651,7 +707,7 @@ export async function updateProviderPayment(quoteId: string, paymentId: string, 
 
   let receipt_path: string | null = antes?.receipt_path ?? null;
   if (file) {
-    const r = await subirComprobantePilgrim(supabase, quoteId, file);
+    const r = await subirComprobante(supabase, quoteId, "pilgrim", file);
     if ("error" in r) return { error: r.error };
     receipt_path = r.path;
   } else if (formData.get("quitar_comprobante") === "1") {

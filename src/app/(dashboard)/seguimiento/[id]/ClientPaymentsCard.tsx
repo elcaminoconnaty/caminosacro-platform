@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { addClientPayment, updateClientPayment, deleteClientPayment, generateClientReceipt, getSignedUrl } from "./actions";
 import { eur, fechaCorta } from "@/lib/format";
 import { ACCOUNTS, accountLabel } from "@/lib/accounts";
+import ComprobanteField from "./ComprobanteField";
 
 type Payment = {
   id: string;
@@ -18,6 +19,8 @@ type Payment = {
   notes: string | null;
   receipt_path: string | null;
   receipt_number: string | null;
+  // Opcional: no llega mientras la migración 0057 no se haya corrido.
+  proof_path?: string | null;
 };
 
 const METHODS = ["transferencia", "efectivo", "tarjeta", "wise", "global66", "paypal", "otro"];
@@ -136,6 +139,25 @@ export default function ClientPaymentsCard({
                     {p.reference && <span> · {p.reference}</span>}
                   </div>
                   {p.notes && <div className="text-xs text-muted mt-1 italic">{p.notes}</div>}
+                  <div className="text-xs mt-1">
+                    {p.proof_path ? (
+                      <button
+                        onClick={() => onViewReceipt(p.proof_path!)}
+                        className="text-bosque hover:underline"
+                        disabled={pending}
+                      >
+                        📎 Ver comprobante
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { setEditingId(p.id); setAdding(false); setError(null); }}
+                        className="text-amber-700 hover:underline"
+                        disabled={pending}
+                      >
+                        Sin comprobante · adjuntar
+                      </button>
+                    )}
+                  </div>
                   {p.receipt_number && (
                     <div className="text-xs mt-1">
                       <button
@@ -266,6 +288,7 @@ function PaymentForm({
         <span className="text-xs text-muted">Notas</span>
         <textarea name="notes" rows={2} defaultValue={payment?.notes ?? ""} className="mt-1 w-full px-2 py-1.5 rounded-md border border-border bg-white" />
       </label>
+      <ComprobanteField tiene={!!payment?.proof_path} />
       {error && <p role="alert" className="col-span-2 text-sm text-red-800">{error}</p>}
       <div className="col-span-2 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-taupe/40">
