@@ -501,6 +501,40 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   let pasoActual = 0;
   const paso = () => ++pasoActual;
 
+  // Qué pasos ya están hechos, para el chulito de cada uno. Cada marca sale de un dato que
+  // solo se escribe cuando el paso ocurrió de verdad (un envío real, una firma, un archivo
+  // subido); las pruebas no cuentan. Los pasos que no dependen de nadie (el calendario, el
+  // historial) se dan por hechos cuando ya tienen algo que mostrar.
+  const entregasReales = ((entregas as unknown as Array<{ canal: string; prueba: boolean }>) || []).filter((e) => !e.prueba);
+  const contratosVigentes = ((contractRows as ContractRow[] | null) ?? []).filter((c) => c.status !== "anulado");
+  const hecho = {
+    datos: !!quote.client_name && !!quote.route_name && !!quote.start_date && total > 0,
+    itinerario: !!quote.start_date && etapasViaje.length > 0,
+    calendario: !!fechasViaje,
+    opcionales: optionalLines.length > 0,
+    bici: bikeLines.length > 0,
+    pdf: !!quote.pdf_path,
+    correo: !!quote.email_sent_at,
+    whatsapp: entregasReales.some((e) => e.canal === "whatsapp"),
+    entregas: entregasReales.length > 0,
+    contratos: contratosVigentes.length > 0 && contratosVigentes.every((c) => c.status === "firmado"),
+    pilgrim: !!quote.pilgrim_email_sent_at,
+    carta: !!quote.welcome_letter_at,
+    documentosPilgrim: ((pilgrimFiles as unknown[] | null) ?? []).length > 0,
+    documentacion: !!estadoDocumentacion.sentAt && !estadoDocumentacion.revokedAt,
+    pagos: total > 0 && saldoCliente <= 0.01 && cost > 0 && saldoProveedor <= 0.01,
+  };
+  const hayDocumentacion = (saldoCliente <= 0.01 && total > 0) || isFullyPaid(quote.status);
+  const pasosVisibles: boolean[] = [
+    hecho.datos, hecho.itinerario, hecho.calendario, hecho.opcionales,
+    ...(esRutaBici ? [hecho.bici] : []),
+    hecho.pdf, hecho.correo, hecho.whatsapp, hecho.entregas, hecho.contratos, hecho.pilgrim,
+    hecho.carta, hecho.documentosPilgrim,
+    ...(hayDocumentacion ? [hecho.documentacion] : []),
+    hecho.pagos,
+  ];
+  const pasosHechos = pasosVisibles.filter(Boolean).length;
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
@@ -555,6 +589,15 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         <Card label="Margen real" value={eur(margenReal)} accent />
       </section>
 
+      <div className="flex items-center gap-3 pl-1">
+        <div className="text-xs text-muted whitespace-nowrap">
+          <span className="font-semibold text-bosque">{pasosHechos}</span> de {pasosVisibles.length} pasos hechos
+        </div>
+        <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+          <div className="h-full bg-bosque-medio rounded-full" style={{ width: `${Math.round((pasosHechos / pasosVisibles.length) * 100)}%` }} />
+        </div>
+      </div>
+
       {/* El expediente va paso a paso, en el orden real de una venta: armar la cotización
           (datos, itinerario, calendario del viaje, opcionales, bici) → mandarla (PDF, correo, WhatsApp) → ver qué
           se le entregó → contrato → correo a Pilgrim → carta de bienvenida → lo que devuelve
@@ -562,7 +605,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           Pilgrim porque es ahí cuando entran los pasaportes que ese correo necesita. El
           número de cada paso se cuenta al dibujar: la bici y la documentación no siempre
           aparecen, y la numeración no debe saltarse. */}
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.datos}>
         <Plegable seccion="datos" titulo="los datos de la cotización">
           <QuoteEditor
             quote={quote}
@@ -573,7 +616,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           />
         </Plegable>
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.itinerario}>
         <Plegable seccion="itinerario" titulo="el itinerario">
           <ItineraryCard
             quoteId={id}
@@ -585,12 +628,12 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           />
         </Plegable>
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.calendario}>
         <Plegable seccion="calendario-viaje" titulo="el calendario del viaje">
           <TripCalendarCard fechas={fechasViaje} etapas={etapasViaje} estado={estadoViaje} />
         </Plegable>
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.opcionales}>
         <Plegable seccion="opcionales" titulo="los servicios opcionales">
           <OptionalsCard
             quoteId={id}
@@ -605,7 +648,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         </Plegable>
       </Paso>
       {esRutaBici && (
-        <Paso n={paso()}>
+        <Paso n={paso()} hecho={hecho.bici}>
           <Plegable seccion="bicicletas" titulo="el alquiler de bicicleta">
             <BikesCard
               quoteId={id}
@@ -618,7 +661,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           </Plegable>
         </Paso>
       )}
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.pdf}>
         <Plegable seccion="pdf" titulo="el PDF de la cotización">
           <DocumentsCard
             quoteId={id}
@@ -627,7 +670,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           />
         </Plegable>
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.correo}>
         <Plegable seccion="correo-cliente" titulo="el correo para el cliente">
           <EmailPreviewCard
             quoteId={id}
@@ -646,7 +689,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         </Plegable>
       </Paso>
 
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.whatsapp}>
         {/* Pegada al correo del cliente porque es el mismo encargo por el otro canal: a la
             gente que cotizó en la web sin precio se le escribe por WhatsApp, y ahí hay que
             repetirle lo que dice el correo. Nace plegada. */}
@@ -660,10 +703,10 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           envio={resumenEnvio("cliente", quote.email_sent_at ?? null)}
         />
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.entregas}>
         <EntregasCard entregas={entregas as unknown as EntregaVista[]} totalActual={total} />
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.contratos}>
         <Plegable seccion="contratos" titulo="los contratos">
           <ContractCard
             quoteId={id}
@@ -679,7 +722,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           />
         </Plegable>
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.pilgrim}>
         <Plegable seccion="correo-pilgrim" titulo="el correo a Pilgrim">
           <PilgrimEmailCard
             quoteId={id}
@@ -694,7 +737,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           />
         </Plegable>
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.carta}>
         <Plegable seccion="carta-bienvenida" titulo="la carta de bienvenida">
           <WelcomeLetterCard
             // Al cambiar el itinerario cambian los textos sugeridos: se remonta para no
@@ -709,7 +752,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           />
         </Plegable>
       </Paso>
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.documentosPilgrim}>
         <Plegable seccion="documentos-pilgrim" titulo="los documentos de Pilgrim">
           <PilgrimFilesCard
             quoteId={id}
@@ -726,8 +769,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           dinero de todas formas: es el dato duro, y las 45 cotizaciones anteriores a ese
           cambio no lo tienen reflejado en su etiqueta. `isFullyPaid` se mantiene como
           segunda vía para los estados que pone una persona a mano («completada»). */}
-      {(saldoCliente <= 0.01 && total > 0) || isFullyPaid(quote.status) ? (
-        <Paso n={paso()}>
+      {hayDocumentacion ? (
+        <Paso n={paso()} hecho={hecho.documentacion}>
           <Plegable seccion="documentacion" titulo="la documentación de viaje">
             <TravelDocCard
               quoteId={id}
@@ -752,7 +795,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         </Paso>
       ) : null}
 
-      <Paso n={paso()}>
+      <Paso n={paso()} hecho={hecho.pagos}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Plegable seccion="pagos-cliente" titulo="los pagos del cliente">
             <ClientPaymentsCard quoteId={id} payments={cps || []} cobrado={cobrado} saldo={saldoCliente} />
@@ -766,10 +809,18 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   );
 }
 
-function Paso({ n, children }: { n: number; children: ReactNode }) {
+function Paso({ n, hecho, children }: { n: number; hecho: boolean; children: ReactNode }) {
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-dorado-oscuro mb-1.5 pl-1">Paso {n}</div>
+      <div className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-1.5 pl-1 ${hecho ? "text-bosque-medio" : "text-dorado-oscuro"}`}>
+        {hecho ? (
+          <span aria-hidden className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-bosque-medio text-white text-[10px] leading-none">✓</span>
+        ) : (
+          <span aria-hidden className="inline-block w-4 h-4 rounded-full border border-dorado-oscuro/50" />
+        )}
+        Paso {n}
+        {hecho && <span className="normal-case tracking-normal font-normal text-muted">· hecho</span>}
+      </div>
       {children}
     </div>
   );

@@ -26,6 +26,13 @@ export const P = `margin:0 0 14px;font-family:Georgia,'Times New Roman',serif;fo
 /** Letra pequeña: notas, legales, pies. */
 export const P_MINI = `margin:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.6;color:${COLORES.suave};`;
 
+/**
+ * La firma de origen: todo correo que sale de la plataforma lo dice, para distinguirlo de
+ * uno escrito a mano desde el buzón. La versión HTML va en el pie de `envolturaCorreo`; la
+ * de texto plano la pone `enviarCorreoWebhook`.
+ */
+export const ORIGEN_PLATAFORMA = "Enviado desde la plataforma de Camino Sacro";
+
 export function esc(s: string): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -117,6 +124,7 @@ export function envolturaCorreo(o: EnvolturaOpciones): string {
   <tr><td class="cs-pad" style="background:${C.verde};padding:18px 32px;">
     <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:rgba(255,255,255,0.8);">${esc(o.pie || "Camino Sacro")}</div>
     <div style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:rgba(255,255,255,0.5);margin-top:5px;">Respaldado por El Camino con Naty</div>
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:rgba(255,255,255,0.5);margin-top:5px;">${esc(ORIGEN_PLATAFORMA)}</div>
   </td></tr>
 
 </table>

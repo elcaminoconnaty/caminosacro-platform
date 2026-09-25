@@ -1,4 +1,5 @@
 import "server-only";
+import { ORIGEN_PLATAFORMA } from "./shell";
 
 // Único emisor de correos de la plataforma: POST al webhook de n8n
 // ("Correo Cotización — Camino Sacro"), que envía por Brevo desde
@@ -58,6 +59,11 @@ export type CorreoPayload = {
 const AVISO_PREFIJO = "[CRM]";
 const AVISO_POR_DEFECTO = true;
 
+// La versión en texto plano también dice de dónde salió (la HTML lo trae en el pie de la
+// envoltura). Si el cuerpo viene en null, el workflow arma el suyo y no hay dónde ponerlo.
+const conOrigen = (texto: string | null | undefined) =>
+  texto && !texto.includes(ORIGEN_PLATAFORMA) ? `${texto.trimEnd()}\n\n—\n${ORIGEN_PLATAFORMA}` : texto;
+
 /**
  * Envía el correo por el webhook. Nunca lanza: devuelve `{ ok: false, error }`
  * con un motivo legible para poder mostrarlo en pantalla (el envío jamás debe
@@ -88,6 +94,8 @@ export async function enviarCorreoWebhook(
   const aviso = payload.aviso ?? AVISO_POR_DEFECTO;
   const conPrefijo: CorreoPayload = {
     ...payload,
+    body: conOrigen(payload.body) ?? null,
+    aviso_body: conOrigen(payload.aviso_body) ?? undefined,
     aviso,
     aviso_subject: aviso && payload.aviso_subject && !payload.aviso_subject.startsWith(AVISO_PREFIJO)
       ? `${AVISO_PREFIJO} ${payload.aviso_subject}`

@@ -158,6 +158,14 @@ export const OUTLOOK_MAX_ADJUNTO = 3 * 1024 * 1024;
 
 type Borrador = { id: string; conversationId?: string; body?: { content?: string } };
 
+/**
+ * Categoría de Outlook con la que queda marcado en reservas@ todo lo que manda la
+ * plataforma: en Enviados y en el hilo se distingue de un vistazo de lo escrito a mano.
+ * Si la categoría no existe en el buzón, Outlook la muestra igual (sin color); para darle
+ * color basta crearla una vez con este mismo nombre.
+ */
+const CATEGORIA_PLATAFORMA = "Plataforma";
+
 async function adjuntar(borradorId: string, adjuntos: AdjuntoOutlook[]): Promise<string | null> {
   for (const a of adjuntos) {
     if (a.contenido.length > OUTLOOK_MAX_ADJUNTO) {
@@ -206,6 +214,7 @@ export async function responderEnHilo(opts: {
   const citado = borrador.data.body?.content ?? "";
   const parche = await graph("PATCH", `/me/messages/${encodeURIComponent(id)}`, {
     body: { contentType: "HTML", content: `${opts.html}<br>${citado}` },
+    categories: [CATEGORIA_PLATAFORMA],
     ...(opts.cc?.length ? { ccRecipients: opts.cc.map((address) => ({ emailAddress: { address } })) } : {}),
   });
   if (!parche.ok) return { ok: false, error: `No se pudo escribir la respuesta: ${parche.error} (Quedó un borrador en Borradores.)` };
@@ -231,6 +240,7 @@ export async function enviarNuevo(opts: {
     subject: opts.asunto,
     body: { contentType: "HTML", content: opts.html },
     toRecipients: [{ emailAddress: { address: opts.para } }],
+    categories: [CATEGORIA_PLATAFORMA],
   });
   if (!borrador.ok) return { ok: false, error: `No se pudo preparar el correo: ${borrador.error}` };
   const id = borrador.data.id;
