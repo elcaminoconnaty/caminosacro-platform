@@ -1417,3 +1417,11 @@ no del editor, así que el editor no los genera: se suben con un script.
 
 **Sin verificar todavía:** la primera publicación real de un reel (1-oct-2026, 7:30 pm).
 Si falla, el motivo queda en `publicacion_error` y en el calendario.
+
+**2026-09-27 (tarde) · 9 reels programados.** Del 1 al 25 de octubre, uno cada 3 días (2 de
+descanso) a las 7:30 pm de Bogotá: Año Santo, Tres rutas, Cuánto cuesta, Un día, Solo, Compostela,
+Mochila, En forma y Desde Colombia. Plan y textos en `Camino Sacro/Videos Animados/reels/plan-reels.json`.
+Se verificó que las 9 piezas pasan `motivoNoPublicable`, con la huella bien y el mp4 y la portada
+respondiendo 200 en la URL pública. **Ojo:** el 28 y el 30 de septiembre salen dos carruseles
+que ya estaban programados. **El primer reel real es el 1 de octubre:** si falla, el motivo
+queda en el calendario.
