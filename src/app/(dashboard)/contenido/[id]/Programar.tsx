@@ -43,6 +43,9 @@ export default function Programar(p: ProgramarProps) {
   const [pendiente, iniciar] = useTransition();
 
   const esReel = p.formato === "reel";
+  // Reel de VIDEO (lo subió scripts/programar_reels.ts): el editor no lo re-exporta, porque
+  // exportar aquí pisaría el mp4 con la imagen de los slides.
+  const esReelDeVideo = esReel && p.slides[0]?.plantilla === "video-reel";
   const bloqueado = pendiente || fase !== null || p.hayPendiente || esReel || p.estado === "publicando";
 
   useEffect(() => {
@@ -148,7 +151,8 @@ export default function Programar(p: ProgramarProps) {
               onClick={() => setAbierto(true)}
               disabled={bloqueado}
               title={
-                esReel ? "La portada de reel no se publica por API: se sube a mano con el video."
+                esReelDeVideo ? "Reel de video: se programa con scripts/programar_reels.ts (el editor no genera video)."
+                : esReel ? "La portada de reel no se publica por API: se sube a mano con el video."
                 : p.hayPendiente ? "Espera a que termine de guardar" : "Exporta y deja la pieza en el calendario"
               }
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-bosque text-white text-xs hover:bg-bosque-medio transition disabled:opacity-50"

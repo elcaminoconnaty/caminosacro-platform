@@ -1391,3 +1391,29 @@ carrusel de 4 en `https://www.instagram.com/p/DdaKVQjmQQ6/`, fila en `posts_log`
 `origen='estudio'`, la pieza en `publicado` con permalink, y el calendario la pinta en verde.
 El flujo completo —aprobar → exportar → cola → cron → Graph API → posts_log → calendario—
 está verificado de punta a punta.
+
+### 2026-09-27 · Reels de VIDEO: el motor ya los publica
+
+Nico: *"monta los 9 reels a través de la plataforma… formato tipo reel, con 2 días de descanso,
+a las 7:30 pm"*. Los videos salen del proyecto de animación (`Camino Sacro/Videos Animados`),
+no del editor, así que el editor no los genera: se suben con un script.
+
+**Lo que hay ahora.**
+- `publicar.ts` reconoce un **reel de video**: `formato = 'reel'` + un `.mp4` en `export_paths`
+  (`videoDelReel`). Lo publica con `media_type=REELS`, `share_to_feed=true` y la portada como
+  `cover_url` (`crearContenedorReel` en `instagram.ts`), y espera el procesamiento hasta 5 min
+  (`ESPERA_VIDEO`). Un `reel` sin mp4 sigue siendo solo portada y se rechaza como antes.
+- **Sin migración:** `formato 'reel'` ya existía en el check de la tabla y el bucket
+  `contenido-piezas` es público sin límite de tamaño ni de tipos.
+- `export_paths = [portada.jpg, video.mp4]`: la portada va primero porque la bandeja usa
+  `export_paths[0]` como miniatura.
+- El slide es descriptivo (`plantilla: 'video-reel'`, con la huella sha1 del mp4) y la
+  `export_hash` sale de `hashPieza` como siempre: si el video cambia hay que re-programarlo.
+- `scripts/programar_reels.ts <plan.json> [--aplicar]` sube video y portada a
+  `contenido-piezas/reels/<slug>/` y crea o actualiza la pieza en `programado`. Sin
+  `--aplicar` es un ensayo. Nunca toca `public.fotos`.
+- En el editor, «Aprobar y programar» sigue bloqueado para reels: re-exportar pisaría el mp4
+  con la imagen del slide. El aviso dice cómo se programan.
+
+**Sin verificar todavía:** la primera publicación real de un reel (1-oct-2026, 7:30 pm).
+Si falla, el motivo queda en `publicacion_error` y en el calendario.

@@ -6,9 +6,26 @@ import { leerSlides } from "@/lib/contenido/tipos";
 import { hashPieza } from "@/lib/contenido/hashSlide";
 import { fechaLocal } from "@/lib/contenido/fechas";
 import {
-  crearContenedorCarrusel, crearContenedorImagen, esperarContenedorListo,
-  obtenerPermalink, publicarContenedor, type CredencialesIg,
+  crearContenedorCarrusel, crearContenedorImagen, crearContenedorReel, esperarContenedorListo,
+  obtenerPermalink, publicarContenedor, ESPERA_VIDEO, type CredencialesIg,
 } from "@/lib/contenido/instagram";
+
+/**
+ * Reel de VIDEO: pieza en formato `reel` cuyos archivos exportados incluyen un `.mp4`.
+ * Convención: `export_paths = [portada.jpg, video.mp4]` — la portada va primero porque la
+ * bandeja usa `export_paths[0]` como miniatura (un <img> no muestra un mp4). Los videos
+ * animados salen de `Camino Sacro/Videos Animados` y se suben con
+ * `scripts/programar_reels.ts`; el editor no los genera. Sin `.mp4`, un `reel` sigue siendo
+ * solo la portada, que no se publica por API.
+ */
+export function videoDelReel(p: Pick<PiezaTomada, "formato" | "export_paths">): { video: string; portada: string | null } | null {
+  if (p.formato !== "reel") return null;
+  const rutas = Array.isArray(p.export_paths) ? (p.export_paths as string[]) : [];
+  const video = rutas.find((r) => r.toLowerCase().endsWith(".mp4"));
+  if (!video) return null;
+  const portada = rutas.find((r) => /\.(jpe?g|png)$/i.test(r)) ?? null;
+  return { video, portada };
+}
 
 /**
  * Publica en Instagram una pieza que YA está en estado `publicando` (la tomó el cron con
@@ -46,10 +63,20 @@ export type ResultadoPublicacion =
 /** Lo que impide publicar sin siquiera hablar con Instagram. `null` si todo cuadra. */
 export function motivoNoPublicable(p: Pick<PiezaTomada, "formato" | "slides" | "export_paths" | "export_hash">): string | null {
   if (!esFormatoId(p.formato)) return "El formato de la pieza no existe.";
-  if (p.formato === "reel") {
+  const reel = videoDelReel(p);
+  if (p.formato === "reel" && !reel) {
     return "La portada de reel no se publica por API: es la carátula de un video. Expórtala y súbela a mano con el reel.";
   }
   const { slides, error } = leerSlides(p.slides);
+  if (reel) {
+    // El video no sale de los slides: la huella se calcula sobre el slide que lo describe
+    // (nombre y versión del video), así un cambio de video obliga a volver a programarlo.
+    if (error) return `Los slides no se pueden leer: ${error}`;
+    if (!p.export_hash || p.export_hash !== hashPieza(slides, p.formato)) {
+      return "El reel cambió después de programarlo. Vuelve a programarlo con scripts/programar_reels.ts.";
+    }
+    return null;
+  }
   if (error) return `Los slides no se pueden leer: ${error}`;
   if (slides.length === 0) return "La pieza no tiene slides.";
   const rutas = Array.isArray(p.export_paths) ? (p.export_paths as string[]) : [];
@@ -88,6 +115,16 @@ async function publicarEnInstagram(p: PiezaTomada): Promise<{ mediaId: string; p
   const rutas = p.export_paths as string[];
   const urls = rutas.map(urlPublica);
   const caption = armarCaption(p.caption, p.hashtags);
+
+  const reel = videoDelReel(p);
+  if (reel) {
+    const cont = await crearContenedorReel(c, {
+      videoUrl: urlPublica(reel.video), caption, coverUrl: reel.portada ? urlPublica(reel.portada) : undefined,
+    });
+    await esperarContenedorListo(c, cont, ESPERA_VIDEO.intentos, ESPERA_VIDEO.esperaMs);
+    const mediaId = await publicarContenedor(c, cont);
+    return { mediaId, permalink: await obtenerPermalink(c, mediaId), mediaIds: [mediaId] };
+  }
 
   if (p.formato === "9x16") {
     // Cada slide es una historia aparte, en orden. Las historias no llevan caption.
@@ -211,6 +248,7 @@ async function avisar(texto: string): Promise<void> {
 /** Ocupa el formato para el mensaje de la interfaz: "carrusel de 5", "historia (3)", "imagen". */
 export function describirPublicacion(formato: string, nSlides: number): string {
   if (!esFormatoId(formato)) return "pieza";
+  if (formato === "reel") return "reel";
   if (formato === "9x16") return nSlides === 1 ? "historia" : `${nSlides} historias`;
   if (nSlides === 1) return `imagen ${FORMATOS[formato].etiqueta}`;
   return `carrusel de ${nSlides}`;

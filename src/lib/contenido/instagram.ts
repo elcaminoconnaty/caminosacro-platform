@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * Graph API de Instagram: lo justo para publicar foto única, carrusel e historia.
+ * Graph API de Instagram: lo justo para publicar foto única, carrusel, historia y reel.
  *
  * Copiado y ampliado de `_shared/instagram.ts` del bot viejo (caminosacro-ig-auto), que
  * solo sabía de foto única. Misma versión de API (v21.0): es la que lleva un año
@@ -50,6 +50,30 @@ export async function crearContenedorImagen(
   if (typeof data.id !== "string") throw new Error(`crear contenedor: respuesta sin id (${JSON.stringify(data)})`);
   return data.id;
 }
+
+/**
+ * Contenedor de un REEL (video vertical). Instagram descarga el MP4 por URL y lo procesa:
+ * tarda bastante más que una imagen, así que después hay que esperar con
+ * `esperarContenedorListo(c, id, ESPERA_VIDEO.intentos, ESPERA_VIDEO.esperaMs)`.
+ * `share_to_feed` = también aparece en la cuadrícula del perfil, no solo en la pestaña Reels.
+ * `cover_url` es la portada (JPG 9:16); sin ella Instagram toma un fotograma cualquiera.
+ * Requisitos de Meta: MP4 H.264 + AAC, 9:16, 3 s a 15 min, ≤ 300 MB.
+ */
+export async function crearContenedorReel(
+  c: CredencialesIg,
+  opts: { videoUrl: string; caption: string; coverUrl?: string },
+): Promise<string> {
+  const params: Record<string, string> = {
+    media_type: "REELS", video_url: opts.videoUrl, caption: opts.caption, share_to_feed: "true", access_token: c.token,
+  };
+  if (opts.coverUrl) params.cover_url = opts.coverUrl;
+  const data = await llamar(`${c.igUserId}/media`, params, "POST");
+  if (typeof data.id !== "string") throw new Error(`crear reel: respuesta sin id (${JSON.stringify(data)})`);
+  return data.id;
+}
+
+/** Un video tarda en procesarse: sondear cada 5 s hasta 5 minutos (tope que sugiere Meta). */
+export const ESPERA_VIDEO = { intentos: 60, esperaMs: 5000 } as const;
 
 /** Contenedor padre del carrusel: los hijos ya creados con `is_carousel_item`. */
 export async function crearContenedorCarrusel(
