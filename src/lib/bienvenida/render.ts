@@ -98,6 +98,7 @@ export async function datosCartaBienvenida(
     (lineas || []) as Array<{ description: string; quantity: number | string; reference_id: string | null }>,
     categorias,
     habitacionesDelGrupo(quote),
+    quote.people,
   );
 
   const origen = etapas[0].from_place || ruta?.origin || null;

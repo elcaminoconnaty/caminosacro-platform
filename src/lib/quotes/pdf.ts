@@ -345,6 +345,7 @@ export async function renderAndStoreQuotePdf(
     (selectedLines || []) as Array<{ description: string; quantity: number | string; reference_id: string | null }>,
     categoryById,
     habitacionesDelGrupo(quote),
+    quote.people,
   );
 
   // ===== Flota de bicicletas (migración 0021) =====

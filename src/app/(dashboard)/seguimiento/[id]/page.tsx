@@ -12,6 +12,7 @@ import QuoteEditor, { type CompanyLite } from "./QuoteEditor";
 import ItineraryCard from "./ItineraryCard";
 import TripCalendarCard from "./TripCalendarCard";
 import { extrasDeLineas, habitacionesDelGrupo } from "@/lib/quotes/extrasItinerario";
+import { nochesDelViaje } from "@/lib/quotes/cantidadOpcional";
 import { fechasDelViaje } from "@/lib/quotes/fechasViaje";
 import { etapasCaminadas, etapasDeCondiciones, type EtapaItinerario } from "@/lib/quotes/itinerario";
 import ClientPaymentsCard from "./ClientPaymentsCard";
@@ -449,7 +450,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const categoriaOpcional = new Map(
     ((optsCatalog as unknown as Array<{ id: string; category: string }>) || []).map((o) => [o.id, o.category]),
   );
-  const extrasViaje = extrasDeLineas(optionalLines, categoriaOpcional, habitacionesDelGrupo(quote));
+  const extrasViaje = extrasDeLineas(optionalLines, categoriaOpcional, habitacionesDelGrupo(quote), quote.people);
   const fechasViaje = fechasDelViaje(quote.start_date ?? null, etapasViaje.length, extrasViaje?.extraNights ?? 0, extrasViaje?.tours ?? []);
   const estadoViaje = quote.status === "pago_parcial" ? "parcial" : isFullyPaid(quote.status) ? "pagado" : "borrador";
 
@@ -643,6 +644,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             totalEur={total}
             seasonSupplementEur={Number(quote.season_supplement_eur) || 0}
             people={quote.people}
+            dias={nochesDelViaje(quote.start_date, quote.end_date) ?? findRouteMeta(routes, quote.route_name)?.nights ?? null}
             quoteYear={optionalYear}
           />
         </Plegable>

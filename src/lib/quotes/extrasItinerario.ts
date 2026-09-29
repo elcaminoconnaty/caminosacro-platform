@@ -46,15 +46,21 @@ export function extrasDeLineas(
   lineas: LineaOpcional[],
   categoriaPorId: Map<string, string>,
   habitaciones: number,
+  personas?: number | null,
 ): ExtrasItinerario | null {
   const habs = Math.max(1, habitaciones);
+  const pers = Math.max(1, Number(personas) || 1);
   let extraNights = 0;
   let extraNightTipo: "pension" | "hotel" = "pension";
   const tours: string[] = [];
   for (const l of lineas) {
     const cat = l.reference_id ? categoriaPorId.get(l.reference_id) : undefined;
     if (cat === "noche_extra") {
-      extraNights += Math.round((Number(l.quantity) || 0) / habs);
+      // Desde 2026-09-29 Pilgrim tarifa la noche extra por persona ("por persona y
+      // noche"): la cantidad es personas × noches. Las líneas viejas ("por noche") se
+      // cobraban por habitación.
+      const divisor = /persona/i.test(l.description) ? pers : habs;
+      extraNights += Math.round((Number(l.quantity) || 0) / divisor);
       if (/hotel|casa rural/i.test(l.description)) extraNightTipo = "hotel";
     } else if (cat === "tour") {
       // El nombre viene como "Tour X (por persona)"; quito la unidad entre paréntesis.

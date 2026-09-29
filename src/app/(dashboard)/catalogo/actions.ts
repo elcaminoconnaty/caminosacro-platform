@@ -151,15 +151,18 @@ export async function getResourceUrl(storagePath: string) {
 
 export async function updateOptionalService(
   id: string,
-  field: "price_pilgrim" | "price_cs" | "name",
+  field: "price_pilgrim" | "price_cs" | "name" | "unit",
   value: string | number | null,
   year: number,
 ) {
   const supabase = await createCommercialClient();
-  // El nombre vive en el servicio; los precios, en la fila del año (migración 0019).
-  if (field === "name") {
-    const { error } = await supabase.from("optional_services").update({ name: value }).eq("id", id);
+  // El nombre y la unidad viven en el servicio (valen para todos los años); los precios,
+  // en la fila del año (migración 0019). La unidad define cómo se cuenta al cotizar:
+  // ver src/lib/quotes/cantidadOpcional.ts.
+  if (field === "name" || field === "unit") {
+    const { error } = await supabase.from("optional_services").update({ [field]: value }).eq("id", id);
     if (error) return { error: mensajeError(error) };
+    revalidatePath("/cotizaciones/nueva");
   } else {
     const { error } = await supabase
       .from("optional_prices")

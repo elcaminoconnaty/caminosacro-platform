@@ -89,7 +89,7 @@ const REGLAS_FIJAS = (v: {
     id: "opcionales",
     titulo: "Servicios opcionales",
     regla:
-      "La cantidad por defecto es `personas` cuando la unidad dice 'persona', si no 1. Los de categoría `noche_extra` y `tour` cambian el itinerario del PDF; en noche extra la cantidad se lee como habitaciones × noches. A diferencia de las rutas, el precio de un opcional SÍ cae al año cargado más reciente si el del año de salida no existe (viene marcado con `es_de_otro_ano`), porque no hay dónde teclearlo a mano.",
+      "La cantidad por defecto sale del texto de la unidad (src/lib/quotes/cantidadOpcional.ts): 'por persona' → personas; 'por persona y día' → personas × noches del viaje; 'por persona y noche' → personas (× noches, a mano); 'por vehículo (hasta 4 plazas)' → un vehículo cada 4 personas; otra → 1. Los de categoría `noche_extra` y `tour` cambian el itinerario del PDF; en noche extra la cantidad se lee como personas × noches (líneas viejas 'por noche': habitaciones × noches). A diferencia de las rutas, el precio de un opcional SÍ cae al año cargado más reciente si el del año de salida no existe (viene marcado con `es_de_otro_ano`), porque no hay dónde teclearlo a mano.",
     donde_se_cambia: "Catálogo → Opcionales (comercial.optional_services y optional_prices).",
   },
   {

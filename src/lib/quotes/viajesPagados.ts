@@ -94,7 +94,7 @@ export async function viajesPagados(supabase: ComercialClient): Promise<{ viajes
   const viajes = quotes.map((q): ViajePagado => {
     const ruta = rutaDe(q);
     const etapas = propias.get(q.id) || (ruta ? etapasCatalogo.get(ruta) ?? 0 : 0);
-    const extras = extrasDeLineas(lineasPorQuote.get(q.id) ?? [], categorias, habitacionesDelGrupo(q));
+    const extras = extrasDeLineas(lineasPorQuote.get(q.id) ?? [], categorias, habitacionesDelGrupo(q), q.people);
     return {
       id: q.id,
       code: q.code,

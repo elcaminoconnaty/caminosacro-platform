@@ -10,6 +10,7 @@ import {
   updateQuoteLineQuantity,
 } from "./actions";
 import { MAX_DESC_OPCIONAL } from "@/lib/quotes/opcionalLibre";
+import { cantidadPorDefecto, explicarCantidad } from "@/lib/quotes/cantidadOpcional";
 
 export type OptionalCatalog = {
   id: string;
@@ -59,6 +60,7 @@ export default function OptionalsCard({
   totalEur,
   seasonSupplementEur,
   people,
+  dias,
   quoteYear,
 }: {
   quoteId: string;
@@ -68,6 +70,8 @@ export default function OptionalsCard({
   totalEur: number;
   seasonSupplementEur: number;
   people: number | null;
+  /** Noches del viaje: los opcionales "por persona y día" se multiplican por esto. */
+  dias?: number | null;
   /** Año de salida de la cotización: es el que manda para elegir el precio del opcional. */
   quoteYear: number;
 }) {
@@ -164,6 +168,18 @@ export default function OptionalsCard({
                       <div className="flex-1 min-w-0">
                         <span className="font-medium">{it.name}</span>
                         <span className="text-xs text-muted ml-2">{it.unit}</span>
+                        {(() => {
+                          // La cuenta con la que se marca (y con la que se sugiere cambiarla).
+                          const cuenta = explicarCantidad(it.unit, people, dias);
+                          if (!cuenta) return null;
+                          const sugerida = cantidadPorDefecto(it.unit, people, dias);
+                          const distinta = checked && line && Number(line.quantity) !== sugerida;
+                          return (
+                            <span className={`text-[10px] ml-2 ${distinta ? "text-amber-700" : "text-muted"}`}>
+                              {distinta ? `sugerido ${sugerida}: ${cuenta}` : `= ${cuenta}`}
+                            </span>
+                          );
+                        })()}
                         {it.isFallback && !checked && (
                           <span className="text-[10px] text-amber-700 ml-2">precio {it.priceYear}</span>
                         )}

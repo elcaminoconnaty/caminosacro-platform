@@ -4,6 +4,7 @@ import { mensajeError } from "@/lib/errors";
 import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 import type { ComercialClient } from "@/lib/quotes/pdf";
 import { validarOpcionalLibre, type OpcionalLibre } from "@/lib/quotes/opcionalLibre";
+import { cantidadPorDefecto, nochesDelViaje } from "@/lib/quotes/cantidadOpcional";
 
 export { MAX_DESC_OPCIONAL, type OpcionalLibre } from "@/lib/quotes/opcionalLibre";
 
@@ -31,7 +32,11 @@ export async function alternarOpcional(
         .select("name,unit,optional_prices(year,price_pilgrim,price_cs)")
         .eq("id", optionalId)
         .maybeSingle(),
-      supabase.from("quotes").select("start_date").eq("id", quoteId).maybeSingle(),
+      supabase
+        .from("quotes")
+        .select("start_date,end_date,people,routes(nights)")
+        .eq("id", quoteId)
+        .maybeSingle(),
     ]);
     if (!opt) return { error: "Opcional no encontrado" };
 
@@ -40,9 +45,14 @@ export async function alternarOpcional(
     const precio = optionalPricesForYear(filas, quoteYear(quote?.start_date)).get(optionalId);
     if (!precio) return { error: "Ese opcional no tiene precio cargado en ningún año. Cargalo en el catálogo." };
 
-    // Cantidad por defecto: si es por persona, usa people; si es por noche/vehículo/unidad, 1
-    const isPerPerson = (opt.unit || "").toLowerCase().includes("persona");
-    const qty = isPerPerson ? Math.max(1, peopleHint ?? 1) : 1;
+    // Cantidad por defecto según la unidad: personas, personas × días, vehículos de 4
+    // plazas… (ver cantidadOpcional.ts). Las personas de la cotización mandan sobre el
+    // hint del llamador, que puede venir de una pantalla vieja.
+    const personas = Number(quote?.people) || peopleHint || 1;
+    const ruta = quote?.routes as { nights?: number | null } | { nights?: number | null }[] | null | undefined;
+    const nochesRuta = Number((Array.isArray(ruta) ? ruta[0] : ruta)?.nights) || null;
+    const dias = nochesDelViaje(quote?.start_date, quote?.end_date) ?? nochesRuta;
+    const qty = cantidadPorDefecto(opt.unit, personas, dias);
     const description = `${opt.name} (${opt.unit})`;
     const { error } = await supabase.from("quote_lines").insert({
       quote_id: quoteId,
