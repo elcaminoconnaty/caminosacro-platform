@@ -33,7 +33,7 @@ export async function duplicarCotizacion(
 ): Promise<{ ok: true; id: string; code: string } | { ok: false; error: string }> {
   const { data: original, error: leerErr } = await supabase
     .from("quotes")
-    .select("id,client_id,client_name,client_phone,client_email,route_id,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,price_blocks,rooms_json,manual_price_note,notes,source")
+    .select("id,client_id,client_name,client_phone,client_email,route_id,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,price_blocks,rooms_json,manual_price_note,notes,source,noches_extra_incluidas")
     .eq("id", quoteId)
     .maybeSingle();
   if (leerErr) return { ok: false, error: mensajeError(leerErr, "No se pudo leer la cotización original.") };
@@ -77,6 +77,8 @@ export async function duplicarCotizacion(
       manual_price_note: q.manual_price_note ?? null,
       notes: q.notes ?? null,
       source: q.source ?? null,
+      // Va con el precio: si la noche venía incluida en el original, también en la copia.
+      noches_extra_incluidas: q.noches_extra_incluidas ?? 0,
       status: DEFAULT_STATUS,
     })
     .select("id,code")

@@ -41,12 +41,26 @@ export function habitacionesDelGrupo(quote: { rooms_json?: unknown; modality?: s
   return 1;
 }
 
-/** Las líneas opcionales + la categoría de cada servicio → los extras del itinerario. */
+/** Tipo de alojamiento de la cotización, para rotular la noche incluida en el precio. */
+export function tipoAlojamientoDe(quote: { rooms_json?: unknown; modality?: string | null }): "pension" | "hotel" {
+  const tipo = (quote.rooms_json as { tipo?: string } | null)?.tipo;
+  if (tipo === "hotel" || tipo === "pension") return tipo;
+  return /hotel/i.test(quote.modality || "") ? "hotel" : "pension";
+}
+
+/**
+ * Las líneas opcionales + la categoría de cada servicio → los extras del itinerario.
+ *
+ * `incluidas` son las noches extra que ya vienen dentro del precio de la ruta
+ * (`quotes.noches_extra_incluidas`, migración 0058): alargan el itinerario como una noche
+ * contratada, pero no tienen línea ni se cobran.
+ */
 export function extrasDeLineas(
   lineas: LineaOpcional[],
   categoriaPorId: Map<string, string>,
   habitaciones: number,
   personas?: number | null,
+  incluidas?: { noches: number | null | undefined; tipo: "pension" | "hotel" },
 ): ExtrasItinerario | null {
   const habs = Math.max(1, habitaciones);
   const pers = Math.max(1, Number(personas) || 1);
@@ -66,6 +80,11 @@ export function extrasDeLineas(
       // El nombre viene como "Tour X (por persona)"; quito la unidad entre paréntesis.
       tours.push(l.description.replace(/\s*\([^)]*\)\s*$/, "").trim());
     }
+  }
+  const nochesIncluidas = Math.max(0, Math.round(Number(incluidas?.noches) || 0));
+  if (nochesIncluidas > 0) {
+    if (extraNights === 0 && incluidas) extraNightTipo = incluidas.tipo;
+    extraNights += nochesIncluidas;
   }
   return extraNights > 0 || tours.length > 0 ? { extraNights, extraNightTipo, tours } : null;
 }

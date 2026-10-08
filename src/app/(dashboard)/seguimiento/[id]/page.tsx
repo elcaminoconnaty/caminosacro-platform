@@ -11,7 +11,7 @@ import Link from "next/link";
 import QuoteEditor, { type CompanyLite } from "./QuoteEditor";
 import ItineraryCard from "./ItineraryCard";
 import TripCalendarCard from "./TripCalendarCard";
-import { extrasDeLineas, habitacionesDelGrupo } from "@/lib/quotes/extrasItinerario";
+import { extrasDeLineas, habitacionesDelGrupo, tipoAlojamientoDe } from "@/lib/quotes/extrasItinerario";
 import { nochesDelViaje } from "@/lib/quotes/cantidadOpcional";
 import { fechasDelViaje } from "@/lib/quotes/fechasViaje";
 import { etapasCaminadas, etapasDeCondiciones, type EtapaItinerario } from "@/lib/quotes/itinerario";
@@ -246,35 +246,77 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
   if (!quote) notFound();
 
+  // Todo lo que sigue depende solo de la cotización ya leída, así que se ARRANCA todo junto
+  // acá y cada bloque espera su resultado donde lo usa. Antes eran ~10 esperas en fila
+  // (firmantes → empresa → firmantes del conjunto → contrato → correo Pilgrim → storage →
+  // etapas → carta → padre → enlace), y cada guardado de la página las volvía a pagar.
+  // `Promise.resolve` dispara las consultas de Supabase, que si no son perezosas.
+  const conjuntoTemprano = ((contractRows as ContractRow[] | null) ?? []).find((c) => c.kind === "conjunto");
+  const routeRowTemprana = (routes || []).find((r) => (quote.route_id ? r.id === quote.route_id : r.name === quote.route_name));
+  const firmantesP = getFirmantes(supabase);
+  const companyP = quote.company_id
+    ? Promise.resolve(
+        supabase
+          .from("companies")
+          .select("id,legal_name,nit,address,city,email,phone,rep_name,rep_document_type,rep_document_number")
+          .eq("id", quote.company_id)
+          .maybeSingle(),
+      )
+    : Promise.resolve({ data: null });
+  const signersP = conjuntoTemprano
+    ? Promise.resolve(
+        supabase
+          .from("contract_signers")
+          .select("id,contract_id,traveler_id,position,nombre,email,token,token_expires_at,sent_at,last_reminder_at,reminder_count,signed_at,passport_path")
+          .eq("contract_id", conjuntoTemprano.id)
+          .order("position"),
+      )
+    : Promise.resolve({ data: null });
+  const defaultsP = !contractRows?.length ? buildDefaultVariables(supabase, id) : Promise.resolve(null);
+  const pilgrimYTextosP = Promise.all([
+    getPilgrimSettings(supabase),
+    armarCorreoPilgrim(supabase, id),
+    getTravelDocTexts(supabase),
+    getMensajes(supabase),
+  ]);
+  const asistenciaP = Promise.resolve(
+    supabase.storage.from("comercial-docs").list("generico", { search: "Asistencia-en-Viaje-Camino-Sacro.pdf" }),
+  );
+  const etapasP = routeRowTemprana?.id
+    ? Promise.resolve(
+        supabase
+          .from("route_stages")
+          .select("day,from_place,to_place,km,accommodation")
+          .eq("route_id", routeRowTemprana.id)
+          .order("day"),
+      )
+    : Promise.resolve({ data: null });
+  const cartaP = datosCartaBienvenida(supabase, id);
+  const padreP = quote.parent_quote_id
+    ? Promise.resolve(supabase.from("quotes").select("id,code").eq("id", quote.parent_quote_id).maybeSingle())
+    : Promise.resolve({ data: null });
+  const enlaceYEntregasP = Promise.all([
+    asegurarShareCode(supabase, id, (quote.share_code as string | null) ?? null),
+    entregasDe(supabase, id),
+  ]);
+
   // Quiénes pueden firmar por Camino Sacro (Nico o Nathalia).
-  const firmantes = await getFirmantes(supabase);
+  const firmantes = await firmantesP;
 
   // Empresa contratante, si la hay. Su presencia es lo que pone el módulo de contratos en
   // modalidad empresa (migración 0036).
-  const { data: company } = quote.company_id
-    ? await supabase
-        .from("companies")
-        .select("id,legal_name,nit,address,city,email,phone,rep_name,rep_document_type,rep_document_number")
-        .eq("id", quote.company_id)
-        .maybeSingle()
-    : { data: null };
+  const { data: company } = await companyP;
 
   // Contrato conjunto (0054): sus firmantes, uno por viajero, cada uno con su enlace.
-  const conjunto = ((contractRows as ContractRow[] | null) ?? []).find((c) => c.kind === "conjunto");
-  const { data: signerRows } = conjunto
-    ? await supabase
-        .from("contract_signers")
-        .select("id,contract_id,traveler_id,position,nombre,email,token,token_expires_at,sent_at,last_reminder_at,reminder_count,signed_at,passport_path")
-        .eq("contract_id", conjunto.id)
-        .order("position")
-    : { data: null };
+  const conjunto = conjuntoTemprano;
+  const { data: signerRows } = await signersP;
 
   // Si aún no hay contratos, precargamos las variables desde la cotización para
   // que el equipo las revise ANTES de crearlos.
   let contractDefaults = null;
   if (!contractRows?.length) {
-    const d = await buildDefaultVariables(supabase, id);
-    if (d.ok) contractDefaults = d.variables;
+    const d = await defaultsP;
+    if (d?.ok) contractDefaults = d.variables;
   }
 
   // El correo a Pilgrim se arma en el servidor a partir del costo ya corregido y de
@@ -282,12 +324,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // `travelDocTexts` se trae por el contacto: la web y el WhatsApp de la agencia viven en
   // settings, no en el código, y son los mismos que ya usan el correo de cotización y la
   // documentación de viaje. Un dato, un lugar.
-  const [pilgrimSettings, pilgrimArmado, travelDocTexts, mensajes] = await Promise.all([
-    getPilgrimSettings(supabase),
-    armarCorreoPilgrim(supabase, id),
-    getTravelDocTexts(supabase),
-    getMensajes(supabase),
-  ]);
+  const [pilgrimSettings, pilgrimArmado, travelDocTexts, mensajes] = await pilgrimYTextosP;
   const pilgrimMail = pilgrimArmado.ok
     ? pilgrimArmado.correo
     : { subject: "", body: "", adjuntos: [], pendientes: [], total: 0 };
@@ -334,9 +371,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
   // La Asistencia en Viaje es genérica y se genera desde Configuración: la tarjeta avisa
   // si todavía no existe, porque sin ella el correo sale con un botón de descarga muerto.
-  const { data: asistenciaFiles } = await supabase.storage
-    .from("comercial-docs")
-    .list("generico", { search: "Asistencia-en-Viaje-Camino-Sacro.pdf" });
+  const { data: asistenciaFiles } = await asistenciaP;
   const asistenciaLista = (asistenciaFiles || []).length > 0;
 
   const cobrado = (cps || []).reduce((s, p) => {
@@ -427,11 +462,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // Se consulta acá porque la ruta solo se conoce después de leer la cotización.
   let etapasCatalogo: EtapaItinerario[] = [];
   if (routeRow?.id) {
-    const { data: st } = await supabase
-      .from("route_stages")
-      .select("day,from_place,to_place,km,accommodation")
-      .eq("route_id", routeRow.id)
-      .order("day");
+    const { data: st } = await etapasP;
     etapasCatalogo = etapasCaminadas(
       ((st || []) as Array<{ day: number; from_place: string | null; to_place: string | null; km: number | string | null; accommodation: string | null }>).map((e) => ({
         day: e.day,
@@ -450,18 +481,18 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const categoriaOpcional = new Map(
     ((optsCatalog as unknown as Array<{ id: string; category: string }>) || []).map((o) => [o.id, o.category]),
   );
-  const extrasViaje = extrasDeLineas(optionalLines, categoriaOpcional, habitacionesDelGrupo(quote), quote.people);
+  const extrasViaje = extrasDeLineas(optionalLines, categoriaOpcional, habitacionesDelGrupo(quote), quote.people, { noches: quote.noches_extra_incluidas, tipo: tipoAlojamientoDe(quote) });
   const fechasViaje = fechasDelViaje(quote.start_date ?? null, etapasViaje.length, extrasViaje?.extraNights ?? 0, extrasViaje?.tours ?? []);
   const estadoViaje = quote.status === "pago_parcial" ? "parcial" : isFullyPaid(quote.status) ? "pagado" : "borrador";
 
   // La carta de bienvenida: solo lo que la tarjeta muestra; el PDF se arma al abrirla.
-  const carta = await datosCartaBienvenida(supabase, id);
+  const carta = await cartaP;
 
   // De qué cotización nació esta. Se consulta aparte porque el id del padre solo se conoce
   // después de leer la cotización.
   let parentQuote: { id: string; code: string } | null = null;
   if (quote.parent_quote_id) {
-    const { data } = await supabase.from("quotes").select("id,code").eq("id", quote.parent_quote_id).maybeSingle();
+    const { data } = await padreP;
     parentQuote = (data as { id: string; code: string } | null) ?? null;
   }
   const hijas = ((childQuotes as unknown) as Array<{ id: string; code: string }> | null) || [];
@@ -474,10 +505,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   // 0048), no la versión web del correo: aquella solo existe si el correo ya salió —y esta
   // tarjeta se usa justo antes—, y medía 48 caracteres de token. El código se crea la
   // primera vez que se abre el expediente y no cambia nunca más.
-  const [shareCode, entregas] = await Promise.all([
-    asegurarShareCode(supabase, id, (quote.share_code as string | null) ?? null),
-    entregasDe(supabase, id),
-  ]);
+  const [shareCode, entregas] = await enlaceYEntregasP;
   const enlaceCotizacion = shareCode ? urlCorta(shareCode) : null;
   const rutaMeta = findRouteMeta(routes, quote.route_name);
   const mensajeWhatsApp = mensajeWhatsAppCotizacion({
@@ -626,6 +654,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             endDate={quote.end_date}
             etapasCatalogo={etapasCatalogo}
             etapasPropias={etapasPropias}
+            nochesIncluidas={Number(quote.noches_extra_incluidas) || 0}
           />
         </Plegable>
       </Paso>

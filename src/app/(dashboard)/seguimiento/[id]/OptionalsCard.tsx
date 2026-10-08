@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   addCustomOptional,
@@ -75,35 +75,91 @@ export default function OptionalsCard({
   /** Año de salida de la cotización: es el que manda para elegir el precio del opcional. */
   quoteYear: number;
 }) {
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const selectedByRef = new Map(selected.filter((l) => l.reference_id).map((l) => [l.reference_id!, l]));
+  // Copia local de las líneas: el clic se ve AL INSTANTE y el servidor confirma detrás.
+  // Antes cada casilla esperaba a que el servidor re-renderizara la página entera, y mientras
+  // tanto TODA la tarjeta quedaba deshabilitada (un solo `pending` para todo): se sentía
+  // bloqueada. Cuando llegan las líneas reales del servidor, reemplazan a la copia.
+  const [lineas, setLineas] = useState<OptionalLine[]>(selected);
+  const [lineasServidor, setLineasServidor] = useState(selected);
+  if (selected !== lineasServidor) {
+    setLineasServidor(selected);
+    setLineas(selected);
+  }
+  // Opcionales con una operación en vuelo: solo ESA casilla se deshabilita.
+  const [ocupados, setOcupados] = useState<Set<string>>(new Set());
+  const marcar = (id: string, on: boolean) =>
+    setOcupados((prev) => {
+      const n = new Set(prev);
+      if (on) n.add(id); else n.delete(id);
+      return n;
+    });
+
+  const selectedByRef = new Map(lineas.filter((l) => l.reference_id).map((l) => [l.reference_id!, l]));
   // Sin `reference_id` = servicio a la medida de esta cotización, tecleado acá abajo.
-  const libres = selected.filter((l) => !l.reference_id);
-  const sumOptionals = selected.reduce((s, l) => s + (Number(l.total) || 0), 0);
+  const libres = lineas.filter((l) => !l.reference_id);
+  const sumOptionals = lineas.reduce((s, l) => s + (Number(l.total) || 0), 0);
   // Lo que estos opcionales le cuestan a Pilgrim: es la parte que antes no entraba
   // al costo y por eso la utilidad salía inflada.
-  const sumOptionalsCost = selected.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.cost_unit) || 0), 0);
+  const sumOptionalsCost = lineas.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.cost_unit) || 0), 0);
+  // El total se recalcula acá con la copia local, para que cambie con el clic.
+  const totalVivo = (Number(baseEur) || 0) + (Number(seasonSupplementEur) || 0) + sumOptionals;
+  void totalEur;
 
-  async function onToggle(optionalId: string, on: boolean) {
+  function onToggle(it: OptionalCatalog, on: boolean) {
     setError(null);
+    const antes = lineas;
+    if (on) {
+      const qty = cantidadPorDefecto(it.unit, people, dias);
+      setLineas((prev) => [
+        ...prev,
+        { id: `tmp-${it.id}`, reference_id: it.id, description: it.name, quantity: qty, unit_price: it.price_cs, total: qty * it.price_cs, cost_unit: it.price_pilgrim },
+      ]);
+    } else {
+      setLineas((prev) => prev.filter((l) => l.reference_id !== it.id));
+    }
+    marcar(it.id, true);
     startTransition(async () => {
-      const r = await toggleQuoteOptional(quoteId, optionalId, on, people);
-      if (r?.error) setError(r.error);
+      try {
+        const r = await toggleQuoteOptional(quoteId, it.id, on, people);
+        if (r?.error) { setError(r.error); setLineas(antes); }
+      } catch {
+        setError("No se pudo guardar el opcional. Revisá la conexión e intentá de nuevo.");
+        setLineas(antes);
+      } finally {
+        marcar(it.id, false);
+      }
     });
   }
 
-  async function onQty(line: OptionalLine, qty: number) {
+  // La cantidad se guarda medio segundo después de dejar de teclear: antes cada tecla
+  // ("1", "12") disparaba un guardado y un re-render completo de la página.
+  const relojes = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  function onQty(line: OptionalLine, qty: number) {
     if (qty < 1) return;
-    startTransition(async () => {
-      const r = await updateQuoteLineQuantity(quoteId, line.id, qty);
-      if (r?.error) setError(r.error);
-    });
+    setLineas((prev) => prev.map((l) => (l.id === line.id ? { ...l, quantity: qty, total: qty * (Number(l.unit_price) || 0) } : l)));
+    if (line.id.startsWith("tmp-")) return; // todavía no existe en la base; se guarda al confirmar
+    const previo = relojes.current.get(line.id);
+    if (previo) clearTimeout(previo);
+    relojes.current.set(line.id, setTimeout(() => {
+      relojes.current.delete(line.id);
+      startTransition(async () => {
+        try {
+          const r = await updateQuoteLineQuantity(quoteId, line.id, qty);
+          if (r?.error) setError(r.error);
+        } catch {
+          setError("No se pudo guardar la cantidad. Revisá la conexión e intentá de nuevo.");
+        }
+      });
+    }, 500));
   }
 
-  // Años distintos al de salida de los que se está tomando precio (aviso en ámbar).
-  const aniosDeReferencia = [...new Set(catalog.filter((o) => o.isFallback).map((o) => o.priceYear))].sort();
+  // Opcionales que no tienen precio del año de salida y usan uno anterior. Se nombran:
+  // el aviso genérico se leía como "no hay NINGÚN precio de ese año", y casi todos sí lo tienen.
+  const faltantes = catalog.filter((o) => o.isFallback);
+  const aniosDeReferencia = [...new Set(faltantes.map((o) => o.priceYear))].sort();
 
   // Agrupar catálogo por categoría
   const byCat = new Map<string, OptionalCatalog[]>();
@@ -120,11 +176,11 @@ export default function OptionalsCard({
           <p className="text-xs text-muted mt-0.5">
             Marcá los que van con la cotización. Se suman al total y al costo Pilgrim automáticamente.
           </p>
-          {aniosDeReferencia.length > 0 && (
-            <p className="text-xs text-amber-700 font-medium mt-1">
-              ⚠ No hay precios {quoteYear} cargados para estos opcionales: se muestran los de{" "}
-              {aniosDeReferencia.join(" / ")}. Cargalos en{" "}
-              <a href={`/catalogo?year=${quoteYear}`} className="underline">el catálogo {quoteYear}</a>.
+          {faltantes.length > 0 && (
+            <p className="text-xs text-amber-700 mt-1">
+              {faltantes.length} de {catalog.length} opcionales todavía no tienen precio {quoteYear} y usan el de{" "}
+              {aniosDeReferencia.join(" / ")}: {faltantes.map((o) => o.name).join(", ")}.{" "}
+              <a href={`/catalogo?year=${quoteYear}`} className="underline">Cargarlos en el catálogo {quoteYear}</a>.
             </p>
           )}
         </div>
@@ -134,7 +190,7 @@ export default function OptionalsCard({
             <div className="text-muted">+ Suplemento temporada: <span className="font-medium text-fg">{eur(Number(seasonSupplementEur))}</span></div>
           )}
           <div className="text-muted">+ Opcionales: <span className="font-medium text-fg">{eur(sumOptionals)}</span></div>
-          <div className="font-display text-lg text-bosque mt-0.5">Total: {eur(Number(totalEur) || 0)}</div>
+          <div className="font-display text-lg text-bosque mt-0.5">Total: {eur(totalVivo)}</div>
           {sumOptionalsCost > 0 && (
             <div className="text-muted mt-1">
               Opcionales le cuestan a Pilgrim: <span className="font-medium text-fg">{eur(sumOptionalsCost)}</span>
@@ -161,8 +217,8 @@ export default function OptionalsCard({
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={(e) => onToggle(it.id, e.target.checked)}
-                        disabled={pending}
+                        onChange={(e) => onToggle(it, e.target.checked)}
+                        disabled={ocupados.has(it.id)}
                         className="rounded border-border w-4 h-4"
                       />
                       <div className="flex-1 min-w-0">
@@ -180,7 +236,7 @@ export default function OptionalsCard({
                             </span>
                           );
                         })()}
-                        {it.isFallback && !checked && (
+                        {it.isFallback && (
                           <span className="text-[10px] text-amber-700 ml-2">precio {it.priceYear}</span>
                         )}
                       </div>
@@ -190,7 +246,7 @@ export default function OptionalsCard({
                           min={1}
                           value={line.quantity}
                           onChange={(e) => onQty(line, Number(e.target.value) || 1)}
-                          disabled={pending}
+                          disabled={line.id.startsWith("tmp-")}
                           className="w-14 text-right px-2 py-1 rounded border border-border bg-white text-xs"
                         />
                       )}

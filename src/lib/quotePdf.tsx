@@ -402,6 +402,11 @@ export type CondicionesCotizacion = {
    * lo estuviera — es justo lo que preguntó Colegiatura sobre el traslado de 612 €.
    */
   opcional_rotulo?: string;
+  /**
+   * Opcionales propios de esta cotización que no están en el catálogo (p. ej. el vehículo
+   * de apoyo de un grupo). Se listan en "Servicios opcionales" y NO suman al total.
+   */
+  opcionales_extra?: { nombre: string; unidad: string; precio: number }[];
 };
 
 // =============== HELPERS ===============
@@ -469,7 +474,8 @@ function parseModality(modality: string | null): { tipoAlojamiento: string; habi
   return {
     tipoAlojamiento,
     habitacion,
-    regimen: "Aloj. + Desayuno",
+    // Grupos a medida con cenas (p. ej. Colegiatura 2027): la modalidad lo dice en texto.
+    regimen: m.includes("media pensi") ? "Media pensión" : "Aloj. + Desayuno",
     acomodacion: "Privada",
   };
 }
@@ -940,6 +946,20 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
                 <Text style={[s.optHead, { width: 100 }]}>UNIDAD</Text>
                 <Text style={[s.optHead, { width: 60, textAlign: "right" }]}>PRECIO</Text>
               </View>
+              {(cond.opcionales_extra?.length ?? 0) > 0 && (
+                <View wrap={false}>
+                  <View style={s.optGroupRow}>
+                    <Text style={s.optGroupTitle}>SERVICIOS PARA ESTE GRUPO</Text>
+                  </View>
+                  {cond.opcionales_extra!.map((it, idx) => (
+                    <View key={`extra-${idx}`} style={s.optRow}>
+                      <Text style={s.optName}>{it.nombre}</Text>
+                      <Text style={s.optUnit}>{it.unidad}</Text>
+                      <Text style={s.optPrice}>{fmtEur(Number(it.precio) || 0)} €</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
               {CAT_ORDER.map((cat) => {
                 const items = optsByCat.get(cat);
                 if (!items || items.length === 0) return null;

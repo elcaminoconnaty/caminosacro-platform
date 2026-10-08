@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createCommercialClient } from "@/lib/supabase/server";
 import { mensajeError } from "@/lib/errors";
 import { congelarEntrega } from "@/lib/quotes/entregas";
@@ -132,6 +133,25 @@ function mismoValor(a: unknown, b: unknown): boolean {
   return String(a) === String(b);
 }
 
+/**
+ * Regenera el PDF DESPUÉS de responder.
+ *
+ * Armar el PDF (react-pdf + subida a Storage) tarda varios segundos, y antes se esperaba
+ * dentro de cada guardado: cambiar una fecha o marcar un opcional dejaba la pantalla
+ * colgada. Ahora el guardado responde enseguida y el PDF se rehace detrás. Si falla, queda
+ * en el log del servidor y el botón «Regenerar PDF» de la tarjeta lo vuelve a intentar.
+ */
+function regenerarPdfDespues(supabase: Awaited<ReturnType<typeof createCommercialClient>>, quoteId: string) {
+  after(async () => {
+    try {
+      const r = await renderAndStoreQuotePdf(supabase, quoteId);
+      if ("error" in r && r.error) console.error(`[pdf] ${quoteId}: ${r.error}`);
+    } catch (e) {
+      console.error(`[pdf] ${quoteId}:`, e);
+    }
+  });
+}
+
 export async function updateQuote(id: string, formData: FormData) {
   const supabase = await createCommercialClient();
   // Cómo está ahora, para saber después si de verdad cambió algo (ver más abajo).
@@ -237,11 +257,11 @@ export async function updateQuote(id: string, formData: FormData) {
       (k) => k !== "status" && k !== "manual_price_note" && !mismoValor(antes[k], patch[k]),
     );
 
-  const pdf = cambiaElPdf ? await renderAndStoreQuotePdf(supabase, id) : null;
-  const pdfAviso = pdf && "error" in pdf && pdf.error ? "Se guardó, pero el PDF no se pudo regenerar." : null;
+  if (cambiaElPdf) regenerarPdfDespues(supabase, id);
   revalidatePath(`/seguimiento/${id}`);
   revalidatePath("/seguimiento");
-  const aviso = [avisoEmpresa, pdfAviso].filter(Boolean).join(" ");
+  revalidatePath("/calendario");
+  const aviso = [avisoEmpresa].filter(Boolean).join(" ");
   return aviso ? { ok: true as const, aviso } : { ok: true as const };
 }
 
@@ -339,6 +359,8 @@ export async function toggleQuoteOptional(quoteId: string, optionalId: string, o
   const supabase = await createCommercialClient();
   const r = await alternarOpcional(supabase, quoteId, optionalId, on, peopleHint);
   if (r.error) return { error: r.error };
+  // El PDF lleva el resumen con los opcionales y el itinerario (noches extra, tours).
+  regenerarPdfDespues(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -353,6 +375,8 @@ export async function addCustomOptional(quoteId: string, datos: OpcionalLibre) {
   const supabase = await createCommercialClient();
   const r = await agregarOpcionalLibre(supabase, quoteId, datos);
   if (r.error) return { error: r.error };
+  // El PDF lleva el resumen con los opcionales y el itinerario (noches extra, tours).
+  regenerarPdfDespues(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -362,6 +386,8 @@ export async function updateCustomOptional(quoteId: string, lineId: string, dato
   const supabase = await createCommercialClient();
   const r = await editarOpcionalLibre(supabase, quoteId, lineId, datos);
   if (r.error) return { error: r.error };
+  // El PDF lleva el resumen con los opcionales y el itinerario (noches extra, tours).
+  regenerarPdfDespues(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -371,6 +397,8 @@ export async function deleteCustomOptional(quoteId: string, lineId: string) {
   const supabase = await createCommercialClient();
   const r = await eliminarOpcionalLibre(supabase, quoteId, lineId);
   if (r.error) return { error: r.error };
+  // El PDF lleva el resumen con los opcionales y el itinerario (noches extra, tours).
+  regenerarPdfDespues(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -380,6 +408,8 @@ export async function updateQuoteLineQuantity(quoteId: string, lineId: string, q
   const supabase = await createCommercialClient();
   const r = await cambiarCantidadOpcional(supabase, quoteId, lineId, quantity);
   if (r.error) return { error: r.error };
+  // El PDF lleva el resumen con los opcionales y el itinerario (noches extra, tours).
+  regenerarPdfDespues(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/seguimiento");
   return { ok: true };
@@ -1060,8 +1090,8 @@ export async function guardarItinerarioCotizacion(quoteId: string, etapas: Etapa
   const { error } = await supabase.from("quotes").update(parche).eq("id", quoteId);
   if (error) return { error: mensajeError(error) };
 
-  const pdf = await renderAndStoreQuotePdf(supabase, quoteId);
-  const avisoPdf = "error" in pdf && pdf.error ? "Se guardó, pero el PDF no se pudo regenerar." : null;
+  regenerarPdfDespues(supabase, quoteId);
+
 
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/calendario");
@@ -1071,8 +1101,44 @@ export async function guardarItinerarioCotizacion(quoteId: string, etapas: Etapa
     aviso: [
       `${caminadas.length} etapas · ${dias} días · ${noches} noches.`,
       cambiaFin ? `La fecha de fin pasó a ${nuevoFin}.` : null,
-      avisoPdf,
+
     ].filter(Boolean).join(" "),
+  };
+}
+
+/**
+ * Noches extra en el destino incluidas en el precio de la ruta (migración 0058).
+ *
+ * No crean línea ni tocan el total: solo alargan el itinerario (día libre) y la fecha de
+ * fin. La fecha de fin se corre por la diferencia, así una fecha puesta a mano se respeta.
+ */
+export async function guardarNochesIncluidas(quoteId: string, noches: number) {
+  const n = Math.max(0, Math.min(14, Math.round(Number(noches) || 0)));
+  const supabase = await createCommercialClient();
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("noches_extra_incluidas,end_date")
+    .eq("id", quoteId)
+    .maybeSingle();
+  if (!quote) return { error: "Cotización no encontrada." };
+
+  const antes = Number(quote.noches_extra_incluidas) || 0;
+  const parche: Record<string, unknown> = { noches_extra_incluidas: n };
+  if (quote.end_date && n !== antes) {
+    const d = new Date(`${quote.end_date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + (n - antes));
+    parche.end_date = d.toISOString().slice(0, 10);
+  }
+  const { error } = await supabase.from("quotes").update(parche).eq("id", quoteId);
+  if (error) return { error: mensajeError(error) };
+
+  regenerarPdfDespues(supabase, quoteId);
+  revalidatePath(`/seguimiento/${quoteId}`);
+  revalidatePath("/calendario");
+  const fin = parche.end_date ? ` La fecha de fin pasó a ${parche.end_date}.` : "";
+  return {
+    ok: true as const,
+    aviso: `${n} ${n === 1 ? "noche incluida" : "noches incluidas"} en el precio.${fin}`,
   };
 }
 
@@ -1099,14 +1165,12 @@ export async function usarItinerarioDelCatalogo(quoteId: string) {
   const { error } = await supabase.from("quotes").update({ condiciones_json: condiciones }).eq("id", quoteId);
   if (error) return { error: mensajeError(error) };
 
-  const pdf = await renderAndStoreQuotePdf(supabase, quoteId);
+  regenerarPdfDespues(supabase, quoteId);
   revalidatePath(`/seguimiento/${quoteId}`);
   revalidatePath("/calendario");
   return {
     ok: true as const,
-    aviso: "error" in pdf && pdf.error
-      ? "Volvió al itinerario del catálogo, pero el PDF no se pudo regenerar."
-      : "La cotización volvió al itinerario del catálogo. La fecha de fin no se tocó.",
+    aviso: "La cotización volvió al itinerario del catálogo. La fecha de fin no se tocó.",
   };
 }
 

@@ -8,7 +8,7 @@ import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from
 import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
 import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 import { leerFilasHabitacion, personasDeFila, roomRowLabel } from "@/lib/quotes/rooms";
-import { extrasDeLineas, habitacionesDelGrupo } from "@/lib/quotes/extrasItinerario";
+import { extrasDeLineas, habitacionesDelGrupo, tipoAlojamientoDe } from "@/lib/quotes/extrasItinerario";
 import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice, type BikeRow } from "@/lib/bikes/catalog";
 
 /**
@@ -346,6 +346,7 @@ export async function renderAndStoreQuotePdf(
     categoryById,
     habitacionesDelGrupo(quote),
     quote.people,
+    { noches: quote.noches_extra_incluidas, tipo: tipoAlojamientoDe(quote) },
   );
 
   // ===== Flota de bicicletas (migración 0021) =====

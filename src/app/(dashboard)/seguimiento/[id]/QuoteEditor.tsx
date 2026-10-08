@@ -275,6 +275,28 @@ export default function QuoteEditor({
     }
   }
 
+  /**
+   * Mover la salida corre la fecha de fin los mismos días: el viaje conserva su largo
+   * (etapas + noches extra) y la temporada, el suplemento y el total de abajo se
+   * recalculan al instante. Antes la fecha de fin se quedaba quieta y había que corregirla
+   * a mano, y la temporada se calculaba con un viaje de largo equivocado mientras tanto.
+   */
+  function cambiarInicio(nuevo: string) {
+    if (nuevo && startDate && endDate) {
+      const delta = Math.round((Date.parse(nuevo + "T00:00:00Z") - Date.parse(startDate + "T00:00:00Z")) / 86400000);
+      if (Number.isFinite(delta) && delta !== 0) {
+        const fin = new Date(Date.parse(endDate + "T00:00:00Z") + delta * 86400000);
+        setEndDate(fin.toISOString().slice(0, 10));
+      }
+    }
+    setStartDate(nuevo);
+  }
+  const duracionViva = useMemo(() => {
+    if (!startDate || !endDate) return null;
+    const noches = Math.round((Date.parse(endDate + "T00:00:00Z") - Date.parse(startDate + "T00:00:00Z")) / 86400000);
+    return noches > 0 ? { dias: noches + 1, noches } : null;
+  }, [startDate, endDate]);
+
   // Detección de temporada según fechas actuales — se recalcula al cambiar start/end/people
   const season = useMemo(
     () => detectSeason(startDate || null, endDate || null, seasonConfig),
@@ -778,7 +800,7 @@ export default function QuoteEditor({
           <input
             type="date"
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
+            onChange={(e) => cambiarInicio(e.target.value)}
             className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
           />
         </label>
@@ -790,6 +812,12 @@ export default function QuoteEditor({
             onChange={(e) => setEndDate(e.target.value)}
             className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-white"
           />
+          {duracionViva && (
+            <span className="text-[11px] text-bosque mt-0.5 inline-block">
+              {duracionViva.dias} días · {duracionViva.noches} noches
+              {season.type !== "regular" ? ` · ${season.type === "easter" ? "Semana Santa" : "temporada alta"}` : ""}
+            </span>
+          )}
         </label>
         <Input label="Válida hasta" name="valid_until" type="date" defaultValue={quote.valid_until} />
 

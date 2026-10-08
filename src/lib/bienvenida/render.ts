@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ComercialClient } from "@/lib/quotes/pdf";
 import { etapasCaminadas, etapasDeCondiciones, type EtapaItinerario } from "@/lib/quotes/itinerario";
-import { extrasDeLineas, habitacionesDelGrupo } from "@/lib/quotes/extrasItinerario";
+import { extrasDeLineas, habitacionesDelGrupo, tipoAlojamientoDe } from "@/lib/quotes/extrasItinerario";
 import { mensajeError } from "@/lib/errors";
 import { introRuta, mezclarTextosCarta, tituloRuta, type TextosCarta } from "@/lib/bienvenida/textos";
 import type { FilaCarta } from "@/lib/bienvenida/cartaPdf";
@@ -52,7 +52,7 @@ export async function datosCartaBienvenida(
   const [{ data: quote }, { data: servicios }, { data: lineas }, textos] = await Promise.all([
     supabase
       .from("quotes")
-      .select("code,route_id,route_name,condiciones_json,rooms_json,modality,people")
+      .select("code,route_id,route_name,condiciones_json,rooms_json,modality,people,noches_extra_incluidas")
       .eq("id", quoteId)
       .maybeSingle(),
     // Solo los activos, igual que el PDF de la cotización (ver @/lib/quotes/pdf).
@@ -99,6 +99,7 @@ export async function datosCartaBienvenida(
     categorias,
     habitacionesDelGrupo(quote),
     quote.people,
+    { noches: quote.noches_extra_incluidas, tipo: tipoAlojamientoDe(quote) },
   );
 
   const origen = etapas[0].from_place || ruta?.origin || null;

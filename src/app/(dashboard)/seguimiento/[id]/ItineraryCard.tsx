@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { ArrowDown, ArrowUp, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { guardarItinerarioCotizacion, usarItinerarioDelCatalogo } from "./actions";
+import { guardarItinerarioCotizacion, guardarNochesIncluidas, usarItinerarioDelCatalogo } from "./actions";
 import {
   etapasDeFilas,
   fechaFinDeItinerario,
@@ -27,6 +27,7 @@ export default function ItineraryCard({
   endDate,
   etapasCatalogo,
   etapasPropias,
+  nochesIncluidas = 0,
 }: {
   quoteId: string;
   routeName: string | null;
@@ -36,6 +37,8 @@ export default function ItineraryCard({
   etapasCatalogo: EtapaItinerario[];
   /** El pactado con este cliente. Vacío = esta cotización usa el del catálogo. */
   etapasPropias: EtapaItinerario[];
+  /** Noches extra en el destino que ya vienen dentro del precio (migración 0058). */
+  nochesIncluidas?: number;
 }) {
   const propio = etapasPropias.length > 0;
   const base = propio ? etapasPropias : etapasCatalogo;
@@ -190,6 +193,7 @@ export default function ItineraryCard({
               {resumenGuardado.etapas} etapas caminadas · {resumenGuardado.dias} días · {resumenGuardado.noches} noches ·{" "}
               {resumenGuardado.km} km. La llegada del día 1 y el fin de servicios los agrega el PDF.
             </p>
+            <NochesIncluidas quoteId={quoteId} inicial={nochesIncluidas} />
           </>
         )
       ) : (
@@ -309,5 +313,50 @@ function IconBtn({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Noches extra en el destino que ya vienen dentro del precio de la ruta (p. ej. Pilgrim
+ * cotiza al grupo con la segunda noche en Santiago incluida). Salen en el itinerario como
+ * día libre y alargan la fecha de fin, pero no crean línea ni suman al total — para cobrar
+ * una noche aparte está el opcional «Noche extra».
+ */
+function NochesIncluidas({ quoteId, inicial }: { quoteId: string; inicial: number }) {
+  const [valor, setValor] = useState(inicial);
+  const [pending, startTransition] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  const cambia = valor !== inicial;
+
+  function guardar() {
+    setMsg(null);
+    startTransition(async () => {
+      const r = await guardarNochesIncluidas(quoteId, valor);
+      setMsg(r?.error ? { ok: false, texto: r.error } : { ok: true, texto: r?.aviso ?? "Guardado." });
+    });
+  }
+
+  return (
+    <div className="mt-4 rounded-md border border-border/70 bg-taupe/10 px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+      <span className="text-fg">Noches extra en el destino <b>incluidas en el precio</b></span>
+      <div className="inline-flex items-center gap-1">
+        <IconBtn title="Una menos" onClick={() => setValor((v) => Math.max(0, v - 1))} disabled={pending || valor === 0}>−</IconBtn>
+        <span className="w-6 text-center tabular-nums">{valor}</span>
+        <IconBtn title="Una más" onClick={() => setValor((v) => Math.min(14, v + 1))} disabled={pending || valor >= 14}>+</IconBtn>
+      </div>
+      {cambia && (
+        <button
+          onClick={guardar}
+          disabled={pending}
+          className="text-xs px-3 py-1.5 rounded-md bg-bosque text-white hover:opacity-90 disabled:opacity-50 transition"
+        >
+          {pending ? "Guardando…" : "Guardar"}
+        </button>
+      )}
+      <span className="basis-full text-xs text-muted">
+        Salen en el itinerario como día libre y corren la fecha de fin; no se cobran. Para cobrar una noche aparte, usa el opcional «Noche extra».
+      </span>
+      {msg && <span className={`basis-full text-xs ${msg.ok ? "text-bosque" : "text-red-700"}`}>{msg.texto}</span>}
+    </div>
   );
 }

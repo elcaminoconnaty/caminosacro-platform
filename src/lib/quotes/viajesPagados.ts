@@ -2,7 +2,7 @@ import "server-only";
 
 import type { ComercialClient } from "@/lib/quotes/pdf";
 import { etapasCaminadas, etapasDeCondiciones } from "@/lib/quotes/itinerario";
-import { extrasDeLineas, habitacionesDelGrupo } from "@/lib/quotes/extrasItinerario";
+import { extrasDeLineas, habitacionesDelGrupo, tipoAlojamientoDe } from "@/lib/quotes/extrasItinerario";
 import { fechasDelViaje, type FechasViaje } from "@/lib/quotes/fechasViaje";
 
 /** Con cualquier pago ya hay reserva que cuidar: el parcial también entra. */
@@ -26,6 +26,7 @@ type QuoteRow = {
   route_id: string | null;
   route_name: string | null;
   start_date: string | null;
+  noches_extra_incluidas?: number | null;
   people: number | null;
   status: string;
   condiciones_json: unknown;
@@ -41,7 +42,7 @@ type QuoteRow = {
 export async function viajesPagados(supabase: ComercialClient): Promise<{ viajes: ViajePagado[]; error: unknown }> {
   const { data, error } = await supabase
     .from("quotes")
-    .select("id,code,client_name,route_id,route_name,start_date,people,status,condiciones_json,rooms_json,modality")
+    .select("id,code,client_name,route_id,route_name,start_date,people,status,condiciones_json,rooms_json,modality,noches_extra_incluidas")
     .in("status", ESTADOS_PAGADOS as unknown as string[])
     .order("start_date", { ascending: true })
     .limit(1000);
@@ -94,7 +95,7 @@ export async function viajesPagados(supabase: ComercialClient): Promise<{ viajes
   const viajes = quotes.map((q): ViajePagado => {
     const ruta = rutaDe(q);
     const etapas = propias.get(q.id) || (ruta ? etapasCatalogo.get(ruta) ?? 0 : 0);
-    const extras = extrasDeLineas(lineasPorQuote.get(q.id) ?? [], categorias, habitacionesDelGrupo(q), q.people);
+    const extras = extrasDeLineas(lineasPorQuote.get(q.id) ?? [], categorias, habitacionesDelGrupo(q), q.people, { noches: q.noches_extra_incluidas, tipo: tipoAlojamientoDe(q) });
     return {
       id: q.id,
       code: q.code,
