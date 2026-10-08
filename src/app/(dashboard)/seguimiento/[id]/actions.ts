@@ -22,6 +22,7 @@ import { enviarCorreoAPilgrim } from "@/lib/quotes/sendPilgrimEmail";
 import { getPilgrimSettings } from "@/lib/quotes/pilgrimEmail";
 import { buscarHilos, outlookConfigurado } from "@/lib/email/outlook";
 import { duplicarCotizacion } from "@/lib/quotes/duplicar";
+import { MAX_OPCIONALES_EXTRA, opcionalesExtraDe, type OpcionalExtra } from "@/lib/quotes/opcionalesExtra";
 import { esEstadoVenta, registrarVentaMeta } from "@/lib/marketing/ventaMeta";
 import { resolverPagoCliente, esMonedaPago, type MonedaPago } from "@/lib/quotes/pagoCliente";
 import {
@@ -1104,6 +1105,28 @@ export async function guardarItinerarioCotizacion(quoteId: string, etapas: Etapa
 
     ].filter(Boolean).join(" "),
   };
+}
+
+/**
+ * Opcionales que se ofrecen en el PDF pero NO suman al total (`condiciones_json.opcionales_extra`).
+ * Reemplaza la lista entera; vacía = se borra la clave y las demás condiciones se conservan.
+ */
+export async function guardarOpcionalesExtra(quoteId: string, items: OpcionalExtra[]) {
+  const limpios = opcionalesExtraDe({ opcionales_extra: items });
+  if (limpios.length > MAX_OPCIONALES_EXTRA) return { error: `Máximo ${MAX_OPCIONALES_EXTRA} servicios.` };
+  if (limpios.some((o) => o.precio < 0)) return { error: "El precio no puede ser negativo." };
+  const supabase = await createCommercialClient();
+  const { data: quote } = await supabase.from("quotes").select("condiciones_json").eq("id", quoteId).maybeSingle();
+  if (!quote) return { error: "Cotización no encontrada." };
+  const resto = { ...((quote.condiciones_json ?? {}) as Record<string, unknown>) };
+  if (limpios.length > 0) resto.opcionales_extra = limpios;
+  else delete resto.opcionales_extra;
+  const condiciones = Object.keys(resto).length > 0 ? resto : null;
+  const { error } = await supabase.from("quotes").update({ condiciones_json: condiciones }).eq("id", quoteId);
+  if (error) return { error: mensajeError(error) };
+  regenerarPdfDespues(supabase, quoteId);
+  revalidatePath(`/seguimiento/${quoteId}`);
+  return { ok: true as const };
 }
 
 /**

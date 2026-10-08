@@ -12,6 +12,7 @@ import QuoteEditor, { type CompanyLite } from "./QuoteEditor";
 import ItineraryCard from "./ItineraryCard";
 import TripCalendarCard from "./TripCalendarCard";
 import { extrasDeLineas, habitacionesDelGrupo, tipoAlojamientoDe } from "@/lib/quotes/extrasItinerario";
+import { opcionalesExtraDe } from "@/lib/quotes/opcionalesExtra";
 import { nochesDelViaje } from "@/lib/quotes/cantidadOpcional";
 import { fechasDelViaje } from "@/lib/quotes/fechasViaje";
 import { etapasCaminadas, etapasDeCondiciones, type EtapaItinerario } from "@/lib/quotes/itinerario";
@@ -675,6 +676,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             people={quote.people}
             dias={nochesDelViaje(quote.start_date, quote.end_date) ?? findRouteMeta(routes, quote.route_name)?.nights ?? null}
             quoteYear={optionalYear}
+            extrasGrupo={opcionalesExtraDe(quote.condiciones_json)}
           />
         </Plegable>
       </Paso>

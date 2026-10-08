@@ -5,11 +5,13 @@ import { Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   addCustomOptional,
   deleteCustomOptional,
+  guardarOpcionalesExtra,
   toggleQuoteOptional,
   updateCustomOptional,
   updateQuoteLineQuantity,
 } from "./actions";
 import { MAX_DESC_OPCIONAL } from "@/lib/quotes/opcionalLibre";
+import type { OpcionalExtra } from "@/lib/quotes/opcionalesExtra";
 import { cantidadPorDefecto, explicarCantidad } from "@/lib/quotes/cantidadOpcional";
 
 export type OptionalCatalog = {
@@ -62,6 +64,7 @@ export default function OptionalsCard({
   people,
   dias,
   quoteYear,
+  extrasGrupo = [],
 }: {
   quoteId: string;
   catalog: OptionalCatalog[];
@@ -74,6 +77,8 @@ export default function OptionalsCard({
   dias?: number | null;
   /** Año de salida de la cotización: es el que manda para elegir el precio del opcional. */
   quoteYear: number;
+  /** Ofrecidos en el PDF sin sumar al total (condiciones_json.opcionales_extra). */
+  extrasGrupo?: OpcionalExtra[];
 }) {
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -273,6 +278,7 @@ export default function OptionalsCard({
         })}
 
         <CustomOptionals quoteId={quoteId} lines={libres} />
+        <ExtrasGrupo quoteId={quoteId} inicial={extrasGrupo} />
       </div>
     </section>
   );
@@ -509,5 +515,109 @@ function CustomOptionalForm({
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Servicios que el PDF ofrece en "Servicios opcionales" pero que NO suman al total: por
+ * ejemplo el vehículo de apoyo de un grupo cuando la inversión se presenta sin él. Se edita
+ * la lista completa y se guarda de una vez.
+ */
+function ExtrasGrupo({ quoteId, inicial }: { quoteId: string; inicial: OpcionalExtra[] }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
+  const [items, setItems] = useState(() => inicial.map((o) => ({ ...o, precio: String(o.precio) })));
+  const [base, setBase] = useState(inicial);
+  if (inicial !== base) {
+    setBase(inicial);
+    setItems(inicial.map((o) => ({ ...o, precio: String(o.precio) })));
+  }
+  const cambia = JSON.stringify(items.map((o) => ({ ...o, precio: Number(o.precio) || 0 }))) !== JSON.stringify(inicial);
+
+  function cambiar(i: number, campo: "nombre" | "unidad" | "precio", v: string) {
+    setOk(false);
+    setItems((prev) => prev.map((o, j) => (j === i ? { ...o, [campo]: v } : o)));
+  }
+  function guardar() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const r = await guardarOpcionalesExtra(quoteId, items.map((o) => ({ nombre: o.nombre, unidad: o.unidad, precio: Number(o.precio) || 0 })));
+        if (r?.error) setError(r.error);
+        else setOk(true);
+      } catch {
+        setError("No se pudo guardar. Revisá la conexión e intentá de nuevo.");
+      }
+    });
+  }
+
+  return (
+    <div className="px-5 py-3">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-[11px] uppercase tracking-wider text-muted">Ofrecidos sin sumar al total</h3>
+        <button
+          type="button"
+          onClick={() => setItems((prev) => [...prev, { nombre: "", unidad: "por grupo", precio: "" }])}
+          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border border-border hover:bg-taupe/40 transition"
+        >
+          <Plus size={13} /> Agregar
+        </button>
+      </div>
+      <p className="text-xs text-muted mb-2">
+        Salen en el PDF en «Servicios opcionales · Servicios para este grupo» con su precio, pero no entran a la inversión.
+      </p>
+      {items.length > 0 && (
+        <ul className="space-y-2">
+          {items.map((o, i) => (
+            <li key={i} className="grid grid-cols-[1fr_7rem_6rem_auto] gap-2 items-center">
+              <input
+                value={o.nombre}
+                onChange={(e) => cambiar(i, "nombre", e.target.value)}
+                placeholder="Vehículo de apoyo con conductor…"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-sm"
+              />
+              <input
+                value={o.unidad}
+                onChange={(e) => cambiar(i, "unidad", e.target.value)}
+                placeholder="por grupo"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-sm"
+              />
+              <input
+                type="number"
+                min={0}
+                step="1"
+                value={o.precio}
+                onChange={(e) => cambiar(i, "precio", e.target.value)}
+                placeholder="€"
+                className="px-2 py-1.5 rounded-md border border-bosque bg-white text-sm text-right font-medium text-bosque"
+              />
+              <button
+                type="button"
+                onClick={() => { setOk(false); setItems((prev) => prev.filter((_, j) => j !== i)); }}
+                title="Quitar"
+                className="p-1 text-muted hover:text-red-600 transition"
+              >
+                <Trash2 size={13} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p role="alert" className="mt-2 text-sm text-red-800">{error}</p>}
+      <div className="mt-2 flex items-center justify-end gap-3">
+        {ok && !cambia && <span className="text-xs text-bosque">Guardado. El PDF se actualiza en unos segundos.</span>}
+        {cambia && (
+          <button
+            type="button"
+            onClick={guardar}
+            disabled={pending}
+            className="text-xs px-4 py-1.5 rounded-md bg-bosque text-white hover:bg-bosque-medio transition disabled:opacity-50"
+          >
+            {pending ? "Guardando…" : "Guardar"}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
