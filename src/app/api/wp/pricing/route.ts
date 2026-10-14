@@ -177,6 +177,8 @@ export async function GET(request: Request) {
     // El catálogo 2027 trae ~30 traslados (coche y furgoneta, muchos orígenes): viven en el CRM
     // para elegirlos por cotización, pero en cada página de ruta de la web solo se listan los de siempre.
     .filter((o) => o.category !== "transfer" || TRASLADOS_WEB.has(o.slug))
+    // Anulación por tramos: ninguna ruta web pasa de 3.000 €/persona, el tramo de 5.000 solo vive en el CRM.
+    .filter((o) => !/hasta 5\.000 €/.test(o.name))
     .map((o) => {
       const precio = preciosOpcionales.get(o.id);
       const porAnio: Record<string, number> = {};
