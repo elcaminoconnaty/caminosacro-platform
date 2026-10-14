@@ -23,8 +23,8 @@ const MODALIDADES = ["pension_doble", "hotel_doble", "pension_single", "hotel_si
  * Devuelve solo price_cs (venta); price_pilgrim jamás sale de la plataforma.
  * WordPress lo cachea 6 horas y usa el último payload bueno si esto no responde.
  *
- * `?year=` elige el año de tarifa (migración 0017). Sin el parámetro responde el "año de venta"
- * (ver anioDeVenta): el más nuevo con el catálogo de la web completo. Si el año pedido todavía no tiene
+ * `?year=` elige el año de tarifa (migración 0017). Sin el parámetro responde el año en curso;
+ * los dos años vigentes viajan siempre en `prices_by_year`. Si el año pedido todavía no tiene
  * tarifas cargadas cae al año cargado más reciente y lo marca en `is_fallback`, para que
  * la web pueda mostrar "precio sujeto a confirmación". La forma del payload no cambia.
  *
@@ -64,11 +64,10 @@ export async function GET(request: Request) {
 
   const years = catalogYears();
   const pedido = Number(new URL(request.url).searchParams.get("year"));
-  // Sin `?year=`: el "año de venta". Es el año más nuevo (desde el actual) en que TODAS las rutas
-  // de la web tienen sus 4 tarifas. Así, al cargar el catálogo Pilgrim 2027 la web pasa sola a
-  // mostrar 2027, sin esperar al 1 de enero. Las salidas del año anterior las sigue cotizando
-  // /api/wp/quote con su propia tarifa (manda el año de salida).
-  const yearPedido = years.includes(pedido) ? pedido : anioDeVenta(routes || [], pricing || [], years);
+  // Sin `?year=`: el año en curso. OJO: no cambiarlo al "año de venta" (anioDeVenta): el tema
+  // viejo pinta `prices` junto a un "Precios 2026" fijo, y el 14-oct-2026 eso mostró 625 € como
+  // "Precios 2026". El tema nuevo enseña los dos años con `prices_by_year` y no depende de esto.
+  const yearPedido = years.includes(pedido) ? pedido : new Date().getFullYear();
   // Años que la web enseña a la vez: del actual en adelante (2026 se deja de mostrar el 1 de enero).
   const aniosWeb = years.filter((y) => y >= new Date().getFullYear());
 
@@ -203,7 +202,7 @@ export async function GET(request: Request) {
   return Response.json({
     ok: true,
     generated_at: new Date().toISOString(),
-    catalog: 4, // Versión del payload: 2 = catálogo completo; 3 = + `years` por ruta y tipo; 4 = año de venta, `prices_by_year` (2026 y 2027 a la vez) y meses de temporada por año.
+    catalog: 4, // Versión del payload: 2 = catálogo completo; 3 = + `years` por ruta y tipo; 4 = `prices_by_year` (2026 y 2027 a la vez) y meses de temporada por año.
     year: yearPedido,
     // Años que la web muestra a la vez (cada ruta trae `prices_by_year` con los que tenga completos).
     years_web: aniosWeb,
@@ -228,22 +227,6 @@ export async function GET(request: Request) {
   });
 }
 
-/** Año más nuevo (>= el actual) con las 4 tarifas de venta en todas las rutas de la web. */
-function anioDeVenta(
-  rutasWeb: Array<{ id: string }>,
-  filas: Array<{ route_id: string; modality: string; year: number | null; price_cs: number | string | null }>,
-  years: number[],
-): number {
-  const actual = new Date().getFullYear();
-  const completas = (y: number) =>
-    rutasWeb.length > 0 &&
-    rutasWeb.every((r) =>
-      MODALIDADES.every((m) =>
-        filas.some((f) => f.route_id === r.id && f.modality === m && Number(f.year ?? CATALOG_BASE_YEAR) === y && (Number(f.price_cs) || 0) > 0),
-      ),
-    );
-  return [...years].filter((y) => y >= actual).sort((a, b) => b - a).find(completas) ?? actual;
-}
 
 /** Las 4 tarifas de venta por año, solo para los años en que la ruta las tiene todas. */
 function preciosPorAnio(
