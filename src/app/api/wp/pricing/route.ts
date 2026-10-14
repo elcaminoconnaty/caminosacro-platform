@@ -69,6 +69,8 @@ export async function GET(request: Request) {
   // mostrar 2027, sin esperar al 1 de enero. Las salidas del año anterior las sigue cotizando
   // /api/wp/quote con su propia tarifa (manda el año de salida).
   const yearPedido = years.includes(pedido) ? pedido : anioDeVenta(routes || [], pricing || [], years);
+  // Años que la web enseña a la vez: del actual en adelante (2026 se deja de mostrar el 1 de enero).
+  const aniosWeb = years.filter((y) => y >= new Date().getFullYear());
 
   // El fallback se resuelve por ruta: puede haber rutas con tarifas del año pedido y otras
   // que todavía solo tengan las del anterior.
@@ -129,6 +131,7 @@ export async function GET(request: Request) {
        * de `?year=`: la web cotiza una salida solo si su año está en esta lista.
        */
       years: { pension: number[]; hotel: number[] };
+      prices_by_year: Record<string, Record<string, number>>;
     }
   > = {};
   for (const r of routes || []) {
@@ -144,6 +147,9 @@ export async function GET(request: Request) {
       years: aniosPorRuta.get(r.id) ?? { pension: [], hotel: [] },
       // Sin las 4 tarifas no viaja ningún precio: la web la cotiza a medida.
       ...(completa ? { prices } : {}),
+      // Las 4 tarifas de CADA año vigente (desde el actual) que las tenga completas, sin caídas:
+      // la web muestra 2026 y 2027 lado a lado mientras convivan.
+      prices_by_year: preciosPorAnio(porRutaTodas.get(r.id) || [], aniosWeb),
       ...(completa && fallbackPorRuta.has(r.id) ? { prices_year: fallbackPorRuta.get(r.id) } : {}),
     };
   }
@@ -173,10 +179,16 @@ export async function GET(request: Request) {
     .filter((o) => o.category !== "transfer" || TRASLADOS_WEB.has(o.slug))
     .map((o) => {
       const precio = preciosOpcionales.get(o.id);
+      const porAnio: Record<string, number> = {};
+      for (const y of aniosWeb) {
+        const f = (o.optional_prices || []).find((p) => Number(p.year) === y && (Number(p.price_cs) || 0) > 0);
+        if (f) porAnio[String(y)] = Number(f.price_cs);
+      }
       return {
         name: o.name,
         unit: o.unit || "por persona",
         price: precio?.price_cs ?? 0,
+        price_by_year: porAnio,
         // Presente solo si el precio viene de un año anterior al pedido.
         ...(precio?.isFallback ? { price_year: precio.priceYear } : {}),
       };
@@ -189,8 +201,10 @@ export async function GET(request: Request) {
   return Response.json({
     ok: true,
     generated_at: new Date().toISOString(),
-    catalog: 4, // Versión del payload: 2 = catálogo completo; 3 = + `years` por ruta y tipo; 4 = año de venta + meses de temporada por año.
+    catalog: 4, // Versión del payload: 2 = catálogo completo; 3 = + `years` por ruta y tipo; 4 = año de venta, `prices_by_year` (2026 y 2027 a la vez) y meses de temporada por año.
     year: yearPedido,
+    // Años que la web muestra a la vez (cada ruta trae `prices_by_year` con los que tenga completos).
+    years_web: aniosWeb,
     // true si alguna ruta u opcional viaja con precios de un año anterior al pedido.
     is_fallback: fallbackPorRuta.size > 0 || [...preciosOpcionales.values()].some((p) => p.isFallback),
     seasons: {
@@ -227,4 +241,20 @@ function anioDeVenta(
       ),
     );
   return [...years].filter((y) => y >= actual).sort((a, b) => b - a).find(completas) ?? actual;
+}
+
+/** Las 4 tarifas de venta por año, solo para los años en que la ruta las tiene todas. */
+function preciosPorAnio(
+  filas: Array<{ modality: string; year: number | null; price_cs: number | string | null }>,
+  anios: number[],
+): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const y of anios) {
+    const mapa: Record<string, number> = {};
+    for (const f of filas) {
+      if (Number(f.year ?? CATALOG_BASE_YEAR) === y && (Number(f.price_cs) || 0) > 0) mapa[f.modality] = Number(f.price_cs);
+    }
+    if (MODALIDADES.every((m) => (mapa[m] ?? 0) > 0)) out[String(y)] = mapa;
+  }
+  return out;
 }
