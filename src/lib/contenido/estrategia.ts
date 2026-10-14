@@ -85,22 +85,23 @@ export const TIPS: Tip[] = [
 ];
 
 // ─── Rutas reales (de la web) ─────────────────────────────────────────────────
+// `desde`: precio de venta 2027 por persona, pensión en doble (catálogo Pilgrim 2027, 14-oct-2026).
 export type Ruta = { nombre: string; desde: number | null; detalle: string };
 
 export const RUTAS: Ruta[] = [
-  { nombre: "Camino Francés desde Sarria", desde: 505, detalle: "112km, 7 días / 5 etapas, dificultad media. Los últimos 100km: la ruta más popular y la mejor para tu primera vez." },
-  { nombre: "Camino Portugués desde Tui", desde: 575, detalle: "112km, 7 días / 5 etapas, dificultad media. La opción verde, cruzando la frontera caminando." },
-  { nombre: "Camino Costero desde Baiona", desde: 625, detalle: "123km, 8 días / 6 etapas, dificultad media. El mar Atlántico de compañero todo el camino." },
-  { nombre: "Camino Inglés desde Ferrol", desde: 535, detalle: "111km, 7 días / 5 etapas, dificultad media. Tranquila y menos concurrida." },
-  { nombre: "Camino a Fisterra", desde: 405, detalle: "85km, 5 días / 3 etapas, dificultad media. Más allá de Santiago, hasta el fin del mundo." },
-  { nombre: "Camino Primitivo desde Lugo", desde: 510, detalle: "102km, 7 días / 5 etapas, dificultad media-alta. El más antiguo y auténtico." },
-  { nombre: "Camino Portugués desde Vigo", desde: 530, detalle: "100km, 7 días / 5 etapas, dificultad media." },
+  { nombre: "Camino Francés desde Sarria", desde: 625, detalle: "112km, 7 días / 5 etapas, dificultad media. Los últimos 100km: la ruta más popular y la mejor para tu primera vez." },
+  { nombre: "Camino Portugués desde Tui", desde: 718, detalle: "115km, 8 días / 6 etapas, dificultad media. La opción verde, cruzando la frontera caminando." },
+  { nombre: "Camino Costero desde Baiona", desde: 776, detalle: "123km, 8 días / 6 etapas, dificultad media. El mar Atlántico de compañero todo el camino." },
+  { nombre: "Camino Inglés desde Ferrol", desde: 630, detalle: "111km, 7 días / 5 etapas, dificultad media. Tranquila y menos concurrida." },
+  { nombre: "Camino a Fisterra", desde: 485, detalle: "85km, 5 días / 3 etapas, dificultad media. Más allá de Santiago, hasta el fin del mundo." },
+  { nombre: "Camino Primitivo desde Lugo", desde: 625, detalle: "102km, 7 días / 5 etapas, dificultad media-alta. El más antiguo y auténtico." },
+  { nombre: "Camino Portugués desde Vigo", desde: 655, detalle: "100km, 7 días / 5 etapas, dificultad media." },
   { nombre: "Camino del Norte desde Vilalba", desde: null, detalle: "120km, 7 días / 5 etapas, dificultad media. Precio a consultar con Clara." },
   { nombre: "Camino Portugués de la Costa desde Oporto", desde: null, detalle: "272km, 15 días / 13 etapas, dificultad media. Para vivir el recorrido completo. Precio a consultar." },
   { nombre: "Camino Espiritual desde Tui", desde: null, detalle: "146km, 8 días / 6 etapas, con travesía fluvial. Precio a consultar." },
-  { nombre: "Camino Primitivo en Bici", desde: 710, detalle: "311km, 9 días / 7 etapas, dificultad alta. Sobre dos ruedas, para los más aventureros." },
-  { nombre: "Camino Portugués en Bici", desde: 635, detalle: "240km, 7 días / 5 etapas, dificultad media. En bici, cumpliendo los 200km para la Compostela." },
-  { nombre: "Camino Francés en Bici desde Ponferrada", desde: 475, detalle: "205km, 6 días / 4 etapas, dificultad media. El Francés sobre ruedas." },
+  { nombre: "Camino Primitivo en Bici", desde: 888, detalle: "311km, 9 días / 7 etapas, dificultad alta. Sobre dos ruedas, para los más aventureros." },
+  { nombre: "Camino Portugués en Bici", desde: 747, detalle: "240km, 7 días / 5 etapas, dificultad media. En bici, cumpliendo los 200km para la Compostela." },
+  { nombre: "Camino Francés en Bici desde Ponferrada", desde: 688, detalle: "205km, 6 días / 4 etapas, dificultad media. El Francés sobre ruedas." },
 ];
 
 // ─── Pilares (rotan el ÁNGULO; todos venden en prosa, sin frases hechas) ──────
@@ -125,7 +126,7 @@ export const GANCHOS = [
   "Pregunta práctica que el lector se hace (ej: ¿Cuántos días necesitas para hacer los últimos 100km?)",
   "Mito vs realidad (ej: No necesitas albergues ni ser atleta para hacer el Camino.)",
   "Micro-historia real con país (ej: Una pareja de Argentina nos escribió a los cuatro días de llegar a Santiago.)",
-  "Afirmación concreta sobre la oferta, sin eslogan (ej: El Francés desde Sarria, 112km en 7 días, desde 505€ por persona.)",
+  "Afirmación concreta sobre la oferta, sin eslogan (ej: El Francés desde Sarria, 112km en 7 días, desde 625€ por persona en 2027.)",
 ];
 
 // ─── Lista curada de hashtags REALES (la IA elige de aquí; no inventa) ────────
@@ -230,8 +231,8 @@ ${HASHTAGS.join(" ")}
 
 CÓMO USAR LA FOTO (regla central, léela con cuidado):
 Recibirás UNA foto real del Camino. La miras con UN SOLO objetivo: identificar el ESCENARIO para saber DE QUÉ RUTA hablar. NO la describas jamás. PROHIBIDO mencionar lo que se ve o lo que pasa en la imagen: nada de "en esta foto", "esta vista", "este paisaje", "mira cómo", el clima, la hora, la persona, lo que hace, sus emociones, los colores. La foto es solo tu pista de ruta, nunca el tema del texto.
-- Si ves claramente MAR / COSTA atlántica → habla de una ruta costera: "Camino Costero desde Baiona" (desde 625€ por persona) o el "Camino Portugués de la Costa desde Oporto" (precio a consultar con Clara).
-- Si ves claramente una CIUDAD / CATEDRAL / CASCO ANTIGUO / PUENTE histórico → si es la catedral de Santiago, habla de la llegada a Santiago y la Compostela; si es una ciudad con puente o frontera, encaja el "Camino Portugués desde Tui" (desde 575€).
+- Si ves claramente MAR / COSTA atlántica → habla de una ruta costera: "Camino Costero desde Baiona" (desde 776€ por persona en 2027) o el "Camino Portugués de la Costa desde Oporto" (precio a consultar con Clara).
+- Si ves claramente una CIUDAD / CATEDRAL / CASCO ANTIGUO / PUENTE histórico → si es la catedral de Santiago, habla de la llegada a Santiago y la Compostela; si es una ciudad con puente o frontera, encaja el "Camino Portugués desde Tui" (desde 718€ en 2027).
 - Si ves CAMPO / BOSQUE / SENDERO VERDE / MOJÓN / cualquier paisaje rural ambiguo (lo más común, y son indistinguibles entre rutas) → NO adivines la ruta exacta: usa la RUTA SUGERIDA que se te indica en el mensaje del usuario, con su precio.
 - Ante cualquier duda, usa la RUTA SUGERIDA. NUNCA inventes una ruta o un precio que no estén en estos datos.
 
@@ -253,7 +254,7 @@ export function construirUserPrompt(pilar: Pilar, ruta: Ruta, n: number, aprendi
   const bloqueAprendizajes = aprendizajes.trim()
     ? `\n\nQUÉ ESTÁ FUNCIONANDO (aprendido de las métricas reales de nuestro propio feed — tenlo en cuenta, sin romper ninguna regla de voz de arriba):\n${aprendizajes.trim()}`
     : "";
-  const precio = ruta.desde ? `desde ${ruta.desde}€ por persona (en hotel, habitación doble, temporada base)` : "precio a consultar con Clara";
+  const precio = ruta.desde ? `desde ${ruta.desde}€ por persona, precio 2027 (pensión en habitación doble, temporada base; dilo como precio 2027)` : "precio a consultar con Clara";
   // Un solo modo: COMERCIAL EN PROSA para todos los posts.
   let extra = `\n\nMODO: COMERCIAL EN PROSA (siempre). El post vende claro pero todo en prosa, sin listas ni checklist ni el emoji 🎒. Abre con un gancho humano${pilar.id === "ruta" ? ` y, como esta es una ruta concreta, deja ver pronto el precio "desde ${ruta.desde ? `${ruta.desde}€ por persona` : "consultar"}"` : ""}; integra en las frases un mini "qué incluye" de 2 o 3 beneficios (hotel con baño privado sin albergues, la maleta viaja sola, asistencia 24h); suma prueba social ("+200 peregrinos latinoamericanos" o micro-historia con país) cuando encaje; salvo que abajo se indique otra intensidad de cierre, cierra con la urgencia real del Año Santo 2027 y un CTA con motivo a Clara por WhatsApp (te dice cuál es tu Camino y cuánto cuesta / te ayuda a apartar fecha de 2027; gratis, sin compromiso, persona real). PROHIBIDO escribir "sí puedes" o "el Camino sí es para ti si…": transmite esa confianza de forma natural, sin frases hechas.`;
   if (pilar.id === "objeciones") {

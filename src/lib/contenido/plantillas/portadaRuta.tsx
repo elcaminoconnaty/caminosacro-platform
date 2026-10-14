@@ -51,7 +51,7 @@ export const definicion: DefinicionPlantilla = {
       etiqueta: "Precio",
       tipo: "texto",
       maxLargo: 20,
-      porDefecto: "desde 505 €",
+      porDefecto: "desde 625 €*",
       ayuda: "Va en el pill dorado. Déjalo vacío si la pieza no lleva precio.",
     },
   ],
