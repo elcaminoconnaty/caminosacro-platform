@@ -246,7 +246,7 @@ export type QuotePDFProps = {
   /** Buffer del cover photo (cargar con fs.readFileSync en server action) */
   coverImage?: Buffer | string;
   /** Suplementos para la nota debajo de los precios */
-  seasonNote?: { high: number; easter: number };
+  seasonNote?: { high: number; easter: number; meses?: string };
   /**
    * Aclaración bajo las tarjetas de precio. La usa el cotizador público cuando la tarifa
    * es de un año anterior al de la salida ("precio de referencia, sujeto a confirmación").
@@ -585,7 +585,7 @@ const CAT_TITLE: Record<string, string> = {
   seguro: "SEGUROS",
   noche_extra: "ALOJAMIENTO EXTRA EN SANTIAGO",
   meal: "COMIDAS",
-  transfer: "TRASLADOS PRIVADOS DESDE SANTIAGO (HASTA 4 PAX)",
+  transfer: "TRASLADOS PRIVADOS (PRECIO POR VEHÍCULO)",
   tour: "TOURS Y EXPERIENCIAS",
   gift: "RECUERDOS Y EXPERIENCIAS GASTRONÓMICAS",
 };
@@ -767,7 +767,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
 
         {seasonNote && (
           <Text style={s.seasonNote}>
-            En caso de viajar en julio, agosto o septiembre se aplica un suplemento de +{seasonNote.high} €/persona. En Semana Santa: +{seasonNote.easter} €/persona.
+            En caso de viajar en {seasonNote.meses || "julio, agosto o septiembre"} se aplica un suplemento de +{seasonNote.high} €/persona. En Semana Santa: +{seasonNote.easter} €/persona.
           </Text>
         )}
 

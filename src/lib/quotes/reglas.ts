@@ -1,6 +1,6 @@
 import "server-only";
 
-import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
+import { DEFAULT_SEASON_SUPPLEMENTS, mesesTexto, type SeasonSupplements } from "@/lib/seasons";
 import { FIANZA_POR_BICI_EUR } from "@/lib/bikes/catalog";
 import { MAX_PERSONAS_AGENTE } from "@/lib/quotes/agentQuote";
 import { QUOTE_STATUSES } from "@/lib/quoteStatus";
@@ -156,9 +156,12 @@ export async function reglasCotizacion(supabase: ComercialClient): Promise<Regla
     .sort()
     .pop() ?? null;
 
-  const meses = (temporadas.high_season?.months || [7, 8, 9])
-    .map((m) => ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][m - 1])
-    .join(", ");
+  // Los meses cambian por año de salida (2026: jul–sep; 2027: may, ago, sep).
+  const porAno = temporadas.high_season?.months_by_year ?? {};
+  const meses = Object.keys(porAno).length
+    ? Object.entries(porAno).sort(([a], [b]) => a.localeCompare(b)).map(([ano, m]) => `${ano}: ${mesesTexto(m, "y")}`).join("; ") +
+      `; otros años: ${mesesTexto(temporadas.high_season?.months || [7, 8, 9], "y")}`
+    : mesesTexto(temporadas.high_season?.months || [7, 8, 9], "y");
 
   return {
     actualizado,

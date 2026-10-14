@@ -45,7 +45,7 @@ const CAT_TITLE: Record<string, string> = {
   equipo_bici: "Equipamiento de bicicleta",
   noche_extra: "Alojamiento extra en Santiago",
   meal: "Comidas",
-  transfer: "Traslados privados desde Santiago",
+  transfer: "Traslados privados (por vehículo)",
   tour: "Tours y experiencias",
   gift: "Recuerdos y experiencias gastronómicas",
 };

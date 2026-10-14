@@ -1,7 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
+import { DEFAULT_SEASON_SUPPLEMENTS, highSeasonMonths, type SeasonSupplements } from "@/lib/seasons";
 import { autorizado, noAutorizado } from "../auth";
 import { CATALOG_BASE_YEAR, catalogYears, optionalPricesForYear, ratesForYearWithFallback } from "@/lib/pricing/year";
+
+/** Traslados que se listan en la web (el resto solo en el CRM). */
+const TRASLADOS_WEB = new Set(["santiago_aeropuerto", "santiago_sarria", "santiago_tui"]);
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +52,7 @@ export async function GET(request: Request) {
     supabase.from("pricing").select("route_id,modality,year,price_cs").eq("season", "regular"),
     supabase
       .from("optional_services")
-      .select("id,name,unit,category,optional_prices(year,price_pilgrim,price_cs)")
+      .select("id,slug,name,unit,category,optional_prices(year,price_pilgrim,price_cs)")
       .eq("active", true)
       .order("category")
       .order("name"),
@@ -144,6 +147,7 @@ export async function GET(request: Request) {
   // Opcionales al precio del año pedido, con la misma caída al año anterior que las rutas.
   type OptionalRaw = {
     id: string;
+    slug: string;
     name: string;
     unit: string | null;
     category: string;
@@ -160,6 +164,9 @@ export async function GET(request: Request) {
     yearPedido,
   );
   const opcionales = optionalRows
+    // El catálogo 2027 trae ~30 traslados (coche y furgoneta, muchos orígenes): viven en el CRM
+    // para elegirlos por cotización, pero en cada página de ruta de la web solo se listan los de siempre.
+    .filter((o) => o.category !== "transfer" || TRASLADOS_WEB.has(o.slug))
     .map((o) => {
       const precio = preciosOpcionales.get(o.id);
       return {
@@ -186,7 +193,9 @@ export async function GET(request: Request) {
       alta: {
         etiqueta: season.high_season.name,
         suplemento: season.high_season.price_cs,
-        meses: season.high_season.months,
+        // Meses del año pedido; `meses_por_ano` deja que el cotizador de la web use los del año de salida.
+        meses: highSeasonMonths(season, yearPedido),
+        meses_por_ano: season.high_season.months_by_year ?? {},
       },
       semana_santa: {
         etiqueta: season.easter.name,

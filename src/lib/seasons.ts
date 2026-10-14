@@ -2,7 +2,9 @@ export type SeasonSupplements = {
   high_season: {
     name: string;
     description: string;
-    months: number[]; // 1..12
+    months: number[]; // 1..12 — meses por defecto si el año no está en months_by_year
+    /** Pilgrim cambia los meses de un año a otro (2026: jul–sep; 2027: may, ago, sep). */
+    months_by_year?: Record<string, number[]>;
     price_pilgrim: number;
     price_cs: number;
   };
@@ -48,14 +50,13 @@ export function detectSeason(
     }
   }
 
-  // 2. Temporada alta — si alguna parte del viaje cae en julio/agosto/septiembre
-  const startMonth = start.getMonth() + 1;
-  const endMonth = end.getMonth() + 1;
-  const months = config.high_season.months;
-  const overlap =
-    months.includes(startMonth) || months.includes(endMonth) ||
-    // si el rango es largo y atraviesa todos los meses
-    (start.getMonth() + 1 < Math.min(...months) && end.getMonth() + 1 > Math.max(...months));
+  // 2. Temporada alta — si alguna parte del viaje cae en un mes de temporada alta del año de salida.
+  // Se recorre mes a mes porque los meses ya no son contiguos (2027: mayo, agosto, septiembre).
+  const months = highSeasonMonths(config, start.getFullYear());
+  let overlap = false;
+  for (const d = new Date(start.getFullYear(), start.getMonth(), 1); d <= end; d.setMonth(d.getMonth() + 1)) {
+    if (months.includes(d.getMonth() + 1)) { overlap = true; break; }
+  }
 
   if (overlap) {
     return {
@@ -69,11 +70,27 @@ export function detectSeason(
   return { type: "regular", label: "Temporada regular", surcharge_per_person_cs: 0, surcharge_per_person_pilgrim: 0 };
 }
 
+/** Meses de temporada alta (1..12) que rigen para un año de salida. */
+export function highSeasonMonths(config: SeasonSupplements, year: number | string | null | undefined): number[] {
+  const porAno = config.high_season.months_by_year;
+  if (year != null && porAno?.[String(year)]) return porAno[String(year)];
+  return config.high_season.months;
+}
+
+const NOMBRES_MES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+/** "julio, agosto o septiembre" / "mayo, agosto o septiembre". */
+export function mesesTexto(months: number[], conjuncion: "y" | "o" = "o"): string {
+  const n = [...months].sort((a, b) => a - b).map((m) => NOMBRES_MES[m - 1]);
+  return n.length <= 1 ? (n[0] ?? "") : `${n.slice(0, -1).join(", ")} ${conjuncion} ${n[n.length - 1]}`;
+}
+
 export const DEFAULT_SEASON_SUPPLEMENTS: SeasonSupplements = {
   high_season: {
     name: "Temporada alta",
     description: "Julio, agosto y septiembre",
     months: [7, 8, 9],
+    months_by_year: { "2026": [7, 8, 9], "2027": [5, 8, 9] },
     price_pilgrim: 50,
     price_cs: 80,
   },

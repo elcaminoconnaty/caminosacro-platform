@@ -191,7 +191,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     supabase
       .from("optional_services")
       .select("id,category,name,unit,optional_prices(year,price_pilgrim,price_cs)")
-      .eq("active", true),
+      .eq("active", true)
+      .order("name"),
     // Opcionales y bicis en una sola consulta; se reparten abajo. Cada tarjeta recibe SOLO
     // las suyas: mezclarlas haría que desmarcar en una borrara líneas de la otra.
     supabase

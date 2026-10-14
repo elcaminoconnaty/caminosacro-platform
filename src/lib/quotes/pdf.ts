@@ -4,9 +4,10 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mensajeError } from "@/lib/errors";
 import { getTRMHoy } from "@/lib/trm";
-import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, type SeasonSupplements } from "@/lib/seasons";
+import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, highSeasonMonths, mesesTexto, type SeasonSupplements } from "@/lib/seasons";
 import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
 import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
+import { opcionalesOfrecidos } from "@/lib/quotes/opcionalesOfrecidos";
 import { leerFilasHabitacion, personasDeFila, roomRowLabel } from "@/lib/quotes/rooms";
 import { extrasDeLineas, habitacionesDelGrupo, tipoAlojamientoDe } from "@/lib/quotes/extrasItinerario";
 import { BIKE_COLUMNS, bikesForRouteYear, normalizeBike, normalizeBikePrice, type BikeRow } from "@/lib/bikes/catalog";
@@ -49,7 +50,8 @@ export async function renderAndStoreQuotePdf(
     supabase
       .from("optional_services")
       .select("id,category,name,unit,optional_prices(year,price_pilgrim,price_cs)")
-      .eq("active", true),
+      .eq("active", true)
+      .order("name"),
     supabase
       .from("quote_lines")
       .select("type,description,quantity,unit_price,total,reference_id")
@@ -326,12 +328,25 @@ export async function renderAndStoreQuotePdf(
     }))),
     quoteYear(quote.start_date),
   );
-  const optionals = optionalRows.map((o) => ({
+  const conPrecio = optionalRows.map((o) => ({
+    id: o.id,
     category: o.category,
     name: o.name,
     unit: o.unit || "",
     price_cs: optionalPrices.get(o.id)?.price_cs ?? 0,
   })).filter((o) => o.price_cs > 0);
+  // Solo los traslados de esta ruta y el tramo de anulación que le toca (ver opcionalesOfrecidos).
+  const personasPdf = Math.max(1, Number(quote.people) || 1);
+  const costoPorPersona = (Number(quote.cost_base_eur) || 0) / personasPdf;
+  const optionals = opcionalesOfrecidos(conPrecio, {
+    origen: route?.origin,
+    destino: route?.destination,
+    personas: personasPdf,
+    importePorPersona: costoPorPersona > 0 ? costoPorPersona : (Number(quote.base_eur) || 0) / personasPdf,
+    seleccionados: new Set(((quoteLines || []) as Array<{ type: string; reference_id: string | null }>)
+      .filter((l) => l.type === "optional" && l.reference_id)
+      .map((l) => l.reference_id as string)),
+  }).map(({ id: _id, ...o }) => o);
 
   // Extras del itinerario: noches extra en Santiago y tours contratados, derivados de las
   // líneas opcionales seleccionadas. El componente los usa para extender el itinerario, el
@@ -429,10 +444,12 @@ export async function renderAndStoreQuotePdf(
     // sin foto, continúa sin cover
   }
 
-  const seasonValues = seasonSetting?.value as { high_season?: { price_cs: number }; easter?: { price_cs: number } } | null;
-  const seasonNote = seasonValues
-    ? { high: seasonValues.high_season?.price_cs ?? 80, easter: seasonValues.easter?.price_cs ?? 40 }
-    : { high: 80, easter: 40 };
+  // Los meses de temporada alta cambian por año (2027: mayo, agosto y septiembre): el texto sale del año de salida.
+  const seasonNote = {
+    high: seasonConfig.high_season?.price_cs ?? 80,
+    easter: seasonConfig.easter?.price_cs ?? 40,
+    meses: mesesTexto(highSeasonMonths(seasonConfig, quoteYear(quote.start_date))),
+  };
 
   // Render PDF
   const React = await import("react");
