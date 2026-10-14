@@ -23,8 +23,8 @@ const MODALIDADES = ["pension_doble", "hotel_doble", "pension_single", "hotel_si
  * Devuelve solo price_cs (venta); price_pilgrim jamás sale de la plataforma.
  * WordPress lo cachea 6 horas y usa el último payload bueno si esto no responde.
  *
- * `?year=` elige el año de tarifa (migración 0017). Sin el parámetro responde el año en
- * curso, igual que antes de tener catálogo por año. Si el año pedido todavía no tiene
+ * `?year=` elige el año de tarifa (migración 0017). Sin el parámetro responde el "año de venta"
+ * (ver anioDeVenta): el más nuevo con el catálogo de la web completo. Si el año pedido todavía no tiene
  * tarifas cargadas cae al año cargado más reciente y lo marca en `is_fallback`, para que
  * la web pueda mostrar "precio sujeto a confirmación". La forma del payload no cambia.
  *
@@ -64,7 +64,11 @@ export async function GET(request: Request) {
 
   const years = catalogYears();
   const pedido = Number(new URL(request.url).searchParams.get("year"));
-  const yearPedido = years.includes(pedido) ? pedido : new Date().getFullYear();
+  // Sin `?year=`: el "año de venta". Es el año más nuevo (desde el actual) en que TODAS las rutas
+  // de la web tienen sus 4 tarifas. Así, al cargar el catálogo Pilgrim 2027 la web pasa sola a
+  // mostrar 2027, sin esperar al 1 de enero. Las salidas del año anterior las sigue cotizando
+  // /api/wp/quote con su propia tarifa (manda el año de salida).
+  const yearPedido = years.includes(pedido) ? pedido : anioDeVenta(routes || [], pricing || [], years);
 
   // El fallback se resuelve por ruta: puede haber rutas con tarifas del año pedido y otras
   // que todavía solo tengan las del anterior.
@@ -185,7 +189,7 @@ export async function GET(request: Request) {
   return Response.json({
     ok: true,
     generated_at: new Date().toISOString(),
-    catalog: 3, // Versión del payload: 2 = catálogo completo; 3 = + `years` por ruta y tipo.
+    catalog: 4, // Versión del payload: 2 = catálogo completo; 3 = + `years` por ruta y tipo; 4 = año de venta + meses de temporada por año.
     year: yearPedido,
     // true si alguna ruta u opcional viaja con precios de un año anterior al pedido.
     is_fallback: fallbackPorRuta.size > 0 || [...preciosOpcionales.values()].some((p) => p.isFallback),
@@ -206,4 +210,21 @@ export async function GET(request: Request) {
     routes: rutas,
     optionals: opcionales,
   });
+}
+
+/** Año más nuevo (>= el actual) con las 4 tarifas de venta en todas las rutas de la web. */
+function anioDeVenta(
+  rutasWeb: Array<{ id: string }>,
+  filas: Array<{ route_id: string; modality: string; year: number | null; price_cs: number | string | null }>,
+  years: number[],
+): number {
+  const actual = new Date().getFullYear();
+  const completas = (y: number) =>
+    rutasWeb.length > 0 &&
+    rutasWeb.every((r) =>
+      MODALIDADES.every((m) =>
+        filas.some((f) => f.route_id === r.id && f.modality === m && Number(f.year ?? CATALOG_BASE_YEAR) === y && (Number(f.price_cs) || 0) > 0),
+      ),
+    );
+  return [...years].filter((y) => y >= actual).sort((a, b) => b - a).find(completas) ?? actual;
 }
