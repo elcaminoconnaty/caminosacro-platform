@@ -1,6 +1,7 @@
 import "server-only";
+import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
@@ -61,6 +62,14 @@ function entornoDelAgente(): Record<string, string> {
   env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
   env.DISABLE_TELEMETRY = "1";
   return env;
+}
+
+/** En desarrollo (ASISTENTE_LOGIN_LOCAL=1) se usa el `claude` instalado, que es el que tiene
+ *  la sesión del computador; el binario que trae el paquete no la ve. En Railway no aplica. */
+function claudeLocal(): string | null {
+  if (!LOGIN_LOCAL) return null;
+  const c = process.env.CLAUDE_CODE_PATH || path.join(homedir(), ".local/bin/claude");
+  return existsSync(c) ? c : null;
 }
 
 // --- Conocimiento --------------------------------------------------------------------------
@@ -309,6 +318,7 @@ export async function* preguntar(opts: {
         persistSession: false,
         cwd,
         env: entornoDelAgente(),
+        ...(claudeLocal() ? { pathToClaudeCodeExecutable: claudeLocal()! } : {}),
         abortController: controller,
       },
     });
@@ -342,6 +352,7 @@ export async function* preguntar(opts: {
           return;
         }
         if (m.is_error) {
+          console.error("[asistente] resultado con error:", m.result);
           // Así llegan los fallos de autenticación y de cupo: como un "resultado" con is_error.
           yield { t: "error", mensaje: traducirError(m.result ?? "") };
           return;
