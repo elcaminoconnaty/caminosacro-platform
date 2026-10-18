@@ -23,9 +23,13 @@ import { createServerClient } from "@supabase/ssr";
 // es la propia huella SHA-256 del documento (ver src/app/verificar/[hash]).
 // /c es el enlace corto de una cotización, el que se le manda al peregrino por WhatsApp:
 // el código de la URL es la llave y lleva al PDF vigente (ver src/app/c/[code]).
+// /manifest.webmanifest es el manifiesto de la app instalable (src/app/manifest.ts): el
+// celular lo pide sin sesión al "Agregar a pantalla de inicio"; si lo mandáramos a /login
+// se instalaría como un simple acceso directo, sin nombre ni iconos.
 const PUBLIC_PATHS = [
   "/login", "/auth/callback", "/cotizar", "/api/wp", "/contrato",
   "/api/cron", "/api/agente", "/documentacion", "/correo", "/viajero", "/verificar", "/c",
+  "/manifest.webmanifest",
 ];
 
 export async function proxy(request: NextRequest) {

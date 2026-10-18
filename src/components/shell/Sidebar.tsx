@@ -2,29 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BedDouble, BookOpen, CalendarDays, Coins, FileText, Images, ListChecks, MessageCircle, Settings, UserRound, Wallet } from "lucide-react";
 import { cn } from "@/lib/cn";
-
-type NavItem = {
-  href: string;
-  label: string;
-  icon: typeof MessageCircle;
-  soon?: boolean;
-};
-
-const NAV: NavItem[] = [
-  { href: "/clara", label: "Clara", icon: MessageCircle },
-  { href: "/isabel", label: "Isabel", icon: UserRound, soon: true },
-  { href: "/cotizaciones", label: "Cotizaciones", icon: FileText },
-  { href: "/seguimiento", label: "Seguimiento", icon: ListChecks },
-  { href: "/calendario", label: "Calendario", icon: CalendarDays },
-  { href: "/finanzas", label: "Finanzas", icon: Wallet },
-  { href: "/catalogo", label: "Catálogo", icon: BookOpen },
-  { href: "/hoteles", label: "Hoteles", icon: BedDouble },
-  { href: "/contenido", label: "Contenido", icon: Images },
-  { href: "/tokens", label: "Tokens & Costo", icon: Coins },
-  { href: "/configuracion", label: "Configuración", icon: Settings },
-];
+import { NAV, enSeccion } from "./nav";
 
 export function Sidebar() {
   const path = usePathname();
@@ -38,7 +17,7 @@ export function Sidebar() {
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1">
         {NAV.map(({ href, label, icon: Icon, soon }) => {
-          const active = path === href || path.startsWith(`${href}/`);
+          const active = enSeccion(path, href);
           return (
             <Link
               key={href}
