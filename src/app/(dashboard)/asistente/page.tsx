@@ -27,6 +27,7 @@ export default async function AsistentePage({ searchParams }: { searchParams: Pr
       .order("created_at");
     mensajes = (data ?? []).map((m) => ({
       id: m.id as string,
+      guardadoId: m.id as string,
       role: m.rol as Mensaje["role"],
       content: m.contenido as string,
       herramientas: (m.herramientas as Uso[] | null) ?? [],

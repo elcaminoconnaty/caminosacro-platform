@@ -10,6 +10,7 @@ import { LOGIN_LOCAL, MODELO, correosConectados, problemaDeConfiguracion } from 
 import { adjuntoGmail, adjuntoReservas, buscarGmail, buscarReservas, leerGmail, leerReservas } from "@/lib/asistente/correos";
 import { documentosDe, leerDocumento } from "@/lib/asistente/documentos";
 import type { Contenido } from "@/lib/asistente/pdf";
+import { prepararCorreo, type PropuestaCorreo } from "@/lib/asistente/acciones";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = Base<any, any, any>;
@@ -26,7 +27,8 @@ export { MODELO };
  *
  * El SDK levanta un proceso de Claude Code por pregunta, sin NINGUNA herramienta de fábrica
  * (ni Bash, ni archivos, ni web) y sin leer CLAUDE.md ni settings. Solo tiene las de abajo,
- * todas de solo lectura y con la sesión de quien pregunta:
+ * con la sesión de quien pregunta. Todas leen, salvo `proponer_correo`, que tampoco envía:
+ * deja una tarjeta y la persona confirma con un botón.
  *   - `consultar`: un SELECT por `comercial.asistente_consulta` (RLS y transacción de solo lectura).
  *   - `documentos` / `leer_documento`: los PDF e imágenes de Storage.
  *   - `*_reservas`: el buzón reservas@caminosacro.com (Outlook).
@@ -36,10 +38,13 @@ export { MODELO };
 export type EventoAsistente =
   | { t: "texto"; d: string }
   | { t: "herramienta"; nombre: string; detalle: string }
+  | { t: "propuesta"; propuesta: PropuestaCorreo }
   | { t: "fin"; texto: string; herramientas: Uso[]; modelo: string | null; ms: number }
   | { t: "error"; mensaje: string };
 
-export type Uso = { nombre: string; detalle: string };
+/** Lo que usó para responder. Las propuestas de acción quedan aquí, con su estado: es lo que
+ *  el servidor relee al confirmar (ver lib/asistente/acciones.ts). */
+export type Uso = { nombre: string; detalle: string; propuesta?: PropuestaCorreo };
 
 const MAX_RESULTADO = 40_000;
 
@@ -127,7 +132,9 @@ Cómo trabajas:
 - Para cualquier dato, ve a la fuente. Nunca inventes cifras, nombres ni fechas: si no está en la base, los documentos, los correos ni el conocimiento de abajo, dilo.
 - Puedes encadenar herramientas: buscar al cliente en la base → listar sus documentos → abrir el PDF → buscar el hilo con Pilgrim por el código CS-… → leer el adjunto. Si algo falla, lee el error, corrige y reintenta.
 - Si la pregunta es ambigua (dos clientes con el mismo nombre, varias cotizaciones), dilo y muestra las opciones.
-- No puedes enviar correos, cambiar datos ni ejecutar nada: si te lo piden, explica dónde se hace en la plataforma y pon el enlace (rutas relativas como /seguimiento/<id> o /cotizaciones/<id>).
+- Puedes REDACTAR y PROPONER un correo desde reservas@caminosacro.com con \`proponer_correo\`: como respuesta dentro de un hilo existente (lo normal con Pilgrim y clientes: primero búscalo con \`buscar_correos_reservas\` y usa el id del ÚLTIMO mensaje del hilo) o como correo nuevo. La herramienta NO envía: deja en el chat una tarjeta con el borrador y un botón "Enviar" que la persona revisa, puede editar y confirma. **Nunca digas que un correo se envió**: queda propuesto hasta que lo confirme. Después de proponer, di en una línea a quién va y qué adjunta, y pide que lo revise y toque Enviar.
+- Al redactar: el idioma y el tono del hilo (con Pilgrim, español de España formal y cordial; con clientes, cercano), corto y concreto, firmado "Equipo Camino Sacro" (o el nombre de quien te lo pide si lo dice). Usa los datos reales de la base y del hilo; no inventes fechas, montos ni referencias. Puedes adjuntar documentos de Storage (rutas de \`documentos\`), máximo 3 MB cada uno.
+- Desde el Gmail de El Camino con Naty no puedes enviar. Cualquier otra cosa que cambie datos (registrar pagos, editar, borrar) tampoco: explica dónde se hace en la plataforma y pon el enlace (rutas relativas como /seguimiento/<id> o /cotizaciones/<id>).
 - No narres lo que vas a hacer ("voy a revisar…"): hazlo y responde.
 - Responde en español colombiano, cercano y al grano (tuteo): primero la respuesta, después el detalle. Listas o tablas markdown cuando sean varias filas. Plata: euros "1.234,56 €" y pesos "$ 4.567.890 COP". Cuando cites un correo o un PDF, di de cuál (asunto y fecha, o nombre del archivo).
 - Nunca muestres tokens, códigos de verificación, contraseñas ni llaves. Datos personales de clientes (pasaporte, teléfono, dirección) solo si te los piden explícitamente.
@@ -154,6 +161,7 @@ const NOMBRES = [
   "buscar_gmail_ecn",
   "leer_gmail_ecn",
   "leer_adjunto_gmail_ecn",
+  "proponer_correo",
 ] as const;
 
 function servidorDeHerramientas(supabase: SupabaseClient, usos: Uso[], avisar: (ev: EventoAsistente) => void) {
@@ -258,6 +266,29 @@ function servidorDeHerramientas(supabase: SupabaseClient, usos: Uso[], avisar: (
         return contenido(await adjuntoGmail(mensaje_id, adjunto_id));
       },
       soloLectura
+    ),
+    tool(
+      "proponer_correo",
+      "PROPONE un correo desde reservas@caminosacro.com. NO lo envía: deja en el chat una tarjeta con el borrador y un botón Enviar que la persona confirma (y puede editar). Para responder dentro de un hilo pasa `responder_a_mensaje_id` (el id del último mensaje del hilo, de buscar/leer_correo_reservas): el destinatario y el asunto los pone el hilo. Para un correo nuevo pasa `para` y `asunto`.",
+      {
+        responder_a_mensaje_id: z.string().optional().describe("id del mensaje de reservas@ al que se responde (dentro de su hilo)"),
+        para: z.string().optional().describe("Destinatario, solo para correo nuevo"),
+        asunto: z.string().optional().describe("Asunto, solo para correo nuevo"),
+        cc: z.array(z.string()).max(10).optional().describe("Direcciones en copia"),
+        cuerpo: z.string().min(5).describe("Texto del correo, en párrafos separados por una línea en blanco. Sin HTML."),
+        adjuntos: z.array(z.string()).max(6).optional().describe("Rutas de Storage a adjuntar (bucket/carpeta/archivo)"),
+        codigo_cotizacion: z.string().optional().describe("CS-AAAA-NNN si el correo es de una cotización (queda en el registro)"),
+      },
+      async (e) => {
+        const r = await prepararCorreo(supabase, e);
+        if ("error" in r) return texto(r.error, true);
+        const p = r.propuesta;
+        usos.push({ nombre: "proponer_correo", detalle: `${p.modo === "responder" ? "respuesta en hilo" : "correo nuevo"} a ${p.para}`, propuesta: p });
+        avisar({ t: "propuesta", propuesta: p });
+        return texto(
+          `PROPUESTO, NO ENVIADO. La persona ve la tarjeta con el botón "Enviar".\nPara: ${p.para}${p.cc.length ? `\nCC: ${p.cc.join(", ")}` : ""}\nAsunto: ${p.asunto}\nAdjuntos: ${p.adjuntos.length ? p.adjuntos.map((a) => a.split("/").pop()).join(", ") : "ninguno"}`
+        );
+      }
     ),
   ];
 

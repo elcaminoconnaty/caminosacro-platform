@@ -232,6 +232,7 @@ export async function responderEnHilo(opts: {
  */
 export async function enviarNuevo(opts: {
   para: string;
+  cc?: string[];
   asunto: string;
   html: string;
   adjuntos: AdjuntoOutlook[];
@@ -240,6 +241,7 @@ export async function enviarNuevo(opts: {
     subject: opts.asunto,
     body: { contentType: "HTML", content: opts.html },
     toRecipients: [{ emailAddress: { address: opts.para } }],
+    ...(opts.cc?.length ? { ccRecipients: opts.cc.map((address) => ({ emailAddress: { address } })) } : {}),
     categories: [CATEGORIA_PLATAFORMA],
   });
   if (!borrador.ok) return { ok: false, error: `No se pudo preparar el correo: ${borrador.error}` };

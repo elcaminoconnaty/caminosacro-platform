@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const enviar = (ev: EventoAsistente | { t: "conversacion"; id: string }) => {
+      const enviar = (ev: EventoAsistente | { t: "conversacion"; id: string } | { t: "guardado"; id: string }) => {
         try {
           controller.enqueue(encoder.encode(JSON.stringify(ev) + "\n"));
         } catch {
@@ -76,6 +76,7 @@ export async function POST(request: Request) {
       for await (const ev of preguntar({ supabase, quien, pregunta, historial })) {
         if (ev.t === "texto") texto += ev.d;
         if (ev.t === "herramienta") herramientas.push({ nombre: ev.nombre, detalle: ev.detalle });
+        if (ev.t === "propuesta") herramientas.push({ nombre: "proponer_correo", detalle: ev.propuesta.para, propuesta: ev.propuesta });
         if (ev.t === "fin") {
           texto = ev.texto;
           herramientas = ev.herramientas;
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
         enviar(ev);
       }
 
-      await supabase.from("asistente_mensajes").insert({
+      const { data: guardado } = await supabase.from("asistente_mensajes").insert({
         conversacion_id: conversacionId,
         user_id: user.id,
         rol: "assistant",
@@ -95,7 +96,9 @@ export async function POST(request: Request) {
         error,
         modelo,
         duracion_ms: ms || Date.now() - inicio,
-      });
+      }).select("id").single();
+      // Con el id del mensaje guardado, la tarjeta de una propuesta ya se puede confirmar.
+      if (guardado) enviar({ t: "guardado", id: guardado.id as string });
       await supabase.from("asistente_conversaciones").update({ updated_at: new Date().toISOString() }).eq("id", conversacionId);
       try {
         controller.close();

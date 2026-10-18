@@ -5,12 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ArrowUp, Database, FileText, History, Mail, Plus, Sparkles, X } from "lucide-react";
+import { ArrowUp, Check, Database, FileText, History, Mail, Paperclip, Plus, Send, Sparkles, X } from "lucide-react";
 import type { Uso } from "@/lib/asistente/agente";
+import type { PropuestaCorreo } from "@/lib/asistente/acciones";
 import { cn } from "@/lib/cn";
 
 export type Mensaje = {
   id: string;
+  /** Id del mensaje guardado en la base; mientras llega la respuesta en vivo no existe aún. */
+  guardadoId?: string | null;
   role: "user" | "assistant";
   content: string;
   herramientas: Uso[];
@@ -26,6 +29,7 @@ const SUGERENCIAS = [
   "¿Qué fue lo último que nos escribió Pilgrim y quedó algo pendiente?",
   "¿Qué cotizaciones se enviaron este mes y cuáles siguen sin respuesta?",
   "Resúmeme el contrato firmado y los pagos de la última cotización aceptada",
+  "Redáctale a Pilgrim, en el hilo de la última reserva, pidiendo el estado de los pagos",
 ];
 
 /** Etiqueta corta de cada herramienta para la línea "Usé: …". */
@@ -39,6 +43,7 @@ const ETIQUETA: Record<string, { texto: string; icono: typeof Database }> = {
   buscar_gmail_ecn: { texto: "búsqueda en Gmail ECN", icono: Mail },
   leer_gmail_ecn: { texto: "correo de Gmail ECN", icono: Mail },
   leer_adjunto_gmail_ecn: { texto: "adjunto de Gmail ECN", icono: FileText },
+  proponer_correo: { texto: "borrador de correo", icono: Send },
 };
 
 /**
@@ -119,6 +124,9 @@ export function Chat({
             window.history.replaceState(null, "", `/asistente?c=${ev.id}`);
           } else if (ev.t === "texto") actualizar((m) => ({ ...m, content: m.content + ev.d }));
           else if (ev.t === "herramienta") actualizar((m) => ({ ...m, herramientas: [...m.herramientas, { nombre: ev.nombre, detalle: ev.detalle }] }));
+          else if (ev.t === "propuesta")
+            actualizar((m) => ({ ...m, herramientas: [...m.herramientas, { nombre: "proponer_correo", detalle: ev.propuesta.para, propuesta: ev.propuesta }] }));
+          else if (ev.t === "guardado") actualizar((m) => ({ ...m, guardadoId: ev.id }));
           else if (ev.t === "error") actualizar((m) => ({ ...m, error: ev.mensaje }));
         }
       }
@@ -204,7 +212,7 @@ export function Chat({
           <div className="pt-4">
             <p className="text-muted mb-4">
               Pregúntame lo que necesites de Camino Sacro. Leo en vivo {fuentes.slice(0, -1).join(", ")} y {fuentes.at(-1)}, incluidos los
-              PDF adjuntos. Solo leo: no envío ni cambio nada.
+              PDF adjuntos. También te redacto correos desde reservas@ (dentro del hilo): tú los revisas y los envías con un botón.
             </p>
             <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
               {SUGERENCIAS.map((s) => (
@@ -331,7 +339,122 @@ function Burbuja({ m }: { m: Mensaje }) {
           ))}
         </div>
       ) : null}
+      {m.herramientas
+        .filter((h) => h.propuesta)
+        .map((h) => (
+          <TarjetaCorreo key={h.propuesta!.id} inicial={h.propuesta!} mensajeId={m.guardadoId ?? null} />
+        ))}
       {m.error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{m.error}</div>}
+    </div>
+  );
+}
+
+/**
+ * El correo que propone el asistente, con el texto editable y el botón. Nada sale hasta que la
+ * persona toca Enviar; el servidor envía la propuesta guardada (ver /api/asistente/acciones).
+ */
+function TarjetaCorreo({ inicial, mensajeId }: { inicial: PropuestaCorreo; mensajeId: string | null }) {
+  const [p, setP] = React.useState(inicial);
+  const [cuerpo, setCuerpo] = React.useState(inicial.cuerpo);
+  const [enviando, setEnviando] = React.useState<"enviar" | "cancelar" | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const abierta = p.estado === "propuesta" || p.estado === "fallida";
+
+  async function decidir(decision: "enviar" | "cancelar") {
+    if (!mensajeId) return;
+    if (decision === "enviar" && !window.confirm(`¿Enviar este correo a ${p.para} desde reservas@?`)) return;
+    setEnviando(decision);
+    setError(null);
+    try {
+      const res = await fetch("/api/asistente/acciones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mensajeId, propuestaId: p.id, decision, cuerpo }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { propuesta?: PropuestaCorreo; error?: string };
+      if (data.propuesta) setP(data.propuesta);
+      if (data.error) setError(data.error);
+    } catch {
+      setError("No pude conectar. Revisa la conexión y vuelve a intentar.");
+    } finally {
+      setEnviando(null);
+    }
+  }
+
+  const estado: Record<PropuestaCorreo["estado"], string> = {
+    propuesta: "Borrador · sin enviar",
+    enviada: "Enviado",
+    fallida: "No se envió",
+    cancelada: "Descartado",
+  };
+
+  return (
+    <div className={cn("rounded-xl border bg-bg-card overflow-hidden", abierta ? "border-dorado" : "border-border")}>
+      <div className="px-4 py-3 border-b border-border bg-crema">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-medium text-sm text-bosque min-w-0">
+            <Mail className="h-4 w-4 shrink-0" />
+            <span className="truncate">{p.modo === "responder" ? "Respuesta en el hilo" : "Correo nuevo"} · reservas@</span>
+          </div>
+          <span
+            className={cn(
+              "text-[11px] rounded-full px-2 py-0.5 whitespace-nowrap",
+              p.estado === "propuesta" && "bg-dorado/25 text-tinta",
+              p.estado === "enviada" && "bg-bosque text-white",
+              p.estado === "fallida" && "bg-red-100 text-red-800",
+              p.estado === "cancelada" && "bg-taupe text-muted",
+            )}
+          >
+            {estado[p.estado]}
+          </span>
+        </div>
+        <dl className="mt-2 text-xs text-muted space-y-0.5">
+          <div className="flex gap-1.5"><dt className="w-14 shrink-0">Para</dt><dd className="text-tinta break-all">{p.para}</dd></div>
+          {p.cc.length > 0 && <div className="flex gap-1.5"><dt className="w-14 shrink-0">CC</dt><dd className="text-tinta break-all">{p.cc.join(", ")}</dd></div>}
+          <div className="flex gap-1.5"><dt className="w-14 shrink-0">Asunto</dt><dd className="text-tinta">{p.asunto}</dd></div>
+          {p.adjuntos.length > 0 && (
+            <div className="flex gap-1.5">
+              <dt className="w-14 shrink-0"><Paperclip className="h-3.5 w-3.5 inline" /></dt>
+              <dd className="text-tinta break-all">{p.adjuntos.map((a) => a.split("/").pop()).join(", ")}</dd>
+            </div>
+          )}
+        </dl>
+      </div>
+      {abierta ? (
+        <textarea
+          value={cuerpo}
+          onChange={(e) => setCuerpo(e.target.value)}
+          rows={Math.min(16, Math.max(6, cuerpo.split("\n").length + 1))}
+          className="w-full resize-y px-4 py-3 text-[15px] leading-relaxed outline-none bg-bg-card"
+        />
+      ) : (
+        <div className="px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap">{p.cuerpo}</div>
+      )}
+      {(error || p.resultado) && (
+        <div className={cn("px-4 py-2 text-sm border-t border-border", error || p.estado === "fallida" ? "bg-red-50 text-red-800" : "bg-crema text-bosque")}>
+          {p.estado === "enviada" && <Check className="h-4 w-4 inline mr-1" />}
+          {error ?? p.resultado}
+        </div>
+      )}
+      {abierta && (
+        <div className="px-4 py-3 border-t border-border flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <button
+            onClick={() => decidir("cancelar")}
+            disabled={!!enviando || !mensajeId}
+            className="h-11 sm:h-9 px-4 rounded-md border border-border text-sm hover:bg-taupe/40 disabled:opacity-50"
+          >
+            {enviando === "cancelar" ? "Descartando…" : "Descartar"}
+          </button>
+          <button
+            onClick={() => decidir("enviar")}
+            disabled={!!enviando || !mensajeId || !cuerpo.trim()}
+            className="h-11 sm:h-9 px-4 rounded-md bg-bosque text-white text-sm inline-flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <Send className="h-4 w-4" />
+            {enviando === "enviar" ? "Enviando…" : !mensajeId ? "Preparando…" : p.estado === "fallida" ? "Reintentar" : "Enviar"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
