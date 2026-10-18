@@ -33,8 +33,8 @@ PY
 echo "✓ .env.local actualizado"
 
 leer() { grep -m1 "^$1=" .env.local | cut -d= -f2-; }
-railway variables --skip-deploys \
+railway variables \
   --set "GMAIL_ECN_CLIENT_ID=$(leer GMAIL_ECN_CLIENT_ID)" \
   --set "GMAIL_ECN_CLIENT_SECRET=$(leer GMAIL_ECN_CLIENT_SECRET)" \
   --set "GMAIL_ECN_REFRESH_TOKEN=$(leer GMAIL_ECN_REFRESH_TOKEN)" >/dev/null
-echo "✓ Railway actualizado (se aplica en el próximo despliegue)"
+echo "✓ Railway actualizado: se está desplegando solo; en 3-5 minutos el asistente ya lee el Gmail"
