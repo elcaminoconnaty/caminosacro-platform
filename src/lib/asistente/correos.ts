@@ -7,8 +7,10 @@ import { htmlATexto, leerArchivo, type Contenido } from "@/lib/asistente/pdf";
  *  - reservas@caminosacro.com (Microsoft 365) por el puente de n8n que ya usa la tarjeta de
  *    Pilgrim ("Plataforma → Outlook (Camino Sacro)"). Ese puente también acepta POST/PATCH
  *    para responder correos; aquí solo se manda GET, a propósito.
- *  - elcaminoconnaty@gmail.com por un puente aparte, "Asistente CS → Gmail ECN (solo
- *    lectura)", que en n8n mismo solo deja pasar GET a mensajes e hilos.
+ *  - elcaminoconnaty@gmail.com directo a la API de Gmail, con la misma autorización que usa
+ *    BayMax (su cliente OAuth de Google y el refresh token de la cuenta `elcamino`). Ese token
+ *    también podría enviar o mandar a la papelera: aquí solo se hacen GET, y `gmail()` se
+ *    niega a cualquier ruta que no sea leer mensajes o hilos.
  *
  * Nada de esto envía, marca como leído ni mueve correos.
  */
@@ -141,8 +143,55 @@ export async function adjuntoReservas(mensajeId: string, adjuntoId: string): Pro
 // elcaminoconnaty@gmail.com (Gmail API)
 // ---------------------------------------------------------------------------
 
-function gmail<T>(path: string) {
-  return puente<T>(process.env.GMAIL_ECN_LECTURA_URL, process.env.GMAIL_ECN_LECTURA_SECRET, "el Gmail de El Camino con Naty", { path });
+let accesoGmail: { token: string; vence: number } | null = null;
+
+/** Access token de Google a partir del refresh token (dura ~1 h; se renueva 5 min antes). */
+async function tokenGmail(): Promise<string | { error: string }> {
+  if (accesoGmail && accesoGmail.vence > Date.now()) return accesoGmail.token;
+  const id = process.env.GMAIL_ECN_CLIENT_ID;
+  const secreto = process.env.GMAIL_ECN_CLIENT_SECRET;
+  const refresh = process.env.GMAIL_ECN_REFRESH_TOKEN;
+  if (!id || !secreto || !refresh) return { error: "El Gmail de El Camino con Naty no está conectado a la plataforma." };
+  try {
+    const r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: id, client_secret: secreto, refresh_token: refresh, grant_type: "refresh_token" }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const j = (await r.json().catch(() => null)) as { access_token?: string; expires_in?: number; error?: string; error_description?: string } | null;
+    if (!r.ok || !j?.access_token) {
+      return { error: `Google no renovó el acceso al Gmail de El Camino con Naty (${j?.error_description || j?.error || r.status}). Hay que reconectar la cuenta en BayMax (npm run correo -- elcamino) y copiar el token nuevo.` };
+    }
+    accesoGmail = { token: j.access_token, vence: Date.now() + ((j.expires_in ?? 3600) - 300) * 1000 };
+    return j.access_token;
+  } catch (e) {
+    return { error: `No pude hablar con Google: ${(e as Error).message}` };
+  }
+}
+
+async function gmail<T>(path: string): Promise<Resp<T>> {
+  // Solo lectura: mensajes, hilos y adjuntos. Nada de enviar, modificar ni borrar.
+  if (!/^\/gmail\/v1\/users\/me\/(messages|threads)(\/|\?|$)/.test(path) || path.includes("..")) {
+    return { ok: false, error: "Ruta de Gmail no permitida." };
+  }
+  const token = await tokenGmail();
+  if (typeof token !== "string") return { ok: false, error: token.error };
+  try {
+    const r = await fetch(`https://gmail.googleapis.com${path}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(60_000),
+    });
+    const j = (await r.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
+    if (!r.ok) {
+      if (r.status === 401) accesoGmail = null;
+      return { ok: false, error: `el Gmail de El Camino con Naty: ${j?.error?.message || `respondió ${r.status}`}` };
+    }
+    return { ok: true, data: j as T };
+  } catch (e) {
+    return { ok: false, error: `No pude hablar con el Gmail de El Camino con Naty: ${(e as Error).message}` };
+  }
 }
 
 type Cabecera = { name: string; value: string };

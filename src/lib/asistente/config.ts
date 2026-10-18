@@ -21,6 +21,6 @@ export function problemaDeConfiguracion(): string | null {
 export function correosConectados() {
   return {
     reservas: !!process.env.OUTLOOK_WEBHOOK_URL && !!process.env.OUTLOOK_WEBHOOK_SECRET,
-    gmailEcn: !!process.env.GMAIL_ECN_LECTURA_URL && !!process.env.GMAIL_ECN_LECTURA_SECRET,
+    gmailEcn: !!process.env.GMAIL_ECN_CLIENT_ID && !!process.env.GMAIL_ECN_CLIENT_SECRET && !!process.env.GMAIL_ECN_REFRESH_TOKEN,
   };
 }
