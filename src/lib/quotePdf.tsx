@@ -309,7 +309,7 @@ export type QuotePDFProps = {
   /** Base = ruta + alojamiento (sin opcionales). Si no se pasa, se asume = total_eur */
   baseEur?: number;
   /** Suplemento de temporada aplicado (alta o Semana Santa). Aparece como línea propia en el resumen. */
-  seasonSupplement?: { kind: "regular" | "high_season" | "easter"; total: number; perPerson: number };
+  seasonSupplement?: { kind: "regular" | "high_season" | "easter"; total: number; perPerson: number; /** "Mayo · Agosto · Septiembre" — los meses cambian por año. */ meses?: string };
   /**
    * Desglose de habitaciones para grupos con reparto mixto (cotizador web:
    * pares en doble + el impar en individual). Si viene, el resumen de inversión
@@ -1060,7 +1060,7 @@ export function QuotePDF({ quote, route, stages, optionals, trm, generatedAt = n
                     {seasonSupplement.kind === "easter" ? "Suplemento Semana Santa" : "Suplemento temporada alta"}
                   </Text>
                   <Text style={s.resumenLineConceptSub}>
-                    {seasonSupplement.kind === "easter" ? "Domingo de Ramos a Lunes de Pascua" : "Julio · Agosto · Septiembre"}
+                    {seasonSupplement.kind === "easter" ? "Domingo de Ramos a Lunes de Pascua" : (seasonSupplement.meses || "Julio · Agosto · Septiembre")}
                   </Text>
                 </View>
                 <Text style={[s.resumenLineCell, s.resumenUnit]}>{fmtEur(seasonSupplement.perPerson)} €</Text>

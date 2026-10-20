@@ -208,6 +208,8 @@ export async function actualizarCotizacion(
     patch.base_eur = t.baseEur;
     patch.season_supplement_eur = t.suplementoEur;
     patch.season_kind = t.season.type;
+    // Precio de catálogo: el suplemento va aparte, nunca "ya incluido" (migración 0061).
+    patch.season_supplement_included = false;
     patch.cost_base_eur = t.costBaseEur;
     patch.season_supplement_cost_eur = t.suplementoCostEur;
     patch.rooms_json = t.roomsJson;

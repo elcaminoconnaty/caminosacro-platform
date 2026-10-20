@@ -4,7 +4,7 @@ import { createCommercialClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mensajeError } from "@/lib/errors";
 import { getTRMHoy } from "@/lib/trm";
-import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, highSeasonMonths, mesesTexto, type SeasonSupplements } from "@/lib/seasons";
+import { detectSeason, DEFAULT_SEASON_SUPPLEMENTS, highSeasonMonths, mesesRotulo, mesesTexto, type SeasonSupplements } from "@/lib/seasons";
 import { rutaCotizacion, sinBucket } from "@/lib/storage/paths";
 import { optionalPricesForYear, quoteYear } from "@/lib/pricing/year";
 import { opcionalesOfrecidos } from "@/lib/quotes/opcionalesOfrecidos";
@@ -94,7 +94,10 @@ export async function renderAndStoreQuotePdf(
   let effectiveSuppPerPerson = storedSuppPerPerson;
   let effectiveSeasonKind: "regular" | "high_season" | "easter" =
     (quote.season_kind === "high_season" || quote.season_kind === "easter") ? quote.season_kind : "regular";
-  if (effectiveSuppPerPerson === 0 && quote.start_date) {
+  // Precio puesto a mano con el suplemento ya adentro (migración 0061): no se detecta por
+  // fecha, o las tarjetas lo sumarían dos veces.
+  const suppIncluido = quote.season_supplement_included === true;
+  if (effectiveSuppPerPerson === 0 && quote.start_date && !suppIncluido) {
     const detected = detectSeason(quote.start_date, quote.end_date, seasonConfig);
     if (detected.type !== "regular") {
       effectiveSuppPerPerson = detected.surcharge_per_person_cs;
@@ -445,10 +448,13 @@ export async function renderAndStoreQuotePdf(
   }
 
   // Los meses de temporada alta cambian por año (2027: mayo, agosto y septiembre): el texto sale del año de salida.
-  const seasonNote = {
+  // Si el suplemento ya está dentro del precio, la frase "en caso de viajar en … se aplica un
+  // suplemento" contradice la cotización: no se pinta.
+  const mesesAlta = highSeasonMonths(seasonConfig, quoteYear(quote.start_date));
+  const seasonNote = suppIncluido ? undefined : {
     high: seasonConfig.high_season?.price_cs ?? 80,
     easter: seasonConfig.easter?.price_cs ?? 40,
-    meses: mesesTexto(highSeasonMonths(seasonConfig, quoteYear(quote.start_date))),
+    meses: mesesTexto(mesesAlta),
   };
 
   // Render PDF
@@ -497,6 +503,7 @@ export async function renderAndStoreQuotePdf(
       kind: (quote.season_kind === "high_season" || quote.season_kind === "easter" ? quote.season_kind : "regular") as "regular" | "high_season" | "easter",
       total: Number(quote.season_supplement_eur) || 0,
       perPerson: (Number(quote.season_supplement_eur) || 0) / Math.max(1, Number(quote.people) || 1),
+      meses: mesesRotulo(mesesAlta),
     },
   });
   let buffer: Buffer;

@@ -120,6 +120,8 @@ export async function createQuote(formData: FormData) {
       base_eur: baseEur,
       season_supplement_eur: seasonSupplement,
       season_kind: seasonKind,
+      // Precio a mano que ya trae el suplemento adentro (migración 0061): el suplemento va en 0.
+      season_supplement_included: formData.get("season_supplement_included") === "1",
       total_eur: baseEur + seasonSupplement, // sin opcionales aún → total = base + suplemento
       // Lado Pilgrim desglosado igual que el cliente. cost_eur queda derivado:
       // sin opcionales todavía, es base + suplemento.

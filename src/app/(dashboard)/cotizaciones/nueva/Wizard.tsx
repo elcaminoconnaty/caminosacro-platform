@@ -23,7 +23,8 @@ import {
   renglonesDelReparto,
   totalesDeRenglones,
 } from "@/lib/quotes/precioPorPersona";
-import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
+import { detectSeason, notaSuplementoManual, type SeasonSupplements } from "@/lib/seasons";
+import SuplementoIncluidoCheck from "@/components/SuplementoIncluidoCheck";
 import { DEFAULT_STATUS, STATUS_LABELS } from "@/lib/quoteStatus";
 import { MODALITY_SLUGS, quoteYear, ratesForYear, type ModalitySlug } from "@/lib/pricing/year";
 
@@ -118,6 +119,8 @@ export default function Wizard({
   const [pilgrimRates, setPilgrimRates] = useState<Record<string, string>>({});
   // Alojamiento de texto libre ("Doble + Triple", "Personalizada" o sin elegir): un solo
   // precio por persona para todo el grupo, y su costo Pilgrim, también por persona.
+  // Precio a mano en temporada: ¿el suplemento ya viene dentro? (migración 0061)
+  const [suppIncluido, setSuppIncluido] = useState(false);
   const [libreCs, setLibreCs] = useState("");
   const [librePilgrim, setLibrePilgrim] = useState("");
 
@@ -257,12 +260,16 @@ export default function Wizard({
     }
     return false;
   }, [aMedida, libre, customMode, modality, dobles, individuales, catalogBySlug, rates, pilgrimRates]);
-  const notaPrecio = useMemo(
-    () => (precioManual && chosenComplete
-      ? notaPrecioPorPersona({ renglones, origen: aMedida ? "a_medida" : libre ? "libre" : "a_mano", year: tarifaYear })
-      : null),
-    [precioManual, chosenComplete, renglones, aMedida, libre, tarifaYear],
-  );
+  // Con precio a mano y viaje en temporada, Nico dice si el suplemento ya está dentro de
+  // su precio. Con precio de catálogo no se pregunta: el catálogo nunca lo trae.
+  const preguntaSupp = precioManual && season.type !== "regular";
+  const suppDentro = preguntaSupp && suppIncluido;
+  const notaPrecio = useMemo(() => {
+    if (!precioManual || !chosenComplete) return null;
+    const nota = notaPrecioPorPersona({ renglones, origen: aMedida ? "a_medida" : libre ? "libre" : "a_mano", year: tarifaYear });
+    const supp = notaSuplementoManual(season, suppDentro);
+    return supp ? `${nota} ${supp}` : nota;
+  }, [precioManual, chosenComplete, renglones, aMedida, libre, tarifaYear, season, suppDentro]);
 
   // A medida, las PERSONAS también se derivan del reparto. Si se dejaran sueltas, la base
   // saldría de las habitaciones y el suplemento de temporada (que es por persona) del campo
@@ -332,8 +339,9 @@ export default function Wizard({
   }, [startDate, effectiveDays, endAuto]);
 
   // Suplemento total (grupo) y final con suplemento incluido para preview de utilidad.
-  const seasonSuppCs = season.surcharge_per_person_cs * people;
-  const seasonSuppPilgrim = season.surcharge_per_person_pilgrim * people;
+  // Si el precio a mano ya trae el suplemento, no se suma otra vez.
+  const seasonSuppCs = suppDentro ? 0 : season.surcharge_per_person_cs * people;
+  const seasonSuppPilgrim = suppDentro ? 0 : season.surcharge_per_person_pilgrim * people;
   const utilidadPreview = useMemo(() => {
     const cliente = baseEur + seasonSuppCs;
     const proveedor = costBaseEur + seasonSuppPilgrim;
@@ -363,6 +371,7 @@ export default function Wizard({
     fd.set("people", String(people));
     fd.set("season_supplement_eur", seasonSuppCs.toFixed(2));
     fd.set("season_kind", season.type);
+    fd.set("season_supplement_included", suppDentro ? "1" : "");
     // La nota interna de "precio por persona": vacía cuando el precio salió del catálogo.
     fd.set("manual_price_note", notaPrecio ?? "");
     // route_id, para que el PDF no tenga que resolver la ruta por nombre.
@@ -715,7 +724,7 @@ export default function Wizard({
               )}
               {season.type !== "regular" && (
                 <div className="text-dorado-oscuro font-medium">
-                  ⚡ {season.label}: +{season.surcharge_per_person_cs}€/persona (costo Pilgrim +{season.surcharge_per_person_pilgrim}€/persona)
+                  ⚡ {season.label}: +{season.surcharge_per_person_cs}€/persona (costo Pilgrim +{season.surcharge_per_person_pilgrim}€/persona){suppDentro ? " — ya incluido en tu precio" : ""}
                 </div>
               )}
             </div>
@@ -836,14 +845,14 @@ export default function Wizard({
             <div>
               <div className="text-xs text-muted">Base grupo € (sin suplemento) · calculado</div>
               <div className="text-bosque font-medium text-base tabular-nums">{eurPP(baseEur)}</div>
-              {season.type !== "regular" && (
+              {season.type !== "regular" && !suppDentro && (
                 <div className="text-[10px] text-muted">+ {eurPP(seasonSuppCs)} suplemento {season.label.toLowerCase()} → total cliente {eurPP(baseEur + seasonSuppCs)}</div>
               )}
             </div>
             <div>
               <div className="text-xs text-muted">Costo Pilgrim grupo € · calculado</div>
               <div className="text-fg font-medium text-base tabular-nums">{eurPP(costBaseEur)}</div>
-              {season.type !== "regular" && costBaseEur > 0 && (
+              {season.type !== "regular" && !suppDentro && costBaseEur > 0 && (
                 <div className="text-[10px] text-muted">+ {eurPP(seasonSuppPilgrim)} suplemento → {eurPP(costBaseEur + seasonSuppPilgrim)}</div>
               )}
             </div>
@@ -858,6 +867,10 @@ export default function Wizard({
           </div>
           {faltaPrecio.length > 0 && (
             <p className="text-xs text-amber-700">⚠ Falta tu precio por persona en: {faltaPrecio.join(", ")}.</p>
+          )}
+
+          {preguntaSupp && (
+            <SuplementoIncluidoCheck season={season} incluido={suppIncluido} onChange={setSuppIncluido} />
           )}
 
           {/* La nota interna que se guarda con la cotización cuando el precio no salió del

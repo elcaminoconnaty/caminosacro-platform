@@ -85,10 +85,31 @@ export function mesesTexto(months: number[], conjuncion: "y" | "o" = "o"): strin
   return n.length <= 1 ? (n[0] ?? "") : `${n.slice(0, -1).join(", ")} ${conjuncion} ${n[n.length - 1]}`;
 }
 
+/** "Mayo · Agosto · Septiembre": subtítulo del suplemento en el resumen del PDF. */
+export function mesesRotulo(months: number[]): string {
+  return [...months].sort((a, b) => a - b)
+    .map((m) => NOMBRES_MES[m - 1])
+    .filter(Boolean)
+    .map((n) => n[0].toUpperCase() + n.slice(1))
+    .join(" · ");
+}
+
+/**
+ * Nota interna cuando el precio por persona se puso a mano y el viaje cae en temporada:
+ * dice si el suplemento se sumó aparte o si ya venía dentro del precio. Va pegada a la
+ * nota de "precio por persona" (ver @/lib/quotes/precioPorPersona), nunca al cliente.
+ */
+export function notaSuplementoManual(season: SeasonResult, incluido: boolean): string | null {
+  if (season.type === "regular") return null;
+  return incluido
+    ? `${season.label}: el suplemento (${season.surcharge_per_person_cs} €/persona) YA ESTÁ INCLUIDO en el precio por persona; no se suma aparte.`
+    : `${season.label}: el suplemento de ${season.surcharge_per_person_cs} €/persona se suma aparte del precio por persona.`;
+}
+
 export const DEFAULT_SEASON_SUPPLEMENTS: SeasonSupplements = {
   high_season: {
     name: "Temporada alta",
-    description: "Julio, agosto y septiembre",
+    description: "2026: julio, agosto y septiembre · 2027: mayo, agosto y septiembre",
     months: [7, 8, 9],
     months_by_year: { "2026": [7, 8, 9], "2027": [5, 8, 9] },
     price_pilgrim: 50,

@@ -158,7 +158,7 @@ export async function updateQuote(id: string, formData: FormData) {
   // Cómo está ahora, para saber después si de verdad cambió algo (ver más abajo).
   const { data: antesRaw } = await supabase
     .from("quotes")
-    .select("client_name,client_phone,client_email,route_id,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,valid_until,notes,price_blocks,rooms_json,manual_price_note,pdf_path")
+    .select("client_name,client_phone,client_email,route_id,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,season_supplement_included,cost_base_eur,season_supplement_cost_eur,valid_until,notes,price_blocks,rooms_json,manual_price_note,pdf_path")
     .eq("id", id)
     .maybeSingle();
   const antes = (antesRaw ?? null) as Record<string, unknown> | null;
@@ -202,6 +202,8 @@ export async function updateQuote(id: string, formData: FormData) {
     base_eur: newBase, // base = ruta + alojamiento (sin suplemento ni opcionales)
     season_supplement_eur: num(formData.get("season_supplement_eur")) ?? 0,
     season_kind: seasonKind,
+    // Precio a mano que ya trae el suplemento adentro (migración 0061): el suplemento va en 0.
+    season_supplement_included: formData.get("season_supplement_included") === "1",
     // Lado Pilgrim, espejo del lado cliente. `cost_eur` NO se escribe: es derivado.
     cost_base_eur: num(formData.get("cost_base_eur")),
     season_supplement_cost_eur: num(formData.get("season_supplement_cost_eur")) ?? 0,

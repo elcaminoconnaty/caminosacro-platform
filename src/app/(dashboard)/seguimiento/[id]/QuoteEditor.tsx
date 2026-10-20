@@ -2,7 +2,8 @@
 
 import { useMemo, useRef, useState, useTransition, useEffect } from "react";
 import { updateQuote } from "./actions";
-import { detectSeason, type SeasonSupplements } from "@/lib/seasons";
+import { detectSeason, notaSuplementoManual, type SeasonSupplements } from "@/lib/seasons";
+import SuplementoIncluidoCheck from "@/components/SuplementoIncluidoCheck";
 import { QUOTE_STATUSES, STATUS_LABELS, DEFAULT_STATUS, statusLabel } from "@/lib/quoteStatus";
 import { MODALITY_LABELS, MODALITY_SLUGS, quoteYear, ratesForYear, type ModalitySlug } from "@/lib/pricing/year";
 import RoomsPanel from "@/components/RoomsPanel";
@@ -51,6 +52,7 @@ type Quote = {
   season_supplement_eur?: number | string | null;
   season_supplement_cost_eur?: number | string | null;
   season_kind?: string | null;
+  season_supplement_included?: boolean | null;
   // Precios por persona de las tarjetas del PDF (migración 0016). null = usar el catálogo.
   price_blocks?: Record<string, number | string | null> | null;
   // Reparto de habitaciones. Con `filas` es un reparto a medida (ver @/lib/quotes/rooms).
@@ -302,8 +304,8 @@ export default function QuoteEditor({
     () => detectSeason(startDate || null, endDate || null, seasonConfig),
     [startDate, endDate, seasonConfig],
   );
-  const seasonSuppCs = season.surcharge_per_person_cs * people;
-  const seasonSuppPilgrim = season.surcharge_per_person_pilgrim * people;
+  // Precio a mano en temporada: ¿el suplemento ya viene dentro? (migración 0061)
+  const [suppIncluido, setSuppIncluido] = useState(quote.season_supplement_included === true);
 
   // La tarifa que aplica es la del AÑO DE SALIDA (ver @/lib/pricing/year).
   const tarifaYear = quoteYear(startDate);
@@ -500,12 +502,18 @@ export default function QuoteEditor({
     }
     return false;
   }, [aMedida, libre, quote.manual_price_note, baseCambia, costCambia, tipoElegido, dobles, individuales, catalogBySlug, rates, pilgrimRates]);
-  const notaPrecio = useMemo(
-    () => (precioManual && chosenComplete
-      ? notaPrecioPorPersona({ renglones, origen: aMedida ? "a_medida" : libre ? "libre" : "a_mano", year: tarifaYear })
-      : null),
-    [precioManual, chosenComplete, renglones, aMedida, libre, tarifaYear],
-  );
+  // Con precio a mano y viaje en temporada, Nico dice si el suplemento ya está dentro de
+  // su precio. Con precio de catálogo no se pregunta: el catálogo nunca lo trae.
+  const preguntaSupp = precioManual && season.type !== "regular";
+  const suppDentro = preguntaSupp && suppIncluido;
+  const seasonSuppCs = suppDentro ? 0 : season.surcharge_per_person_cs * people;
+  const seasonSuppPilgrim = suppDentro ? 0 : season.surcharge_per_person_pilgrim * people;
+  const notaPrecio = useMemo(() => {
+    if (!precioManual || !chosenComplete) return null;
+    const nota = notaPrecioPorPersona({ renglones, origen: aMedida ? "a_medida" : libre ? "libre" : "a_mano", year: tarifaYear });
+    const supp = notaSuplementoManual(season, suppDentro);
+    return supp ? `${nota} ${supp}` : nota;
+  }, [precioManual, chosenComplete, renglones, aMedida, libre, tarifaYear, season, suppDentro]);
 
   // Solo ruta + suplemento: los opcionales no se editan acá, así que esta cifra es
   // la utilidad DE LA RUTA. La utilidad completa es el KPI de arriba, que sí los suma.
@@ -534,6 +542,7 @@ export default function QuoteEditor({
     formData.set("season_supplement_eur", seasonSuppCs.toFixed(2));
     formData.set("season_supplement_cost_eur", seasonSuppPilgrim.toFixed(2));
     formData.set("season_kind", season.type);
+    formData.set("season_supplement_included", suppDentro ? "1" : "");
     formData.set("manual_price_note", notaPrecio ?? "");
 
     if (aMedida) {
@@ -623,7 +632,9 @@ export default function QuoteEditor({
             v={
               quote.season_kind && quote.season_kind !== "regular" && Number(quote.season_supplement_eur) > 0
                 ? `${Number(quote.season_supplement_eur).toFixed(2)} (${quote.season_kind === "easter" ? "Semana Santa" : "alta"})`
-                : null
+                : quote.season_supplement_included && quote.season_kind && quote.season_kind !== "regular"
+                  ? `Incluido en el precio por persona (${quote.season_kind === "easter" ? "Semana Santa" : "alta"})`
+                  : null
             }
           />
           <Field label="Total cotización €" v={quote.total_eur != null ? Number(quote.total_eur).toFixed(2) : null} />
@@ -893,7 +904,7 @@ export default function QuoteEditor({
                 )}
                 {season.type !== "regular" && (
                   <div className="text-dorado-oscuro font-medium">
-                    ⚡ {season.label}: +{season.surcharge_per_person_cs}€/persona (costo Pilgrim +{season.surcharge_per_person_pilgrim}€/persona)
+                    ⚡ {season.label}: +{season.surcharge_per_person_cs}€/persona (costo Pilgrim +{season.surcharge_per_person_pilgrim}€/persona){suppDentro ? " — ya incluido en tu precio" : ""}
                   </div>
                 )}
               </div>
@@ -1018,14 +1029,14 @@ export default function QuoteEditor({
             <div>
               <div className="text-xs text-muted">Base grupo € (sin suplemento ni opcionales) · calculado</div>
               <div className="text-bosque font-medium text-base tabular-nums">{eurPP(baseEur)}</div>
-              {season.type !== "regular" && (
+              {season.type !== "regular" && !suppDentro && (
                 <div className="text-[10px] text-dorado-oscuro">+ {eurPP(seasonSuppCs)} suplemento → total cliente {eurPP(baseEur + seasonSuppCs)}</div>
               )}
             </div>
             <div>
               <div className="text-xs text-muted">Costo Pilgrim grupo € · calculado</div>
               <div className="text-fg font-medium text-base tabular-nums">{eurPP(costBaseEur)}</div>
-              {season.type !== "regular" && costBaseEur > 0 && (
+              {season.type !== "regular" && !suppDentro && costBaseEur > 0 && (
                 <div className="text-[10px] text-dorado-oscuro">+ {eurPP(seasonSuppPilgrim)} suplemento → {eurPP(costBaseEur + seasonSuppPilgrim)}</div>
               )}
             </div>
@@ -1046,6 +1057,10 @@ export default function QuoteEditor({
               ⚠ La cotización tenía guardada una base de {eurPP(storedBase)} y un costo Pilgrim de {eurPP(storedCost)}.
               Con los precios por persona de arriba queda en {eurPP(baseEur)} y {eurPP(costBaseEur)}. Al guardar manda el precio por persona.
             </p>
+          )}
+
+          {preguntaSupp && (
+            <SuplementoIncluidoCheck season={season} incluido={suppIncluido} onChange={setSuppIncluido} />
           )}
 
           {/* La nota interna que se guarda cuando el precio no salió del catálogo. */}

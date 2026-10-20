@@ -33,7 +33,7 @@ export async function duplicarCotizacion(
 ): Promise<{ ok: true; id: string; code: string } | { ok: false; error: string }> {
   const { data: original, error: leerErr } = await supabase
     .from("quotes")
-    .select("id,client_id,client_name,client_phone,client_email,route_id,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,cost_base_eur,season_supplement_cost_eur,price_blocks,rooms_json,manual_price_note,notes,source,noches_extra_incluidas")
+    .select("id,client_id,client_name,client_phone,client_email,route_id,route_name,start_date,end_date,people,modality,base_eur,season_supplement_eur,season_kind,season_supplement_included,cost_base_eur,season_supplement_cost_eur,price_blocks,rooms_json,manual_price_note,notes,source,noches_extra_incluidas")
     .eq("id", quoteId)
     .maybeSingle();
   if (leerErr) return { ok: false, error: mensajeError(leerErr, "No se pudo leer la cotización original.") };
@@ -69,6 +69,7 @@ export async function duplicarCotizacion(
       base_eur: q.base_eur ?? 0,
       season_supplement_eur: q.season_supplement_eur ?? 0,
       season_kind: q.season_kind ?? "regular",
+      season_supplement_included: q.season_supplement_included === true,
       cost_base_eur: q.cost_base_eur ?? 0,
       season_supplement_cost_eur: q.season_supplement_cost_eur ?? 0,
       price_blocks: q.price_blocks ?? null,
